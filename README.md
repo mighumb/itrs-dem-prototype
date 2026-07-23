@@ -23,14 +23,11 @@ Interactive **frontend-only** prototype for validating the business-user journey
 3. **See monitoring preview** — opens 4th column after journey complete
 4. **Save modal** — signup prompt (Try → Save model)
 
-## Run locally
+## Preview
 
-```bash
-npm install
-npm run dev
-```
+The prototype is deployed on GitHub Pages — open it here:
 
-Open `http://localhost:5173`
+**https://mighumb.github.io/itrs-dem-prototype/**
 
 ## What's fake
 
