@@ -716,8 +716,8 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
 
           {composer}
           {aiProviderLabel && (
-            <p className="px-1 text-[11px] text-zinc-400 dark:text-zinc-500">
-              {aiProviderLabel === 'mock' ? t('fallbackMock') : `${t('poweredByGemini')} (${aiProviderLabel})`}
+            <p className="px-1 text-center text-[11px] text-zinc-400 dark:text-zinc-500">
+              {aiProviderLabel === 'mock' ? t('fallbackMock') : t('geminiDisclaimer')}
             </p>
           )}
         </div>
