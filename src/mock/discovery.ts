@@ -1,4 +1,4 @@
-import { HOME_EXAMPLES, resolveJourneyTemplate } from './data'
+import { isCuratedHomeExample, resolveJourneyTemplate } from './data'
 import type { JourneyTemplate } from '../types'
 
 export type DiscoveryPhase = 'idle' | 'questionnaire' | 'proposals' | 'planning' | 'conversation'
@@ -56,7 +56,7 @@ export function isPrecisePrompt(text: string): boolean {
   const trimmed = text.trim()
   if (!trimmed) return false
 
-  if (HOME_EXAMPLES.some((example) => example.toLowerCase() === trimmed.toLowerCase())) {
+  if (isCuratedHomeExample(trimmed)) {
     return true
   }
 

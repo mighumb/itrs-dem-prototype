@@ -7,11 +7,31 @@ import type {
 } from '../types'
 
 /** Ready-made demo prompts — not to be confused with agent-generated Suggestions (URL-only → analyzed paths). */
-export const HOME_EXAMPLES = [
+export const HOME_EXAMPLES_EN = [
   'Go to https://www.nike.com, search for France 2026 Stadium Home, select size L, personalize with Miguel / 6, and verify "Add to bag" is visible.',
   'Go to https://www.thetrainline.com, search for trains from Paris Gare de Lyon to Lyon Part-Dieu tomorrow morning, select a morning TGV, choose a Standard ticket, and verify you can enter passenger details.',
   'Go to https://www.booking.com, search for hotels in Barcelona next weekend, open the first result, and verify room options are shown.',
-]
+] as const
+
+export const HOME_EXAMPLES_FR = [
+  'Va sur https://www.nike.com, recherche France 2026 Stadium Home, sélectionne la taille L, personnalise avec Miguel / 6, et vérifie que « Ajouter au panier » est visible.',
+  'Va sur https://www.thetrainline.com, recherche des trains de Paris Gare de Lyon à Lyon Part-Dieu demain matin, sélectionne un TGV du matin, choisis un billet Standard, et vérifie que tu peux saisir les détails passager.',
+  'Va sur https://www.booking.com, recherche des hôtels à Barcelone le week-end prochain, ouvre le premier résultat, et vérifie que les options de chambres s’affichent.',
+] as const
+
+/** @deprecated Prefer getHomeExamples(locale) — kept for journey template matchPrompts. */
+export const HOME_EXAMPLES = [...HOME_EXAMPLES_EN]
+
+export function getHomeExamples(locale: 'en' | 'fr'): readonly string[] {
+  return locale === 'fr' ? HOME_EXAMPLES_FR : HOME_EXAMPLES_EN
+}
+
+export function isCuratedHomeExample(text: string): boolean {
+  const normalized = text.trim().toLowerCase()
+  return [...HOME_EXAMPLES_EN, ...HOME_EXAMPLES_FR].some(
+    (example) => example.toLowerCase() === normalized,
+  )
+}
 
 export const DEMO_PROMPT =
   'Go to https://www.nike.com, search for France 2026 Stadium Home, select size L, personalize with name Miguel and number 6, then finish.'

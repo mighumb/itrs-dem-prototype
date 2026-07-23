@@ -4,7 +4,7 @@ import DiscoveryStack from '../components/DiscoveryStack'
 import { AgentMessage } from '../components/GlobalAgent'
 import { useLocale } from '../context/LocaleContext'
 import { looksLikeHttpUrl, requestDiscoveryAi, type DiscoveryAiResult } from '../lib/discoveryAi'
-import { HOME_EXAMPLES } from '../mock/data'
+import { getHomeExamples, isCuratedHomeExample } from '../mock/data'
 import {
   buildConfigureQuestions,
   buildDiscoveryQuestions,
@@ -454,10 +454,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
     if (phase === 'idle') {
       // Curated examples are the only shortcut to a ready plan.
       // Any free-typed message starts discovery (questions → proposals → plan).
-      const isCuratedExample = HOME_EXAMPLES.some(
-        (example) => example.toLowerCase() === text.toLowerCase(),
-      )
-      if (isCuratedExample) {
+      if (isCuratedHomeExample(text)) {
         await enterPlanning(buildPlanFromPrompt(text), text)
       } else {
         await startQuestionnaire(text)
@@ -607,7 +604,13 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
       <div className="flex min-h-full flex-col items-center justify-center px-6 py-16">
         <div className="w-full max-w-2xl animate-fade-in">
           <h1 className="mb-10 text-center text-3xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-100 md:text-4xl">
-            {t('goodMorning')} {userName},
+            {userName && userName !== 'there' ? (
+              <>
+                {t('goodMorning')} {userName},
+              </>
+            ) : (
+              t('homeGreetingGuest')
+            )}
             <br />
             <span className="text-zinc-500 dark:text-zinc-400">{t('homeSubtitle')}</span>
           </h1>
@@ -617,7 +620,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
           <div className="mt-8">
             <p className="mb-3 text-center text-xs text-zinc-400">{t('sampleJourneys')}</p>
             <div className="space-y-2">
-              {HOME_EXAMPLES.map((example) => (
+              {getHomeExamples(locale).map((example) => (
                 <button
                   key={example}
                   type="button"
