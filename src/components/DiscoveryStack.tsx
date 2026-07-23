@@ -1,5 +1,6 @@
 import { ChevronLeft, ChevronRight, Pencil, X } from 'lucide-react'
 import { useState } from 'react'
+import { useLocale } from '../context/LocaleContext'
 import type { DiscoveryQuestion, JourneyProposal } from '../mock/discovery'
 
 type StackMode = 'questions' | 'proposals'
@@ -33,6 +34,7 @@ export default function DiscoveryStack({
   onSelectProposal,
   onSubmitOther,
 }: DiscoveryStackProps) {
+  const { t } = useLocale()
   const [otherText, setOtherText] = useState('')
   const question = questions[questionIndex]
   const total = mode === 'questions' ? questions.length : proposals.length
@@ -51,7 +53,7 @@ export default function DiscoveryStack({
               disabled={questionIndex <= 0}
               onClick={() => onQuestionIndexChange?.(questionIndex - 1)}
               className="cursor-pointer rounded-md p-1 transition hover:bg-zinc-100 hover:text-zinc-700 disabled:cursor-not-allowed disabled:opacity-30 dark:hover:bg-zinc-800"
-              aria-label="Previous question"
+              aria-label={t('previousQuestion')}
             >
               <ChevronLeft size={16} />
             </button>
@@ -63,7 +65,7 @@ export default function DiscoveryStack({
               disabled={questionIndex >= total - 1}
               onClick={() => onQuestionIndexChange?.(questionIndex + 1)}
               className="cursor-pointer rounded-md p-1 transition hover:bg-zinc-100 hover:text-zinc-700 disabled:cursor-not-allowed disabled:opacity-30 dark:hover:bg-zinc-800"
-              aria-label="Next question"
+              aria-label={t('nextQuestion')}
             >
               <ChevronRight size={16} />
             </button>
@@ -72,7 +74,7 @@ export default function DiscoveryStack({
         <button
           type="button"
           onClick={onClose}
-          title="Dismiss"
+          title={t('dismiss')}
           className="cursor-pointer rounded-md p-1 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800"
         >
           <X size={16} />
@@ -147,7 +149,7 @@ export default function DiscoveryStack({
                 setOtherText('')
               }
             }}
-            placeholder={mode === 'proposals' ? 'Other…' : 'Something else…'}
+            placeholder={mode === 'proposals' ? t('other') : t('somethingElse')}
             className="w-full rounded-xl border border-zinc-200 bg-zinc-50 py-2 pl-8 pr-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-[#0071e3] focus:bg-white dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:bg-zinc-900"
           />
         </div>
@@ -157,7 +159,7 @@ export default function DiscoveryStack({
             onClick={onSkipQuestion}
             className="shrink-0 cursor-pointer rounded-xl px-3 py-2 text-sm font-medium text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-800 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
           >
-            Skip
+            {t('skip')}
           </button>
         )}
         {mode === 'proposals' && otherText.trim() && (

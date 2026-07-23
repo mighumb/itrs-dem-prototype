@@ -1,4 +1,5 @@
 import { X } from 'lucide-react'
+import { useLocale } from '../context/LocaleContext'
 
 interface BookDemoModalProps {
   open: boolean
@@ -6,6 +7,7 @@ interface BookDemoModalProps {
 }
 
 export default function BookDemoModal({ open, onClose }: BookDemoModalProps) {
+  const { t } = useLocale()
   if (!open) return null
 
   return (
@@ -16,7 +18,7 @@ export default function BookDemoModal({ open, onClose }: BookDemoModalProps) {
         className="animate-fade-in w-full max-w-md rounded-2xl bg-white p-6 dark:bg-zinc-900"
       >
         <div className="mb-1 flex items-start justify-between">
-          <h2 className="text-lg font-semibold tracking-tight dark:text-zinc-100">Book a demo</h2>
+          <h2 className="text-lg font-semibold tracking-tight dark:text-zinc-100">{t('bookDemo')}</h2>
           <button
             type="button"
             onClick={onClose}
@@ -26,9 +28,7 @@ export default function BookDemoModal({ open, onClose }: BookDemoModalProps) {
           </button>
         </div>
 
-        <p className="mb-6 text-sm leading-relaxed text-zinc-500">
-          See ITRS DEM in action with your team — we&apos;ll reach out within one business day.
-        </p>
+        <p className="mb-6 text-sm leading-relaxed text-zinc-500">{t('bookDemoBody')}</p>
 
         <form
           className="space-y-3"
@@ -40,26 +40,26 @@ export default function BookDemoModal({ open, onClose }: BookDemoModalProps) {
           <input
             type="text"
             required
-            placeholder="Full name"
+            placeholder={t('fullName')}
             className="w-full rounded-xl border border-zinc-200 px-3.5 py-2.5 text-sm outline-none transition focus:border-[#0071e3] focus:ring-2 focus:ring-[#0071e3]/20 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
           />
           <input
             type="email"
             required
-            placeholder="Work email"
+            placeholder={t('workEmail')}
             className="w-full rounded-xl border border-zinc-200 px-3.5 py-2.5 text-sm outline-none transition focus:border-[#0071e3] focus:ring-2 focus:ring-[#0071e3]/20 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
           />
           <input
             type="text"
             required
-            placeholder="Company"
+            placeholder={t('company')}
             className="w-full rounded-xl border border-zinc-200 px-3.5 py-2.5 text-sm outline-none transition focus:border-[#0071e3] focus:ring-2 focus:ring-[#0071e3]/20 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
           />
           <button
             type="submit"
             className="w-full cursor-pointer rounded-xl bg-[#0071e3] py-2.5 text-sm font-medium text-white transition hover:bg-[#0077ed]"
           >
-            Request demo
+            {t('requestDemo')}
           </button>
         </form>
       </div>

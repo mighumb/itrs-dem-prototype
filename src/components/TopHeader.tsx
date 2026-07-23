@@ -1,5 +1,6 @@
 import { ChevronDown, Moon, Sun } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
+import { useLocale } from '../context/LocaleContext'
 import { useTheme } from '../context/ThemeContext'
 
 interface TopHeaderProps {
@@ -22,6 +23,7 @@ export default function TopHeader({
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
   const { theme, toggleTheme } = useTheme()
+  const { t } = useLocale()
 
   useEffect(() => {
     if (!menuOpen) return
@@ -40,7 +42,7 @@ export default function TopHeader({
         <button
           type="button"
           onClick={onHome}
-          title="Home"
+          title={t('home')}
           className="cursor-pointer text-sm font-semibold tracking-tight text-zinc-900 transition hover:opacity-70 dark:text-zinc-100"
         >
           ITRS DEM
@@ -48,8 +50,8 @@ export default function TopHeader({
         <button
           type="button"
           onClick={toggleTheme}
-          title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-          aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+          title={theme === 'dark' ? t('lightMode') : t('darkMode')}
+          aria-label={theme === 'dark' ? t('lightMode') : t('darkMode')}
           className="flex cursor-pointer items-center justify-center rounded-lg p-1.5 text-zinc-500 transition hover:bg-zinc-200/80 hover:text-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
         >
           {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
@@ -78,7 +80,7 @@ export default function TopHeader({
                 : 'text-zinc-700 hover:bg-zinc-200/80 hover:text-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800 dark:hover:text-zinc-100'
             }`}
           >
-            Sign in
+            {t('signIn')}
             <ChevronDown
               size={14}
               className={`text-zinc-400 transition dark:text-zinc-500 ${menuOpen ? 'rotate-180' : ''}`}
@@ -94,7 +96,7 @@ export default function TopHeader({
                 }}
                 className="block w-full cursor-pointer px-3 py-2 text-left text-sm text-zinc-700 transition hover:bg-zinc-50 dark:text-zinc-300 dark:hover:bg-zinc-800"
               >
-                Log in
+                {t('logIn')}
               </button>
               <button
                 type="button"
@@ -104,7 +106,7 @@ export default function TopHeader({
                 }}
                 className="block w-full cursor-pointer px-3 py-2 text-left text-sm text-zinc-700 transition hover:bg-zinc-50 dark:text-zinc-300 dark:hover:bg-zinc-800"
               >
-                Create account
+                {t('createAccount')}
               </button>
             </div>
           )}
@@ -114,7 +116,7 @@ export default function TopHeader({
           onClick={onBookDemo}
           className="cursor-pointer rounded-lg bg-[#0071e3] px-3.5 py-1.5 text-sm font-semibold text-white transition hover:bg-[#0077ed]"
         >
-          Book a demo
+          {t('bookDemo')}
         </button>
       </div>
     </header>

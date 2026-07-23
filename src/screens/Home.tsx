@@ -2,6 +2,7 @@ import { ArrowUp, Play } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import DiscoveryStack from '../components/DiscoveryStack'
 import { AgentMessage } from '../components/GlobalAgent'
+import { useLocale } from '../context/LocaleContext'
 import { requestDiscoveryAi } from '../lib/discoveryAi'
 import { HOME_EXAMPLES } from '../mock/data'
 import {
@@ -28,6 +29,7 @@ const uid = (prefix: string) =>
   `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
 
 export default function Home({ userName = 'there', onStart }: HomeProps) {
+  const { t, adaptToText } = useLocale()
   const [phase, setPhase] = useState<DiscoveryPhase>('idle')
   const [input, setInput] = useState('')
   const [messages, setMessages] = useState<ChatMessage[]>([])
@@ -106,6 +108,8 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
     setPlan(null)
     setQuestionIndex(0)
     setPhase('questionnaire')
+
+    adaptToText(seed)
 
     pushMessages(userMsg)
     await withTyping(async () => {
@@ -211,8 +215,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
     pushMessages({
       id: uid('agent'),
       role: 'agent',
-      content:
-        'No problem — we can keep brainstorming in chat. When you have enough detail (site + goal), ask me to draft a plan.',
+      content: t('closeStack'),
     })
   }
 
@@ -265,6 +268,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
   }
 
   const handleOther = async (text: string) => {
+    adaptToText(text)
     if (phase === 'questionnaire' && questions[questionIndex]) {
       await saveQuestionnaireAnswer(questions[questionIndex].id, text)
       return
@@ -286,6 +290,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
     const text = raw.trim()
     if (!text || agentTyping) return
     setInput('')
+    adaptToText(text)
 
     if (phase === 'idle') {
       // Curated examples are the only shortcut to a ready plan.
@@ -371,12 +376,12 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
 
   const inputPlaceholder =
     phase === 'idle'
-      ? 'Describe a journey or paste a URL...'
+      ? t('placeholderIdle')
       : phase === 'questionnaire' || phase === 'proposals'
-        ? 'Or reply directly…'
+        ? t('placeholderReply')
         : phase === 'planning'
-          ? 'Ask to change a step, or refine the plan…'
-          : 'Continue brainstorming…'
+          ? t('placeholderPlanning')
+          : t('placeholderBrainstorm')
 
   const composer = (
     <form
@@ -410,19 +415,15 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
       <div className="flex min-h-full flex-col items-center justify-center px-6 py-16">
         <div className="w-full max-w-2xl animate-fade-in">
           <h1 className="mb-10 text-center text-3xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-100 md:text-4xl">
-            Good morning {userName},
+            {t('goodMorning')} {userName},
             <br />
-            <span className="text-zinc-500 dark:text-zinc-400">
-              what journey should we build today?
-            </span>
+            <span className="text-zinc-500 dark:text-zinc-400">{t('homeSubtitle')}</span>
           </h1>
 
           {composer}
 
           <div className="mt-8">
-            <p className="mb-3 text-center text-xs text-zinc-400">
-              Sample journeys to explore the product
-            </p>
+            <p className="mb-3 text-center text-xs text-zinc-400">{t('sampleJourneys')}</p>
             <div className="space-y-2">
               {HOME_EXAMPLES.map((example) => (
                 <button
@@ -466,7 +467,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
           {showStack && phase === 'questionnaire' && (
             <DiscoveryStack
               mode="questions"
-              title="Refine the journey"
+              title={t('refineJourney')}
               questions={questions}
               questionIndex={questionIndex}
               answers={ctx?.answers ?? {}}
@@ -481,7 +482,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
           {showStack && phase === 'proposals' && (
             <DiscoveryStack
               mode="proposals"
-              title="Choose a journey"
+              title={t('chooseJourney')}
               proposals={proposals}
               onClose={handleCloseStack}
               onSelectProposal={(proposal) => void handleSelectProposal(proposal)}
@@ -492,7 +493,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
           {showRun && (
             <div className="flex items-center gap-3 rounded-2xl border border-zinc-200 bg-white px-3.5 py-2.5 dark:border-zinc-700 dark:bg-zinc-900">
               <p className="min-w-0 flex-1 text-sm text-zinc-600 dark:text-zinc-300">
-                Ready to run this user journey?
+                {t('readyToRun')}
               </p>
               <button
                 type="button"
@@ -500,7 +501,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
                 className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full bg-[#0071e3] px-4 py-1.5 text-sm font-semibold text-white transition hover:bg-[#0077ed]"
               >
                 <Play size={12} fill="currentColor" />
-                Run
+                {t('run')}
               </button>
             </div>
           )}
