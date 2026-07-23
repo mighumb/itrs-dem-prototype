@@ -70,7 +70,7 @@ export const messages = {
     run: 'Lancer',
     configureJourney: 'Configurer le parcours',
     closeStack:
-      'Pas de souci — on peut continuer à brainstormer dans le chat. Quand vous aurez assez de détails (site + objectif), demandez-moi de préparer un plan.',
+      'Pas de souci — on peut continuer à brainstormer dans le chat. Quand tu auras assez de détails (site + objectif), demande-moi de préparer un plan.',
     name: 'Nom',
     workEmail: 'Email professionnel',
     company: 'Entreprise',

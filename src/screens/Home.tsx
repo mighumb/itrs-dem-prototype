@@ -76,6 +76,18 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
 
   const historyPlus = (...extra: ChatMessage[]) => [...messages, ...extra]
 
+  const pushAgentReply = (content: string, workTrace?: string[] | null) => {
+    const withTrace =
+      workTrace && workTrace.length > 0
+        ? `${workTrace.map((line) => `· ${line}`).join('\n')}\n\n${content}`
+        : content
+    pushMessages({
+      id: uid('agent'),
+      role: 'agent',
+      content: withTrace,
+    })
+  }
+
   const enterPlanning = async (nextPlan: DiscoveryPlan, userLine?: string) => {
     const userMsg = userLine
       ? ({ id: uid('user'), role: 'user', content: userLine } as ChatMessage)
@@ -83,7 +95,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
     if (userMsg) {
       pushMessages(userMsg)
     }
-    // Keep Ready to Run hidden until the plan message is fully ready to display.
+    // Keep Run/Lancer hidden until the plan message is fully ready to display.
     setPlan(null)
     setPhase('conversation')
     await withTyping(async () => {
@@ -104,11 +116,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
           : ai.message
             ? `${ai.message}\n\n${formatted}`
             : formatted
-      pushMessages({
-        id: uid('plan'),
-        role: 'agent',
-        content,
-      })
+      pushAgentReply(content, ai.workTrace)
       noteAi(ai)
       setPlan(planToShow)
       setPhase('planning')
@@ -136,16 +144,11 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
         context: nextCtx,
       })
 
-      // Prefer proactive proposals when the model recommends journeys for a known sector/site.
       noteAi(ai)
       if (ai.proposals && ai.proposals.length > 0) {
         setProposals(ai.proposals)
         setPhase('proposals')
-        pushMessages({
-          id: uid('agent'),
-          role: 'agent',
-          content: ai.message,
-        })
+        pushAgentReply(ai.message, ai.workTrace)
         return
       }
 
@@ -155,11 +158,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
           : buildDiscoveryQuestions(nextCtx)
       setQuestions(nextQuestions)
       setPhase('questionnaire')
-      pushMessages({
-        id: uid('agent'),
-        role: 'agent',
-        content: ai.message,
-      })
+      pushAgentReply(ai.message, ai.workTrace)
     })
   }
 
@@ -177,11 +176,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
       const nextProposals = ai.proposals ?? []
       setProposals(nextProposals)
       setPhase(nextProposals.length > 0 ? 'proposals' : 'conversation')
-      pushMessages({
-        id: uid('agent'),
-        role: 'agent',
-        content: ai.message,
-      })
+      pushAgentReply(ai.message, ai.workTrace)
     })
   }
 
@@ -315,15 +310,13 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
       noteAi(ai)
       setQuestions(nextQuestions)
       setPhase('questionnaire')
-      pushMessages({
-        id: uid('agent'),
-        role: 'agent',
-        content: ai.message,
-      })
+      pushAgentReply(ai.message, ai.workTrace)
     })
   }
 
   const replyWithAiChat = async (text: string, history: ChatMessage[]) => {
+    // Iterating away from a settled plan hides Run/Lancer until a full plan is shown again.
+    setPlan(null)
     setPhase('conversation')
     await withTyping(async () => {
       const ai = await requestDiscoveryAi({
@@ -335,15 +328,22 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
       })
       noteAi(ai)
 
-      // Brainstorming must not jump to Ready to Run.
+      if (ai.readyForPlan && ai.plan) {
+        const formatted = formatPlanMessage(ai.plan)
+        const content =
+          ai.message.includes('1.') || ai.message.includes('1)')
+            ? ai.message
+            : `${ai.message}\n\n${formatted}`
+        pushAgentReply(content, ai.workTrace)
+        setPlan(ai.plan)
+        setPhase('planning')
+        return
+      }
+
       if (ai.proposals && ai.proposals.length > 0) {
         setProposals(ai.proposals)
         setPhase('proposals')
-        pushMessages({
-          id: uid('agent'),
-          role: 'agent',
-          content: ai.message,
-        })
+        pushAgentReply(ai.message, ai.workTrace)
         return
       }
 
@@ -351,19 +351,11 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
         setQuestions(ai.questions)
         setQuestionIndex(0)
         setPhase('questionnaire')
-        pushMessages({
-          id: uid('agent'),
-          role: 'agent',
-          content: ai.message,
-        })
+        pushAgentReply(ai.message, ai.workTrace)
         return
       }
 
-      pushMessages({
-        id: uid('agent'),
-        role: 'agent',
-        content: ai.message,
-      })
+      pushAgentReply(ai.message, ai.workTrace)
     })
   }
 
@@ -424,6 +416,9 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
     const history = historyPlus(userMsg)
 
     if (phase === 'planning') {
+      // Any new user turn while a plan is shown = iteration → hide Run/Lancer immediately.
+      setPlan(null)
+      setPhase('conversation')
       await withTyping(async () => {
         const ai = await requestDiscoveryAi({
           mode: 'chat',
@@ -434,39 +429,51 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
         })
         noteAi(ai)
 
-        const wantsPlanUpdate =
-          /\b(update|change|modify|ajoute|retire|modifie|mets à jour|revise|update the plan)\b/i.test(
-            text,
-          ) || Boolean(ai.plan)
-
-        if (wantsPlanUpdate && (ai.plan || hasExploitableContext(text, ctx))) {
-          const nextPlan = ai.plan ?? buildPlanFromPrompt(text)
+        if (ai.readyForPlan && ai.plan) {
           const body =
-            ai.plan && (ai.message.includes('1.') || ai.message.includes('1)'))
+            ai.message.includes('1.') || ai.message.includes('1)')
               ? ai.message
-              : ai.plan
-                ? `${ai.message}\n\n${formatPlanMessage(nextPlan)}`
-                : formatPlanMessage(nextPlan)
-          pushMessages({
-            id: uid('plan'),
-            role: 'agent',
-            content: body,
-          })
+              : `${ai.message}\n\n${formatPlanMessage(ai.plan)}`
+          pushAgentReply(body, ai.workTrace)
+          setPlan(ai.plan)
+          setPhase('planning')
+          return
+        }
+
+        if (ai.proposals && ai.proposals.length > 0) {
+          setProposals(ai.proposals)
+          setPhase('proposals')
+          pushAgentReply(ai.message, ai.workTrace)
+          return
+        }
+
+        if (ai.questions && ai.questions.length > 0) {
+          setQuestions(ai.questions)
+          setQuestionIndex(0)
+          setPhase('questionnaire')
+          pushAgentReply(ai.message, ai.workTrace)
+          return
+        }
+
+        // Iteration without a new complete plan: keep chatting, Run stays hidden.
+        if (ai.plan && hasExploitableContext(text, ctx)) {
+          const nextPlan = ai.plan
+          const body =
+            ai.message.includes('1.') || ai.message.includes('1)')
+              ? ai.message
+              : `${ai.message}\n\n${formatPlanMessage(nextPlan)}`
+          pushAgentReply(body, ai.workTrace)
           setPlan(nextPlan)
           setPhase('planning')
           return
         }
 
-        pushMessages({
-          id: uid('agent'),
-          role: 'agent',
-          content: ai.message,
-        })
+        pushAgentReply(ai.message, ai.workTrace)
       })
       return
     }
 
-    // conversation phase — brainstorm only; Run appears after proposal selection
+    // conversation phase — brainstorm; Run/Lancer only after a complete plan is shown
     await replyWithAiChat(text, history)
   }
 

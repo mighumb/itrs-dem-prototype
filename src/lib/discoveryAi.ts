@@ -17,6 +17,7 @@ export type DiscoveryAiMode = 'bootstrap' | 'chat' | 'propose' | 'configure' | '
 
 export interface DiscoveryAiResult {
   message: string
+  workTrace: string[] | null
   questions: DiscoveryQuestion[] | null
   proposals: JourneyProposal[] | null
   plan: DiscoveryPlan | null
@@ -100,6 +101,15 @@ function normalizePlan(raw: unknown, fallbackPrompt: string): DiscoveryPlan | nu
   }
 }
 
+function normalizeWorkTrace(raw: unknown): string[] | null {
+  if (!Array.isArray(raw) || raw.length === 0) return null
+  const lines = raw
+    .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+    .map((line) => line.trim())
+    .slice(0, 5)
+  return lines.length > 0 ? lines : null
+}
+
 function mockFallback(
   mode: DiscoveryAiMode,
   userMessage: string,
@@ -107,11 +117,12 @@ function mockFallback(
 ): DiscoveryAiResult {
   if (mode === 'bootstrap') {
     const nextCtx = ctx ?? createDiscoveryContext(userMessage)
-    const knownSite = Boolean(nextCtx.url) || nextCtx.domain !== 'generic'
-    if (knownSite) {
+    const hasTarget = Boolean(nextCtx.url) || /[a-z0-9-]+\.[a-z]{2,}/i.test(nextCtx.seed)
+    if (hasTarget) {
       return {
         message:
-          "You don't need to know the critical path — for this kind of site, DEM teams usually start with these journeys. **#1 is recommended.** Pick one, or tell me what to change.",
+          "I couldn't inspect the live page yet (no site snapshot in this offline fallback). Based on what you shared, here are **3 journey options** — **#1 is recommended**. Pick one, or tell me what to change.",
+        workTrace: ['Target identified', 'No live snapshot — hypotheses only', 'Drafting 3 journey options'],
         questions: null,
         proposals: buildJourneyProposals(nextCtx),
         plan: null,
@@ -122,7 +133,8 @@ function mockFallback(
     }
     return {
       message:
-        "Happy to help — no prior knowledge needed. A few quick choices and I'll recommend solid journeys to monitor.",
+        "I can help design a monitoring journey — no prior knowledge needed. A few quick choices and I'll recommend solid options.",
+      workTrace: ['Entry is open-ended', 'Need a bit more signal'],
       questions: buildDiscoveryQuestions(nextCtx),
       proposals: null,
       plan: null,
@@ -136,6 +148,7 @@ function mockFallback(
     return {
       message:
         'Based on that, here are **3 journey options**. Pick one, use **Other**, or keep chatting to refine.',
+      workTrace: ['Synthesizing answers', 'Proposing 3 prioritized journeys'],
       questions: null,
       proposals: buildJourneyProposals(ctx),
       plan: null,
@@ -148,7 +161,8 @@ function mockFallback(
   if (mode === 'configure' && ctx?.selectedProposal) {
     return {
       message:
-        "Avant de figer les étapes, définissons ensemble les paramètres du parcours. Tu peux aussi préciser autrement dans le chat.",
+        "Before locking the steps, let's set the journey parameters together. You can also clarify in chat.",
+      workTrace: ['Journey type selected', 'Collecting parameters'],
       questions: buildConfigureQuestions(ctx, ctx.selectedProposal),
       proposals: null,
       plan: null,
@@ -171,6 +185,7 @@ function mockFallback(
     )
     return {
       message: formatPlanMessage(plan),
+      workTrace: ['Parameters gathered', 'Building runnable plan'],
       questions: null,
       proposals: null,
       plan,
@@ -182,6 +197,7 @@ function mockFallback(
 
   return {
     message: agentNeedsMoreContextMessage(userMessage),
+    workTrace: null,
     questions: null,
     proposals: null,
     plan: null,
@@ -231,6 +247,7 @@ export async function requestDiscoveryAi(options: {
               url: context.url,
               answers: context.answers,
               selectedProposalId: context.selectedProposalId,
+              pageSnapshot: context.pageSnapshot ?? null,
             }
           : null,
       }),
@@ -251,6 +268,7 @@ export async function requestDiscoveryAi(options: {
         typeof data.message === 'string' && data.message.trim()
           ? data.message
           : mockFallback(mode, userMessage, context ?? null).message,
+      workTrace: normalizeWorkTrace(data.workTrace),
       questions: normalizeQuestions(data.questions),
       proposals: normalizeProposals(data.proposals),
       plan: normalizePlan(data.plan, fallbackPrompt),

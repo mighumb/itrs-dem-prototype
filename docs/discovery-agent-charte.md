@@ -161,4 +161,4 @@ Tu conserves le fil de la conversation (cible, décisions, params affichés, pla
 | UX = conventions ChatGPT / Claude / Gemini | Oui |
 | Analyse site réelle | Oui |
 | Charte versionnée dans GitHub (`docs/`) | Oui |
-| System prompt EN | À rédiger à l’implémentation |
+| System prompt EN | Fait — `api/discoverySystemPrompt.ts` |
