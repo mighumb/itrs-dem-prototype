@@ -4,7 +4,8 @@ Interactive **frontend-only** prototype for validating the business-user journey
 
 ## Live preview
 
-**https://mighumb.github.io/itrs-dem-prototype/**
+- **Vercel (AI chat):** https://itrs-dem-prototype.vercel.app
+- **GitHub Pages:** https://mighumb.github.io/itrs-dem-prototype/
 
 ## Stack
 
