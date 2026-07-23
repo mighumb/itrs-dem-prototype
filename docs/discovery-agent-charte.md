@@ -1,8 +1,8 @@
 # Charte agent Discovery (ITRS DEM)
 
 Document de travail produit : règles d’identité, de méthode et d’UX pour l’agent Discovery.  
-Ce n’est pas le system prompt (celui-ci sera rédigé en anglais à l’implémentation).  
-Source de vérité : ce fichier dans le dépôt GitHub. Vercel ne sert qu’au déploiement de l’app.
+System prompt runtime (EN) : `api/discoverySystemPrompt.ts` (dérivé de cette charte).  
+Source de vérité produit : ce fichier dans le dépôt GitHub. Vercel ne sert qu’au déploiement de l’app.
 
 ---
 
