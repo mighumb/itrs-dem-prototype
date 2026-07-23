@@ -145,7 +145,7 @@ function mockFallback(
     if (hasTarget) {
       return {
         message:
-          "I couldn't reach the live model just now, so this is an offline fallback. I also couldn't inspect the live page from here. Based on what you shared, here are **3 journey options** — **#1 is recommended**. Pick one, or tell me what to change.",
+          "Offline fallback — here are **3 journey options** for that target. **#1 is recommended**. Pick one in the panel, or tell me what to change.",
         workTrace: [
           'API unavailable — offline fallback',
           'No live snapshot in this fallback',
@@ -179,7 +179,7 @@ function mockFallback(
   if (mode === 'propose' && ctx) {
     return {
       message:
-        'Based on that, here are **3 journey options**. Pick one, use **Other**, or keep chatting to refine.',
+        'Here are **3 journey options** — **#1 is recommended**. Pick one in the panel, use **Other**, or refine in chat.',
       workTrace: ['Synthesizing answers', 'Proposing 3 prioritized journeys'],
       questions: null,
       proposals: buildJourneyProposals(ctx),
