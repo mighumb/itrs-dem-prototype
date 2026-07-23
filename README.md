@@ -2,6 +2,10 @@
 
 Interactive **frontend-only** prototype for validating the business-user journey creation flow.
 
+## Live preview
+
+**https://mighumb.github.io/itrs-dem-prototype/**
+
 ## Stack
 
 - **React 19** + **Vite** + **TypeScript**
@@ -18,9 +22,9 @@ Interactive **frontend-only** prototype for validating the business-user journey
 
 ## Flow (Phase 1)
 
-1. **Home** — minimal onboarding, input + suggestions
-2. **New Journey** — integrated 4-column workspace (3 visible by default)
-3. **See monitoring preview** — opens 4th column after journey complete
+1. **Home** — conversational discovery (questionnaire, journey proposals, plan, then Run)
+2. **New Journey** — integrated 4-column workspace (Agent / Steps / Browser / Monitoring)
+3. **Monitoring** — opens after the first run
 4. **Save modal** — signup prompt (Try → Save model)
 
 ## Run locally
