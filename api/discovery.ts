@@ -213,6 +213,17 @@ async function resolveAndAnalyzeWithStatus(
     return { analysis: null, target: null }
   }
 
+  // Language switch — reuse existing context, do not re-resolve/fetch the site.
+  if (/\brelocalize_ui\b/.test(body.userMessage)) {
+    const existing = body.context?.url ?? null
+    return {
+      analysis: null,
+      target: existing
+        ? { url: existing, source: 'explicit_url', label: null, note: null }
+        : null,
+    }
+  }
+
   if (!['bootstrap', 'chat', 'propose', 'configure', 'plan'].includes(body.mode)) {
     return { analysis: null, target: null }
   }

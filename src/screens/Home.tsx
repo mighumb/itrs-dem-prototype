@@ -116,6 +116,77 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
     }
   }
 
+  // Keep latest session fields for locale-switch without stale closures.
+  const sessionRef = useRef({
+    phase,
+    proposals,
+    questions,
+    ctx,
+    configuring,
+    messages,
+    agentTyping,
+  })
+  sessionRef.current = {
+    phase,
+    proposals,
+    questions,
+    ctx,
+    configuring,
+    messages,
+    agentTyping,
+  }
+  const prevLocaleRef = useRef(locale)
+
+  // Floating form content is Gemini-generated — refresh it when UI language changes.
+  // Chat history (including plans) stays as written.
+  useEffect(() => {
+    if (prevLocaleRef.current === locale) return
+    prevLocaleRef.current = locale
+
+    const session = sessionRef.current
+    if (session.agentTyping) return
+
+    const needsProposals = session.phase === 'proposals' && session.proposals.length > 0
+    const needsQuestions = session.phase === 'questionnaire' && session.questions.length > 0
+    if (!needsProposals && !needsQuestions) return
+
+    void withTyping(async (signal, onStatus) => {
+      const payload = {
+        action: 'relocalize_ui',
+        targetLanguage: locale,
+        proposals: needsProposals ? session.proposals : undefined,
+        questions: needsQuestions ? session.questions : undefined,
+      }
+
+      const ai = await requestDiscoveryAi({
+        mode: needsProposals
+          ? 'propose'
+          : session.configuring
+            ? 'configure'
+            : 'chat',
+        userMessage: JSON.stringify(payload),
+        messages: session.messages,
+        phase: session.phase,
+        context: session.ctx,
+        selectedProposal: session.ctx?.selectedProposal ?? null,
+        preferredLanguage: locale,
+        signal,
+        onStatus,
+      })
+      if (ai.aborted) return
+      noteAi(ai)
+
+      if (needsProposals && ai.proposals && ai.proposals.length > 0) {
+        setProposals(ai.proposals)
+      }
+      if (needsQuestions && ai.questions && ai.questions.length > 0) {
+        // Preserve answers keyed by id when ids stay stable.
+        setQuestions(ai.questions)
+      }
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only react to locale changes
+  }, [locale])
+
   const historyPlus = (...extra: ChatMessage[]) => [...messages, ...extra]
 
   const pushAgentReply = (content: string) => {
