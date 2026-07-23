@@ -1,0 +1,119 @@
+@import 'tailwindcss';
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif;
+  --color-surface: #f5f5f7;
+  --color-user-bubble: #d5dde8;
+  --color-accent: #0071e3;
+  --color-accent-hover: #0077ed;
+}
+
+.dark {
+  color-scheme: dark;
+  --color-surface: #0a0a0b;
+  --color-user-bubble: #1a222d;
+}
+
+* {
+  box-sizing: border-box;
+  scrollbar-width: thin;
+  scrollbar-color: rgb(161 161 170 / 0.55) transparent;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  background: var(--color-surface);
+  color: #1d1d1f;
+}
+
+.dark body {
+  color: #f5f5f7;
+}
+
+button:not(:disabled),
+[role='button']:not([aria-disabled='true']),
+a[href],
+label[for],
+select,
+summary {
+  cursor: pointer;
+}
+
+button:disabled,
+[aria-disabled='true'] {
+  cursor: not-allowed;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse-soft {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.35s ease-out both;
+}
+
+.animate-pulse-soft {
+  animation: pulse-soft 1.5s ease-in-out infinite;
+}
+
+/* Thin scrollbars — WebKit */
+*::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  border-radius: 9999px;
+  background-color: rgb(161 161 170 / 0.45);
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: rgb(113 113 122 / 0.65);
+}
+
+.dark * {
+  scrollbar-color: rgb(82 82 91 / 0.55) transparent;
+}
+
+.dark *::-webkit-scrollbar-thumb {
+  background-color: rgb(82 82 91 / 0.45);
+}
+
+.dark *::-webkit-scrollbar-thumb:hover {
+  background-color: rgb(113 113 122 / 0.55);
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
