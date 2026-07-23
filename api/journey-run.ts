@@ -5,13 +5,6 @@ import {
   type RunnerEvent,
 } from './_lib/playwrightRunner.js'
 
-export const config = {
-  api: {
-    bodyParser: true,
-  },
-  maxDuration: 60,
-}
-
 function writeNdjson(res: VercelResponse, event: RunnerEvent | Record<string, unknown>) {
   res.write(`${JSON.stringify(event)}\n`)
 }

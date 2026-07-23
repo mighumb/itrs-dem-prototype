@@ -1,10 +1,12 @@
 {
-  "installCommand": "PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install",
+  "installCommand": "PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm ci",
   "rewrites": [{ "source": "/((?!api/).*)", "destination": "/index.html" }],
   "functions": {
     "api/journey-run.ts": {
-      "maxDuration": 60,
-      "memory": 3008
+      "maxDuration": 60
+    },
+    "api/discovery.ts": {
+      "maxDuration": 60
     }
   }
 }
