@@ -34,8 +34,19 @@ export interface DiscoveryContext {
 }
 
 function extractUrl(text: string): string | null {
-  const match = text.match(/https?:\/\/[^\s]+/i)
-  return match?.[0]?.replace(/[.,)]+$/, '') ?? null
+  const withProtocol = text.match(/https?:\/\/[^\s<>"']+/i)
+  if (withProtocol) {
+    return withProtocol[0].replace(/[.,);]+$/g, '')
+  }
+
+  const bare = text.match(
+    /(?:^|[\s([])((?:www\.)?[a-z0-9-]+(?:\.[a-z0-9-]+)+(?:\/[^\s<>"'\]\)]*)?)/i,
+  )
+  if (!bare?.[1]) return null
+  const hostPath = bare[1].replace(/[.,);]+$/g, '')
+  if (hostPath.includes('@')) return null
+  if (!/\.[a-z]{2,}(?:\/|$)/i.test(hostPath)) return null
+  return `https://${hostPath}`
 }
 
 function siteLabelFromCtx(ctx: DiscoveryContext): string {

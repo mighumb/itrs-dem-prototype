@@ -84,9 +84,25 @@ function buildSnapshot(url: string, status: number, html: string): { title: stri
 
 export function extractHttpUrl(text: string | null | undefined): string | null {
   if (!text) return null
-  const match = text.match(/https?:\/\/[^\s<>"']+/i)
-  if (!match) return null
-  return match[0].replace(/[.,);]+$/g, '')
+  const trimmed = text.trim()
+
+  const withProtocol = trimmed.match(/https?:\/\/[^\s<>"']+/i)
+  if (withProtocol) {
+    return withProtocol[0].replace(/[.,);]+$/g, '')
+  }
+
+  // Bare domain / host (e.g. "belambra.fr" or "www.belambra.fr/path")
+  const bare = trimmed.match(
+    /(?:^|[\s([])((?:www\.)?[a-z0-9-]+(?:\.[a-z0-9-]+)+(?:\/[^\s<>"'\]\)]*)?)/i,
+  )
+  if (!bare?.[1]) return null
+
+  const hostPath = bare[1].replace(/[.,);]+$/g, '')
+  if (hostPath.includes('@')) return null
+  // Require a real TLD-looking suffix (at least 2 letters)
+  if (!/\.[a-z]{2,}(?:\/|$)/i.test(hostPath)) return null
+
+  return `https://${hostPath}`
 }
 
 export async function analyzePublicSite(rawUrl: string): Promise<SiteAnalysisResult> {
