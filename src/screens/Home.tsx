@@ -5,6 +5,7 @@ import { AgentMessage } from '../components/GlobalAgent'
 import { requestDiscoveryAi } from '../lib/discoveryAi'
 import { HOME_EXAMPLES } from '../mock/data'
 import {
+  buildDiscoveryQuestions,
   buildPlanFromPrompt,
   buildPlanFromProposal,
   classifyUserEntry,
@@ -83,10 +84,17 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
       })
       const planToShow = ai.plan ?? nextPlan
       setPlan(planToShow)
+      const formatted = formatPlanMessage(planToShow)
+      const content =
+        ai.plan && (ai.message.includes('1.') || ai.message.includes('1)'))
+          ? ai.message
+          : ai.message
+            ? `${ai.message}\n\n${formatted}`
+            : formatted
       pushMessages({
         id: uid('plan'),
         role: 'agent',
-        content: ai.plan ? ai.message : formatPlanMessage(planToShow),
+        content,
       })
     })
   }
@@ -98,6 +106,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
     setProposals([])
     setPlan(null)
     setQuestionIndex(0)
+    setPhase('questionnaire')
 
     pushMessages(userMsg)
     await withTyping(async () => {
@@ -108,9 +117,12 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
         phase: 'idle',
         context: nextCtx,
       })
-      const nextQuestions = ai.questions ?? []
+      const nextQuestions =
+        ai.questions && ai.questions.length > 0
+          ? ai.questions
+          : buildDiscoveryQuestions(nextCtx)
       setQuestions(nextQuestions)
-      setPhase(nextQuestions.length > 0 ? 'questionnaire' : 'conversation')
+      setPhase('questionnaire')
       pushMessages({
         id: uid('agent'),
         role: 'agent',
@@ -210,26 +222,35 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
     await enterPlanning(buildPlanFromProposal(proposal), proposal.title)
   }
 
-  const replyWithAiChat = async (
-    text: string,
-    history: ChatMessage[],
-    nextPhase: DiscoveryPhase = 'conversation',
-  ) => {
-    setPhase(nextPhase)
+  const replyWithAiChat = async (text: string, history: ChatMessage[]) => {
+    setPhase('conversation')
     await withTyping(async () => {
       const ai = await requestDiscoveryAi({
         mode: 'chat',
         userMessage: text,
         messages: history,
-        phase: nextPhase,
+        phase: 'conversation',
         context: ctx,
       })
 
-      if (ai.readyForPlan && ai.plan) {
-        setPlan(ai.plan)
-        setPhase('planning')
+      // Brainstorming must not jump to Ready to Run.
+      if (ai.proposals && ai.proposals.length > 0) {
+        setProposals(ai.proposals)
+        setPhase('proposals')
         pushMessages({
-          id: uid('plan'),
+          id: uid('agent'),
+          role: 'agent',
+          content: ai.message,
+        })
+        return
+      }
+
+      if (ai.questions && ai.questions.length > 0) {
+        setQuestions(ai.questions)
+        setQuestionIndex(0)
+        setPhase('questionnaire')
+        pushMessages({
+          id: uid('agent'),
           role: 'agent',
           content: ai.message,
         })
@@ -251,10 +272,6 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
     }
 
     if (phase === 'proposals') {
-      if (hasExploitableContext(text, ctx)) {
-        await enterPlanning(buildPlanFromPrompt(text), text)
-        return
-      }
       const userMsg: ChatMessage = { id: uid('user'), role: 'user', content: text }
       pushMessages(userMsg)
       await replyWithAiChat(text, historyPlus(userMsg))
@@ -272,6 +289,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
     setInput('')
 
     if (phase === 'idle') {
+      // Only curated examples skip discovery. Everything else starts with clarifying questions.
       if (classifyUserEntry(text) === 'precise') {
         await enterPlanning(buildPlanFromPrompt(text), text)
       } else {
@@ -287,10 +305,6 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
     }
 
     if (phase === 'proposals') {
-      if (hasExploitableContext(text, ctx)) {
-        await enterPlanning(buildPlanFromPrompt(text), text)
-        return
-      }
       const userMsg: ChatMessage = { id: uid('user'), role: 'user', content: text }
       pushMessages(userMsg)
       await replyWithAiChat(text, historyPlus(userMsg))
@@ -311,19 +325,29 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
           context: ctx,
         })
 
-        if (ai.plan || (ai.readyForPlan && hasExploitableContext(text, ctx))) {
+        const wantsPlanUpdate =
+          /\b(update|change|modify|ajoute|retire|modifie|mets à jour|revise|update the plan)\b/i.test(
+            text,
+          ) || Boolean(ai.plan)
+
+        if (wantsPlanUpdate && (ai.plan || hasExploitableContext(text, ctx))) {
           const nextPlan = ai.plan ?? buildPlanFromPrompt(text)
           setPlan(nextPlan)
           setPhase('planning')
+          const body =
+            ai.plan && (ai.message.includes('1.') || ai.message.includes('1)'))
+              ? ai.message
+              : ai.plan
+                ? `${ai.message}\n\n${formatPlanMessage(nextPlan)}`
+                : formatPlanMessage(nextPlan)
           pushMessages({
             id: uid('plan'),
             role: 'agent',
-            content: ai.plan ? ai.message : formatPlanMessage(nextPlan),
+            content: body,
           })
           return
         }
 
-        setPhase('conversation')
         pushMessages({
           id: uid('agent'),
           role: 'agent',
@@ -333,49 +357,8 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
       return
     }
 
-    // conversation phase
-    await withTyping(async () => {
-      const ai = await requestDiscoveryAi({
-        mode: 'chat',
-        userMessage: text,
-        messages: history,
-        phase: 'conversation',
-        context: ctx,
-      })
-
-      if (ai.readyForPlan && ai.plan) {
-        setPlan(ai.plan)
-        setPhase('planning')
-        pushMessages({
-          id: uid('plan'),
-          role: 'agent',
-          content: ai.message,
-        })
-        return
-      }
-
-      if (ai.questions && ai.questions.length > 0) {
-        const nextCtx = createDiscoveryContext(
-          [ctx?.seed, text].filter(Boolean).join(' — ') || text,
-        )
-        setCtx(nextCtx)
-        setQuestions(ai.questions)
-        setQuestionIndex(0)
-        setPhase('questionnaire')
-        pushMessages({
-          id: uid('agent'),
-          role: 'agent',
-          content: ai.message,
-        })
-        return
-      }
-
-      pushMessages({
-        id: uid('agent'),
-        role: 'agent',
-        content: ai.message,
-      })
-    })
+    // conversation phase — brainstorm only; Run appears after proposal selection
+    await replyWithAiChat(text, history)
   }
 
   const handleRun = () => {

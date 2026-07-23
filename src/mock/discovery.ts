@@ -58,11 +58,23 @@ export function isPrecisePrompt(text: string): boolean {
   const trimmed = text.trim()
   if (!trimmed) return false
 
+  // Curated examples are the only one-click shortcut to a ready plan.
   if (HOME_EXAMPLES.some((example) => example.toLowerCase() === trimmed.toLowerCase())) {
     return true
   }
 
   const lower = trimmed.toLowerCase()
+
+  // Questions / recommendations are brainstorming, never a ready journey.
+  if (
+    /[?]/.test(trimmed) ||
+    /\b(recommand|recommend|suggest|quel parcours|which journey|what (should|journey)|aide[- ]moi|help me)\b/i.test(
+      lower,
+    )
+  ) {
+    return false
+  }
+
   const url = extractUrl(trimmed)
   const urlOnly = Boolean(url && trimmed.replace(url, '').trim().length < 8)
   if (urlOnly) return false
@@ -77,10 +89,13 @@ export function isPrecisePrompt(text: string): boolean {
     /\bopen\b/,
     /\badd to bag\b/,
     /\bcheckout\b/,
+    /\brecherche\b/,
+    /\bsélectionne/,
+    /\bclique\b/,
   ]
   const signalCount = actionSignals.filter((re) => re.test(lower)).length
-  const hasDetail = trimmed.length > 60 || signalCount >= 2
-  return hasDetail
+  // Require real multi-step intent — length alone is not enough.
+  return signalCount >= 2 && trimmed.length > 80
 }
 
 export function hasExploitableContext(text: string, ctx: DiscoveryContext | null): boolean {
