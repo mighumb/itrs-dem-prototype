@@ -30,6 +30,8 @@ export interface BrowserFrame {
   title: string
   highlight?: string
   cursor?: { x: number; y: number }
+  /** Real Playwright JPEG/PNG data URL when live run is active */
+  screenshotDataUrl?: string
 }
 
 export interface JourneySchedule {

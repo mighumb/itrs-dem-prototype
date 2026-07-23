@@ -29,6 +29,7 @@ import {
   type RunFailureInfo,
 } from '../mock/data'
 import { handleAgentChatInput } from '../mock/agentChat'
+import { runLiveJourney } from '../lib/journeyRunAi'
 import type { BrowserFrame, ChatMessage, JourneySchedule, JourneyStep } from '../types'
 import { scheduleSummary } from '../types'
 
@@ -87,6 +88,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
   const startedRef = useRef(false)
   const runIdRef = useRef(0)
   const scheduleResolvedRef = useRef(false)
+  const runAbortRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
     scheduleResolvedRef.current = scheduleResolved
@@ -240,6 +242,8 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
 
   const stopRun = useCallback(() => {
     runIdRef.current += 1
+    runAbortRef.current?.abort()
+    runAbortRef.current = null
     setIsRunning(false)
     setSteps((prev) =>
       prev.map((s) =>
@@ -256,11 +260,200 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
     ])
   }, [])
 
+  const runStepsWithPlaywright = useCallback(
+    async (
+      runId: number,
+      stepsToRun: Array<Omit<JourneyStep, 'status'> | JourneyStep>,
+      options?: { startIndex?: number; replaceSteps?: boolean },
+    ): Promise<{ usedLive: boolean; failedStep: RunFailureInfo | null }> => {
+      const startIndex = options?.startIndex ?? 0
+      const slice = stepsToRun.slice(startIndex)
+      if (slice.length === 0) return { usedLive: false, failedStep: null }
+
+      if (options?.replaceSteps) {
+        setSteps(
+          stepsToRun.map((step, index) => ({
+            ...step,
+            status:
+              index < startIndex
+                ? ('done' as const)
+                : index === startIndex
+                  ? ('running' as const)
+                  : ('pending' as const),
+          })),
+        )
+      } else {
+        setSteps(slice.map((step) => ({ ...step, status: 'pending' as const })))
+      }
+
+      const controller = new AbortController()
+      runAbortRef.current = controller
+
+      try {
+        const result = await runLiveJourney({
+          steps: slice,
+          prompt: initialPrompt || DEMO_PROMPT,
+          signal: controller.signal,
+          onFrame: (frame) => {
+            if (runIdRef.current !== runId) return
+            setBrowserFrame(frame)
+          },
+          onEvent: (event) => {
+            if (runIdRef.current !== runId) return
+            if (event.type === 'step_start') {
+              const absolute = startIndex + event.index
+              setSteps((prev) => {
+                if (options?.replaceSteps) {
+                  return prev.map((s, idx) =>
+                    idx === absolute
+                      ? { ...s, status: 'running' }
+                      : idx < absolute && s.status !== 'failed'
+                        ? { ...s, status: s.status === 'pending' ? 'done' : s.status }
+                        : s,
+                  )
+                }
+                const next = [...prev]
+                while (next.length <= event.index) {
+                  const template = slice[next.length]
+                  if (!template) break
+                  next.push({ ...template, status: 'pending' })
+                }
+                return next.map((s, idx) =>
+                  idx === event.index ? { ...s, status: 'running' } : s,
+                )
+              })
+            }
+            if (event.type === 'step_done') {
+              const absolute = startIndex + event.index
+              setSteps((prev) =>
+                prev.map((s, idx) =>
+                  idx === (options?.replaceSteps ? absolute : event.index)
+                    ? { ...s, status: 'done' }
+                    : s,
+                ),
+              )
+            }
+            if (event.type === 'status') {
+              // Keep agent quiet during live capture — browser panel is the signal.
+            }
+          },
+        })
+
+        if (runIdRef.current !== runId || controller.signal.aborted) {
+          return { usedLive: true, failedStep: null }
+        }
+
+        if (result.mode === 'unavailable') {
+          return { usedLive: false, failedStep: null }
+        }
+
+        if (typeof result.failedStepIndex === 'number') {
+          const absolute = startIndex + result.failedStepIndex
+          setSteps((prev) => {
+            const next = prev.map((s, idx) =>
+              idx === absolute ? { ...s, status: 'failed' as const } : s,
+            )
+            if (!options?.replaceSteps) {
+              const remaining = stepsToRun
+                .slice(absolute + 1)
+                .map((step) => ({ ...step, status: 'pending' as const }))
+              return [...next, ...remaining.filter((r) => !next.some((n) => n.id === r.id))]
+            }
+            return next
+          })
+          return {
+            usedLive: true,
+            failedStep: {
+              stepIndex: absolute,
+              stepLabel: result.failedStepLabel || slice[result.failedStepIndex]?.label || 'Step',
+            },
+          }
+        }
+
+        return { usedLive: true, failedStep: null }
+      } catch {
+        return { usedLive: false, failedStep: null }
+      } finally {
+        if (runAbortRef.current === controller) {
+          runAbortRef.current = null
+        }
+      }
+    },
+    [initialPrompt],
+  )
+
+  const runSimulatedSteps = useCallback(
+    async (
+      runId: number,
+      journeySteps: Array<Omit<JourneyStep, 'status'>>,
+      options?: { announceFallback?: boolean },
+    ): Promise<RunFailureInfo | null> => {
+      if (options?.announceFallback) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `agent-fallback-${runId}`,
+            role: 'agent',
+            content:
+              'Playwright runner unavailable — falling back to simulated browser frames for this run.',
+          },
+        ])
+      }
+
+      const failureIndex = pickRandomFailureIndex(journeySteps.length)
+      let failedStep: RunFailureInfo | null = null
+
+      for (let i = 0; i < journeySteps.length; i++) {
+        const template = journeySteps[i]!
+        setSteps((prev) => [...prev, { ...template, status: 'running' }])
+        setBrowserFrame(journey.browserFrames[i] ?? null)
+
+        await delay(STEP_DELAY)
+        if (runIdRef.current !== runId) return null
+
+        const failed = failureIndex === i
+        const stepStatus = failed ? ('failed' as const) : ('done' as const)
+        setSteps((prev) =>
+          prev.map((s, idx) => (idx === i ? { ...s, status: stepStatus } : s)),
+        )
+
+        if (i === Math.min(2, journeySteps.length - 1) || failed) {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: failed ? `agent-fail-${i}` : 'agent-progress',
+              role: 'agent',
+              content: failed
+                ? `Step ${i + 1} failed — **${template.label}**. Stopping here.`
+                : `Step ${i + 1} done — ${template.label}`,
+            },
+          ])
+        }
+
+        if (failed) {
+          failedStep = { stepIndex: i, stepLabel: template.label }
+          const remaining = journeySteps
+            .slice(i + 1)
+            .map((step) => ({ ...step, status: 'pending' as const }))
+          if (remaining.length > 0) {
+            setSteps((prev) => [...prev, ...remaining])
+          }
+          break
+        }
+      }
+
+      return failedStep
+    },
+    [journey.browserFrames],
+  )
+
   const runSimulation = useCallback(async () => {
     const runId = ++runIdRef.current
     setIsRunning(true)
     hidePanel('monitoring')
     setEditMode(false)
+    setSteps([])
+    setBrowserFrame(null)
 
     const userMsg: ChatMessage = {
       id: 'user-1',
@@ -277,55 +470,40 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
       {
         id: 'agent-1',
         role: 'agent',
-        content: "Got it. I'll build this journey step by step. Watch the browser on the right.",
+        content:
+          "Got it. I'll run this journey in a real Playwright browser — watch the screenshots on the right.",
       },
     ])
 
-    await delay(TYPING_DELAY)
+    await delay(400)
     if (runIdRef.current !== runId) return
 
     const journeySteps = journey.steps
-    const failureIndex = pickRandomFailureIndex(journeySteps.length)
-    let failedStep: RunFailureInfo | null = null
+    const live = await runStepsWithPlaywright(runId, journeySteps)
+    if (runIdRef.current !== runId) return
 
-    for (let i = 0; i < journeySteps.length; i++) {
-      const template = journeySteps[i]
-
-      setSteps((prev) => [...prev, { ...template, status: 'running' }])
-      setBrowserFrame(journey.browserFrames[i] ?? null)
-
-      await delay(STEP_DELAY)
-      if (runIdRef.current !== runId) return
-
-      const failed = failureIndex === i
-      const stepStatus = failed ? ('failed' as const) : ('done' as const)
-      setSteps((prev) =>
-        prev.map((s, idx) => (idx === i ? { ...s, status: stepStatus } : s)),
-      )
-
-      if (i === Math.min(2, journeySteps.length - 1) || failed) {
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: failed ? `agent-fail-${i}` : 'agent-progress',
-            role: 'agent',
-            content: failed
-              ? `Step ${i + 1} failed — **${template.label}**. Stopping here.`
-              : `Step ${i + 1} done — ${template.label}`,
-          },
-        ])
-      }
-
-      if (failed) {
-        failedStep = { stepIndex: i, stepLabel: template.label }
-        const remaining = journeySteps
-          .slice(i + 1)
-          .map((step) => ({ ...step, status: 'pending' as const }))
-        if (remaining.length > 0) {
-          setSteps((prev) => [...prev, ...remaining])
-        }
-        break
-      }
+    let failedStep = live.failedStep
+    if (!live.usedLive) {
+      setSteps([])
+      failedStep = await runSimulatedSteps(runId, journeySteps, { announceFallback: true })
+    } else if (failedStep) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `agent-fail-${failedStep!.stepIndex}`,
+          role: 'agent',
+          content: `Step ${failedStep!.stepIndex + 1} failed — **${failedStep!.stepLabel}**. Stopping here.`,
+        },
+      ])
+    } else {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `agent-live-ok-${runId}`,
+          role: 'agent',
+          content: 'Playwright run finished — screenshots above are real page captures.',
+        },
+      ])
     }
 
     if (runIdRef.current !== runId) return
@@ -336,7 +514,14 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
     setFixActionsResolved(false)
     openPanel('monitoring')
     setMessages((prev) => applyPostRunMessages(prev, journey, failedStep, { addJourneyReady: true }))
-  }, [initialPrompt, journey, openPanel, hidePanel])
+  }, [
+    initialPrompt,
+    journey,
+    openPanel,
+    hidePanel,
+    runStepsWithPlaywright,
+    runSimulatedSteps,
+  ])
 
   const runContinueAfterFix = useCallback(
     async (startIndex: number, stepsSnapshot: JourneyStep[]) => {
@@ -347,39 +532,27 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
       hidePanel('monitoring')
       setIsRunning(true)
       setFixActionsResolved(false)
+      setBrowserFrame(null)
 
-      setSteps(
-        stepsSnapshot.map((step, index) => ({
-          ...step,
-          status:
-            index < startIndex
-              ? ('done' as const)
-              : index === startIndex
-                ? ('running' as const)
-                : ('pending' as const),
-        })),
-      )
-      setBrowserFrame(getBrowserFrameForStep(stepsSnapshot[startIndex], startIndex))
-
-      await delay(400)
+      const live = await runStepsWithPlaywright(runId, stepsSnapshot, {
+        startIndex,
+        replaceSteps: true,
+      })
       if (runIdRef.current !== runId) return
 
-      for (let i = startIndex; i < stepsSnapshot.length; i++) {
-        const step = stepsSnapshot[i]
-
-        if (i > startIndex) {
+      if (!live.usedLive) {
+        for (let i = startIndex; i < stepsSnapshot.length; i++) {
+          const step = stepsSnapshot[i]!
           setSteps((prev) =>
             prev.map((s, idx) => (idx === i ? { ...s, status: 'running' } : s)),
           )
           setBrowserFrame(getBrowserFrameForStep(step, i))
+          await delay(STEP_DELAY)
+          if (runIdRef.current !== runId) return
+          setSteps((prev) =>
+            prev.map((s, idx) => (idx === i ? { ...s, status: 'done' } : s)),
+          )
         }
-
-        await delay(STEP_DELAY)
-        if (runIdRef.current !== runId) return
-
-        setSteps((prev) =>
-          prev.map((s, idx) => (idx === i ? { ...s, status: 'done' } : s)),
-        )
       }
 
       if (runIdRef.current !== runId) return
@@ -387,9 +560,9 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
       setIsRunning(false)
       setEditMode(false)
       openPanel('monitoring')
-      setMessages((prev) => applyPostRunMessages(prev, journey, null))
+      setMessages((prev) => applyPostRunMessages(prev, journey, live.failedStep))
     },
-    [isRunning, journey, openPanel, hidePanel],
+    [isRunning, journey, openPanel, hidePanel, runStepsWithPlaywright],
   )
 
   const runReplay = useCallback(async () => {
@@ -402,8 +575,6 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
     hidePanel('monitoring')
     setIsRunning(true)
     setFixActionsResolved(false)
-
-    setSteps(stepsToRun.map((s) => ({ ...s, status: 'pending' as const })))
     setBrowserFrame(null)
 
     setMessages((prev) => [
@@ -411,36 +582,35 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
       {
         id: `agent-run-${runId}`,
         role: 'agent',
-        content: `Replaying **${stepsToRun.length} steps** — watch the browser sync with each action.`,
+        content: `Replaying **${stepsToRun.length} steps** in Playwright — watch real screenshots sync with each action.`,
       },
     ])
 
-    await delay(400)
+    const live = await runStepsWithPlaywright(runId, stepsToRun, { replaceSteps: true })
     if (runIdRef.current !== runId) return
 
-    const failureIndex = pickRandomFailureIndex(stepsToRun.length)
-    let failedStep: RunFailureInfo | null = null
-
-    for (let i = 0; i < stepsToRun.length; i++) {
-      const step = stepsToRun[i]
-
-      setSteps((prev) =>
-        prev.map((s, idx) => (idx === i ? { ...s, status: 'running' } : s)),
-      )
-      setBrowserFrame(getBrowserFrameForStep(step, i))
-
-      await delay(STEP_DELAY)
-      if (runIdRef.current !== runId) return
-
-      const failed = failureIndex === i
-      const stepStatus = failed ? ('failed' as const) : ('done' as const)
-      setSteps((prev) =>
-        prev.map((s, idx) => (idx === i ? { ...s, status: stepStatus } : s)),
-      )
-
-      if (failed) {
-        failedStep = { stepIndex: i, stepLabel: step.label }
-        break
+    let failedStep = live.failedStep
+    if (!live.usedLive) {
+      setSteps(stepsToRun.map((s) => ({ ...s, status: 'pending' as const })))
+      const failureIndex = pickRandomFailureIndex(stepsToRun.length)
+      for (let i = 0; i < stepsToRun.length; i++) {
+        const step = stepsToRun[i]!
+        setSteps((prev) =>
+          prev.map((s, idx) => (idx === i ? { ...s, status: 'running' } : s)),
+        )
+        setBrowserFrame(getBrowserFrameForStep(step, i))
+        await delay(STEP_DELAY)
+        if (runIdRef.current !== runId) return
+        const failed = failureIndex === i
+        setSteps((prev) =>
+          prev.map((s, idx) =>
+            idx === i ? { ...s, status: failed ? 'failed' : 'done' } : s,
+          ),
+        )
+        if (failed) {
+          failedStep = { stepIndex: i, stepLabel: step.label }
+          break
+        }
       }
     }
 
@@ -450,7 +620,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
     setEditMode(false)
     openPanel('monitoring')
     setMessages((prev) => applyPostRunMessages(prev, journey, failedStep))
-  }, [isRunning, steps, journey, openPanel, hidePanel])
+  }, [isRunning, steps, journey, openPanel, hidePanel, runStepsWithPlaywright])
 
   const handleRunStop = useCallback(() => {
     if (isRunning) {

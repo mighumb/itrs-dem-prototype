@@ -8,6 +8,8 @@ interface BrowserPanelProps {
 }
 
 export default function BrowserPanel({ frame, isRunning, embedded }: BrowserPanelProps) {
+  const hasScreenshot = Boolean(frame?.screenshotDataUrl)
+
   return (
     <div
       className={`flex h-full flex-col overflow-hidden ${
@@ -30,20 +32,31 @@ export default function BrowserPanel({ frame, isRunning, embedded }: BrowserPane
             Live
           </span>
         )}
+        {frame?.title && hasScreenshot && (
+          <span className="hidden max-w-[9rem] truncate text-[10px] text-zinc-400 md:inline">
+            {frame.title}
+          </span>
+        )}
       </div>
 
       {/* Viewport */}
-      <div className="relative flex-1 overflow-hidden bg-gradient-to-b from-zinc-100 to-zinc-200/60 dark:from-zinc-800 dark:to-zinc-900/60">
+      <div className="relative flex-1 overflow-hidden bg-zinc-200/70 dark:bg-zinc-900/80">
         {!frame ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
             <p className="text-sm font-medium text-zinc-500">Browser preview</p>
             <p className="max-w-xs text-xs text-zinc-400">
-              Paste a URL or describe a journey to get started
+              Run a journey to watch real Playwright screenshots step by step
             </p>
           </div>
+        ) : hasScreenshot ? (
+          <img
+            src={frame.screenshotDataUrl}
+            alt={frame.title || frame.url || 'Browser screenshot'}
+            className="h-full w-full object-contain object-top bg-white"
+          />
         ) : (
           <>
-            {/* Simulated page */}
+            {/* Fallback wireframe when no live screenshot */}
             <div className="absolute inset-4 overflow-hidden rounded-lg bg-white">
               <div className="flex h-10 items-center border-b border-zinc-100 px-4">
                 <div className="h-4 w-16 rounded bg-zinc-900" />
@@ -64,7 +77,6 @@ export default function BrowserPanel({ frame, isRunning, embedded }: BrowserPane
                 </div>
               </div>
 
-              {/* Cursor */}
               {frame.cursor && (
                 <div
                   className="pointer-events-none absolute h-4 w-4 transition-all duration-500"
@@ -77,6 +89,11 @@ export default function BrowserPanel({ frame, isRunning, embedded }: BrowserPane
                 </div>
               )}
             </div>
+            {frame.highlight && (
+              <p className="absolute bottom-3 left-3 right-3 truncate rounded-md bg-black/55 px-2 py-1 text-[11px] text-white">
+                {frame.highlight}
+              </p>
+            )}
           </>
         )}
       </div>
@@ -91,6 +108,9 @@ export default function BrowserPanel({ frame, isRunning, embedded }: BrowserPane
             <Hand size={12} />
             Take control
           </button>
+          {hasScreenshot && (
+            <span className="text-[10px] text-zinc-400">Playwright capture</span>
+          )}
         </div>
       )}
     </div>
