@@ -8,7 +8,6 @@ import {
   buildDiscoveryQuestions,
   buildPlanFromPrompt,
   buildPlanFromProposal,
-  classifyUserEntry,
   createDiscoveryContext,
   formatPlanMessage,
   hasExploitableContext,
