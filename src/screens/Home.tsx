@@ -88,7 +88,9 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
     const inspecting = looksLikeHttpUrl(seedText ?? '') || Boolean(ctx?.url)
     const steps = inspecting
       ? [t('workingInspect'), t('workingDiagnose'), t('workingDraft')]
-      : [t('workingThink'), t('workingDraft')]
+      : seedText && seedText.trim().length >= 3
+        ? [t('workingResolve'), t('workingInspect'), t('workingDraft')]
+        : [t('workingThink'), t('workingDraft')]
     // One rotating status line — mainstream LLM chat convention (not a bullet list).
     setWorkStatus(steps[0])
 

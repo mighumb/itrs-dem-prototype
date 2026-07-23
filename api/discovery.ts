@@ -1,7 +1,11 @@
 import { GoogleGenerativeAI } from '@google/generative-ai'
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { analyzePublicSite, extractHttpUrl, type SiteAnalysisResult } from './_lib/analyzeSite.js'
+import type { SiteAnalysisResult } from './_lib/analyzeSite.js'
 import { DISCOVERY_SYSTEM_PROMPT } from './_lib/discoverySystemPrompt.js'
+import {
+  resolveAndAnalyzeSite,
+  type ResolvedSiteTarget,
+} from './_lib/resolveSiteTarget.js'
 
 type ChatTurn = { role: 'user' | 'agent'; content: string }
 
@@ -27,17 +31,30 @@ type DiscoveryAiRequest = {
   }
 }
 
-function buildUserPrompt(body: DiscoveryAiRequest, analysis: SiteAnalysisResult | null): string {
+function buildUserPrompt(
+  body: DiscoveryAiRequest,
+  analysis: SiteAnalysisResult | null,
+  target: ResolvedSiteTarget | null,
+): string {
   const preferredLanguage =
     body.preferredLanguage ?? body.context?.preferredLanguage ?? 'en'
 
   const context = {
     ...(body.context ?? {}),
     preferredLanguage,
+    url: analysis?.url ?? target?.url ?? body.context?.url ?? null,
     pageSnapshot:
       analysis?.snapshot ??
       body.context?.pageSnapshot ??
       null,
+    siteTarget: target
+      ? {
+          url: target.url,
+          source: target.source,
+          label: target.label,
+          note: target.note,
+        }
+      : null,
     siteAnalysis: analysis
       ? {
           ok: analysis.ok,
@@ -78,7 +95,11 @@ function extractJson(text: string): unknown {
   }
 }
 
-function normalizeWorkTrace(raw: unknown, analysis: SiteAnalysisResult | null): string[] | null {
+function normalizeWorkTrace(
+  raw: unknown,
+  analysis: SiteAnalysisResult | null,
+  target: ResolvedSiteTarget | null,
+): string[] | null {
   const fromModel = Array.isArray(raw)
     ? raw
         .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
@@ -86,6 +107,7 @@ function normalizeWorkTrace(raw: unknown, analysis: SiteAnalysisResult | null): 
     : []
 
   const prefix: string[] = []
+  if (target?.note) prefix.push(target.note)
   if (analysis) {
     if (analysis.ok) {
       prefix.push(`Inspected ${analysis.url}${analysis.title ? ` — ${analysis.title}` : ''}`)
@@ -94,28 +116,34 @@ function normalizeWorkTrace(raw: unknown, analysis: SiteAnalysisResult | null): 
         `Could not fully access ${analysis.url}${analysis.reason ? ` (${analysis.reason})` : ''}`,
       )
     }
+  } else if (target?.source === 'none' && target.note) {
+    // note already added
   }
 
   const merged = [...prefix, ...fromModel].slice(0, 6)
   return merged.length > 0 ? merged : null
 }
 
-async function maybeAnalyzeSite(body: DiscoveryAiRequest): Promise<SiteAnalysisResult | null> {
-  if (body.context?.pageSnapshot) return null
-
-  const candidate =
-    body.context?.url ||
-    extractHttpUrl(body.userMessage) ||
-    extractHttpUrl(body.context?.seed ?? null)
-
-  if (!candidate) return null
-
-  // Analyze on bootstrap / propose / chat when a URL is present.
-  if (!['bootstrap', 'chat', 'propose', 'configure', 'plan'].includes(body.mode)) {
-    return null
+async function maybeResolveAndAnalyze(
+  body: DiscoveryAiRequest,
+  apiKey: string,
+): Promise<{ analysis: SiteAnalysisResult | null; target: ResolvedSiteTarget | null }> {
+  if (body.context?.pageSnapshot) {
+    return { analysis: null, target: null }
   }
 
-  return analyzePublicSite(candidate)
+  if (!['bootstrap', 'chat', 'propose', 'configure', 'plan'].includes(body.mode)) {
+    return { analysis: null, target: null }
+  }
+
+  const seedText = [body.userMessage, body.context?.seed].filter(Boolean).join(' — ')
+  const { target, analysis } = await resolveAndAnalyzeSite(seedText, {
+    apiKey,
+    existingUrl: body.context?.url,
+    existingSnapshot: body.context?.pageSnapshot,
+  })
+
+  return { target, analysis }
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -135,7 +163,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const analysis = await maybeAnalyzeSite(body)
+    const { analysis, target } = await maybeResolveAndAnalyze(body, apiKey)
 
     const genAI = new GoogleGenerativeAI(apiKey)
     const modelCandidates = [
@@ -159,18 +187,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           },
         })
 
-        const result = await model.generateContent(buildUserPrompt(body, analysis))
+        const result = await model.generateContent(buildUserPrompt(body, analysis, target))
         const text = result.response.text()
         const parsed = extractJson(text) as Record<string, unknown>
 
         return res.status(200).json({
           message: typeof parsed.message === 'string' ? parsed.message : 'Here is what I suggest.',
-          workTrace: normalizeWorkTrace(parsed.workTrace, analysis),
+          workTrace: normalizeWorkTrace(parsed.workTrace, analysis, target),
           questions: Array.isArray(parsed.questions) ? parsed.questions : null,
           proposals: Array.isArray(parsed.proposals) ? parsed.proposals : null,
           plan: parsed.plan && typeof parsed.plan === 'object' ? parsed.plan : null,
           readyForPlan: Boolean(parsed.readyForPlan),
           pageSnapshot: analysis?.snapshot ?? body.context?.pageSnapshot ?? null,
+          siteTarget: target,
           siteAnalysis: analysis
             ? {
                 ok: analysis.ok,
@@ -191,6 +220,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const message = lastError instanceof Error ? lastError.message : 'Gemini request failed'
     return res.status(502).json({
       error: message,
+      siteTarget: target,
       siteAnalysis: analysis
         ? {
             ok: analysis.ok,
