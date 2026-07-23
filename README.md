@@ -27,12 +27,6 @@ Interactive **frontend-only** prototype for validating the business-user journey
 3. **Monitoring** — opens after the first run
 4. **Save modal** — signup prompt (Try → Save model)
 
-## Preview
-
-The prototype is deployed on GitHub Pages — open it here:
-
-**https://mighumb.github.io/itrs-dem-prototype/**
-
 ## What's fake
 
 - Agent responses (pre-scripted with delays)
