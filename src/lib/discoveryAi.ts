@@ -1,5 +1,6 @@
 import {
   agentNeedsMoreContextMessage,
+  buildConfigureQuestions,
   buildDiscoveryQuestions,
   buildJourneyProposals,
   buildPlanFromPrompt,
@@ -12,7 +13,7 @@ import {
 } from '../mock/discovery'
 import type { ChatMessage } from '../types'
 
-export type DiscoveryAiMode = 'bootstrap' | 'chat' | 'propose' | 'plan'
+export type DiscoveryAiMode = 'bootstrap' | 'chat' | 'propose' | 'configure' | 'plan'
 
 export interface DiscoveryAiResult {
   message: string
@@ -140,8 +141,29 @@ function mockFallback(
     }
   }
 
+  if (mode === 'configure' && ctx?.selectedProposal) {
+    return {
+      message:
+        "Parfait — avant de figer les étapes, choisisons ensemble les paramètres du parcours (tu peux aussi répondre autrement dans le chat).",
+      questions: buildConfigureQuestions(ctx, ctx.selectedProposal),
+      proposals: null,
+      plan: null,
+      readyForPlan: false,
+      source: 'mock',
+    }
+  }
+
   if (mode === 'plan') {
-    const plan = buildPlanFromPrompt(userMessage || ctx?.seed || '')
+    const detail = ctx
+      ? Object.entries(ctx.answers)
+          .map(([k, v]) => `${k}: ${v}`)
+          .join('; ')
+      : ''
+    const plan = buildPlanFromPrompt(
+      [ctx?.selectedProposal?.prompt, detail, userMessage, ctx?.seed]
+        .filter(Boolean)
+        .join(' — ') || userMessage,
+    )
     return {
       message: formatPlanMessage(plan),
       questions: null,
@@ -168,8 +190,9 @@ export async function requestDiscoveryAi(options: {
   messages?: ChatMessage[]
   phase?: string
   context?: DiscoveryContext | null
+  selectedProposal?: JourneyProposal | null
 }): Promise<DiscoveryAiResult> {
-  const { mode, userMessage, messages = [], phase, context } = options
+  const { mode, userMessage, messages = [], phase, context, selectedProposal } = options
 
   try {
     const response = await fetch('/api/discovery', {
@@ -180,6 +203,21 @@ export async function requestDiscoveryAi(options: {
         userMessage,
         phase,
         history: historyFromMessages(messages),
+        selectedProposal: selectedProposal
+          ? {
+              id: selectedProposal.id,
+              title: selectedProposal.title,
+              description: selectedProposal.description,
+              prompt: selectedProposal.prompt,
+            }
+          : context?.selectedProposal
+            ? {
+                id: context.selectedProposal.id,
+                title: context.selectedProposal.title,
+                description: context.selectedProposal.description,
+                prompt: context.selectedProposal.prompt,
+              }
+            : null,
         context: context
           ? {
               seed: context.seed,

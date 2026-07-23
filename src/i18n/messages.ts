@@ -28,6 +28,7 @@ export const messages = {
     nextQuestion: 'Next question',
     readyToRun: 'Ready to run this user journey?',
     run: 'Run',
+    configureJourney: 'Configure this journey',
     closeStack:
       'No problem — we can keep brainstorming in chat. When you have enough detail (site + goal), ask me to draft a plan.',
     name: 'Name',
@@ -65,6 +66,7 @@ export const messages = {
     nextQuestion: 'Question suivante',
     readyToRun: 'Prêt à lancer ce parcours utilisateur ?',
     run: 'Lancer',
+    configureJourney: 'Configurer le parcours',
     closeStack:
       'Pas de souci — on peut continuer à brainstormer dans le chat. Quand vous aurez assez de détails (site + objectif), demandez-moi de préparer un plan.',
     name: 'Nom',

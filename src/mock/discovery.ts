@@ -29,6 +29,7 @@ export interface DiscoveryContext {
   domain: 'nike' | 'train' | 'hotel' | 'airline' | 'generic'
   answers: Record<string, string>
   selectedProposalId: string | null
+  selectedProposal: JourneyProposal | null
 }
 
 function extractUrl(text: string): string | null {
@@ -130,6 +131,7 @@ export function createDiscoveryContext(seed: string): DiscoveryContext {
     domain: detectDomain(seed),
     answers: {},
     selectedProposalId: null,
+    selectedProposal: null,
   }
 }
 
@@ -286,19 +288,119 @@ function buildAirlineProposals(ctx: DiscoveryContext): JourneyProposal[] {
       title: 'Recommandé — Recherche & sélection de vol',
       description:
         'Parcours DEM le plus fréquent pour une compagnie aérienne : recherche → résultats → sélection aller.',
-      prompt: `Open ${site}, search a round-trip flight for 1 passenger (e.g. Paris CDG to Lyon or Nice, departing in about a week), review the results list, select an outbound flight option, and verify the passenger/details step is reachable without completing payment.`,
+      prompt: `Open ${site} and run a flight search & select journey (parameters to be chosen with the user).`,
     },
     {
       id: 'airline-manage',
       title: 'Gérer une réservation',
       description: 'Accès “mes réservations” / retrouver un billet — souvent fragile (login + formulaires).',
-      prompt: `Open ${site}, navigate to manage booking / my trips, attempt to retrieve a booking with sample references if a form is shown, and verify the manage-booking flow loads without completing login with real credentials.`,
+      prompt: `Open ${site} and exercise the manage-booking entry flow (parameters to be chosen with the user).`,
     },
     {
       id: 'airline-checkin',
       title: 'Enregistrement en ligne',
       description: 'Check-in web : disponibilité de la page et entrée dans le tunnel.',
-      prompt: `Open ${site}, open online check-in, and verify the check-in entry page (and any booking lookup form) loads successfully without completing a real check-in.`,
+      prompt: `Open ${site} and exercise online check-in entry (parameters to be chosen with the user).`,
+    },
+  ]
+}
+
+/** Parameter questions after the user picks a journey type — never invent final values. */
+export function buildConfigureQuestions(
+  ctx: DiscoveryContext,
+  proposal: JourneyProposal,
+): DiscoveryQuestion[] {
+  const title = `${proposal.title} ${proposal.description} ${proposal.prompt}`.toLowerCase()
+
+  if (
+    ctx.domain === 'airline' ||
+    ctx.domain === 'train' ||
+    /vol|flight|train|billet|sncf|ticket/.test(title)
+  ) {
+    return [
+      {
+        id: 'param-from',
+        prompt: 'Point de départ ? (tu peux choisir une suggestion ou répondre autrement)',
+        options: ['Paris (suggéré)', 'Lyon', 'Je précise dans le chat'],
+      },
+      {
+        id: 'param-to',
+        prompt: 'Destination ?',
+        options: ['Lyon (suggéré)', 'Paris', 'Je précise dans le chat'],
+      },
+      {
+        id: 'param-when',
+        prompt: 'Quand partir ?',
+        options: ['Dans ~2 semaines (suggéré)', 'Demain', 'Je précise la date'],
+      },
+    ]
+  }
+
+  if (ctx.domain === 'hotel' || /hotel|booking|city|ville/.test(title)) {
+    return [
+      {
+        id: 'param-city',
+        prompt: 'Quelle ville / destination ?',
+        options: ['Barcelona (suggéré)', 'Paris', 'Je précise dans le chat'],
+      },
+      {
+        id: 'param-when',
+        prompt: 'Quelles dates ?',
+        options: ['Week-end prochain (suggéré)', 'Mois prochain', 'Je précise'],
+      },
+      {
+        id: 'param-depth',
+        prompt: "Jusqu'où aller dans le parcours ?",
+        options: [
+          "Jusqu'aux chambres disponibles (suggéré)",
+          'Résultats de recherche seulement',
+          "Page d'un hôtel",
+        ],
+      },
+    ]
+  }
+
+  if (ctx.domain === 'nike' || /product|bag|retail|achat|panier/.test(title)) {
+    return [
+      {
+        id: 'param-product',
+        prompt: 'Quel produit / recherche ?',
+        options: [
+          'Article mis en avant (suggéré)',
+          'Je donne un nom de produit',
+          'Peu importe le premier résultat',
+        ],
+      },
+      {
+        id: 'param-depth',
+        prompt: "Jusqu'où aller ?",
+        options: [
+          "Jusqu'à Ajouter au panier (suggéré)",
+          'Fiche produit seulement',
+          'Entrée panier / checkout',
+        ],
+      },
+    ]
+  }
+
+  return [
+    {
+      id: 'param-goal',
+      prompt: 'Que doit réussir ce parcours concrètement ?',
+      options: [
+        'Atteindre la page clé du tunnel (suggéré)',
+        'Vérifier que la homepage répond',
+        'Je décris mon cas dans le chat',
+      ],
+    },
+    {
+      id: 'param-detail',
+      prompt: 'As-tu une valeur précise à utiliser (ville, produit, compte…) ?',
+      options: [
+        'Utilise une suggestion raisonnable (suggéré)',
+        'Je vais la préciser dans le chat',
+        'Pas besoin — parcours générique',
+      ],
     },
   ]
 }

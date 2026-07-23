@@ -4,10 +4,16 @@ import type { VercelRequest, VercelResponse } from '@vercel/node'
 type ChatTurn = { role: 'user' | 'agent'; content: string }
 
 type DiscoveryAiRequest = {
-  mode: 'bootstrap' | 'chat' | 'propose' | 'plan'
+  mode: 'bootstrap' | 'chat' | 'propose' | 'configure' | 'plan'
   userMessage: string
   history?: ChatTurn[]
   phase?: string
+  selectedProposal?: {
+    id?: string
+    title?: string
+    description?: string
+    prompt?: string
+  } | null
   context?: {
     seed?: string
     url?: string | null
@@ -49,29 +55,35 @@ Always reply with ONLY valid JSON:
   "readyForPlan": boolean
 }
 
-Phases:
-1) Orient + recommend (bootstrap / early chat)
-2) User picks a proposed journey (or asks to refine)
-3) Only after they pick/validate → runnable plan
+Phases (never skip):
+1) Orient + recommend journey TYPES for the sector/site
+2) User picks a journey type
+3) Collect concrete parameters WITH the user (origin, destination, dates, product, city, login path, etc.) — never invent them
+4) Only then build the runnable plan → Ready to Run
 
 Rules by mode:
 - bootstrap:
-  - If the user names a site, brand, or sector: be proactive. Return message + exactly 3 recommended journey proposals tailored to that sector. questions MUST be null. plan null. readyForPlan false.
-  - Mark the #1 recommendation clearly in the message and in the first proposal title/description (e.g. "Recommandé" / "Recommended").
-  - Only if the ask is extremely vague (no site, no sector, no goal): return 1-2 soft, accessible questions with options that include a recommended default. Do NOT ask "what is the most critical part of the site?". Prefer: "On peut démarrer avec le parcours le plus courant pour ce secteur — ça te va ?"
-  - Each proposal.prompt must be a full runnable paragraph (include URL/domain if known).
-- propose: Return message + exactly 3 distinct recommended journeys. questions/plan null. readyForPlan false.
-- plan: Final plan only after validation. message lists steps + plan object (4-8 steps). questions/proposals null. readyForPlan true.
-- chat: Stay helpful and proactive. Prefer returning proposals over hard questions. Soft questions OK. Never readyForPlan/plan unless user explicitly validates a journey.
+  - If the user names a site, brand, or sector: return message + exactly 3 recommended journey-type proposals. questions MUST be null. plan null. readyForPlan false.
+  - Mark #1 as recommended. Each proposal describes the TYPE of journey, not a fully filled scenario (no invented cities/dates/products).
+  - proposal.prompt = high-level intent only (site + journey type), without fabricating specific form values.
+  - If extremely vague: 1-2 soft questions. Never ask "what is most critical?".
+- propose: 3 journey-type proposals. questions/plan null. readyForPlan false.
+- configure: The user just chose a journey type (see selectedProposal). Return message + 2-5 short parameter questions so the journey can succeed (each with exactly 3 accessible options, including a sensible suggested default labeled "Suggéré"/"Suggested").
+  - Examples by sector: train/airline → from, to, when; hotel → city, dates; retail → product/search term; login → which account area.
+  - Do NOT return a plan yet. proposals null. readyForPlan false.
+  - Never invent Paris→Lyon, Barcelona, specific SKUs, etc. without asking — options are suggestions the user can pick or override.
+- plan: ONLY after parameter answers exist in context.answers (or userMessage). Build plan using THOSE values. message lists steps + plan object (4-8 steps). questions/proposals null. readyForPlan true.
+- chat: Prefer proposals or configure questions. Never readyForPlan/plan unless parameters were collected and user validates.
 
-Sector cheat-sheet (use when relevant):
-- Airline: flight search → results → outbound select → passenger details; manage booking; online check-in
-- Hotel/OTA: destination search → results → property → room options
-- Retail/e-commerce: search/PDP → size/add to bag → bag/checkout entry
-- Banking: login → account overview; transfer initiation (stop before confirm)
-- Generic: homepage availability; main conversion CTA; login/signup
+Sector cheat-sheet (journey TYPES only until configure):
+- Airline: flight search/select; manage booking; online check-in
+- Train: search & select trip; manage booking
+- Hotel/OTA: destination search → property → rooms
+- Retail: search/PDP → add to bag; checkout entry
+- Banking: login → overview; transfer start (stop before confirm)
+- Generic: homepage; main CTA; login/signup
 
-plan.prompt = one paragraph for the runner (include URL if known).
+plan.prompt = one paragraph including the user-chosen parameters and URL if known.
 plan.message = short intro + numbered steps.`
 
 function buildUserPrompt(body: DiscoveryAiRequest): string {
@@ -80,6 +92,7 @@ function buildUserPrompt(body: DiscoveryAiRequest): string {
       mode: body.mode,
       phase: body.phase ?? null,
       userMessage: body.userMessage,
+      selectedProposal: body.selectedProposal ?? null,
       context: body.context ?? null,
       history: (body.history ?? []).slice(-16),
     },

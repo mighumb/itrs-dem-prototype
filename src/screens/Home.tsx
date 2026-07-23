@@ -6,6 +6,7 @@ import { useLocale } from '../context/LocaleContext'
 import { requestDiscoveryAi } from '../lib/discoveryAi'
 import { HOME_EXAMPLES } from '../mock/data'
 import {
+  buildConfigureQuestions,
   buildDiscoveryQuestions,
   buildPlanFromPrompt,
   buildPlanFromProposal,
@@ -39,6 +40,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
   const [questionIndex, setQuestionIndex] = useState(0)
   const [proposals, setProposals] = useState<JourneyProposal[]>([])
   const [plan, setPlan] = useState<DiscoveryPlan | null>(null)
+  const [configuring, setConfiguring] = useState(false)
   const chatEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -108,6 +110,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
     setPlan(null)
     setQuestionIndex(0)
     setQuestions([])
+    setConfiguring(false)
     adaptToText(seed)
 
     pushMessages(userMsg)
@@ -171,6 +174,35 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
     questions.length > 0 && questions.every((q) => Boolean(nextCtx.answers[q.id]))
 
   const commitQuestionnaireAndPropose = async (nextCtx: DiscoveryContext) => {
+    if (configuring && nextCtx.selectedProposal) {
+      const blocks = questions
+        .filter((q) => nextCtx.answers[q.id])
+        .map((q) => `${q.prompt} → ${nextCtx.answers[q.id]}`)
+      const summary = blocks.join('\n')
+      const userMsg: ChatMessage = {
+        id: uid('user'),
+        role: 'user',
+        content: summary || nextCtx.selectedProposal.title,
+      }
+      pushMessages(userMsg)
+      setConfiguring(false)
+      const promptWithParams = [
+        nextCtx.selectedProposal.prompt,
+        summary,
+        nextCtx.seed,
+      ]
+        .filter(Boolean)
+        .join(' — ')
+      await enterPlanning(
+        {
+          ...buildPlanFromProposal(nextCtx.selectedProposal),
+          prompt: promptWithParams,
+        },
+        undefined,
+      )
+      return
+    }
+
     const blocks = questions
       .filter((q) => nextCtx.answers[q.id])
       .map((q) => `Q : ${q.prompt}\nR : ${nextCtx.answers[q.id]}`)
@@ -223,6 +255,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
   }
 
   const handleCloseStack = () => {
+    setConfiguring(false)
     setPhase('conversation')
     pushMessages({
       id: uid('agent'),
@@ -232,8 +265,46 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
   }
 
   const handleSelectProposal = async (proposal: JourneyProposal) => {
-    setCtx((prev) => (prev ? { ...prev, selectedProposalId: proposal.id } : prev))
-    await enterPlanning(buildPlanFromProposal(proposal), proposal.title)
+    const nextCtx: DiscoveryContext = {
+      ...(ctx ?? createDiscoveryContext(proposal.prompt)),
+      selectedProposalId: proposal.id,
+      selectedProposal: proposal,
+      answers: {},
+    }
+    setCtx(nextCtx)
+    setProposals([])
+    setPlan(null)
+    setConfiguring(true)
+    setQuestionIndex(0)
+
+    const userMsg: ChatMessage = {
+      id: uid('user'),
+      role: 'user',
+      content: proposal.title,
+    }
+    pushMessages(userMsg)
+
+    await withTyping(async () => {
+      const ai = await requestDiscoveryAi({
+        mode: 'configure',
+        userMessage: proposal.title,
+        messages: historyPlus(userMsg),
+        phase: 'proposals',
+        context: nextCtx,
+        selectedProposal: proposal,
+      })
+      const nextQuestions =
+        ai.questions && ai.questions.length > 0
+          ? ai.questions
+          : buildConfigureQuestions(nextCtx, proposal)
+      setQuestions(nextQuestions)
+      setPhase('questionnaire')
+      pushMessages({
+        id: uid('agent'),
+        role: 'agent',
+        content: ai.message,
+      })
+    })
   }
 
   const replyWithAiChat = async (text: string, history: ChatMessage[]) => {
@@ -479,7 +550,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
           {showStack && phase === 'questionnaire' && (
             <DiscoveryStack
               mode="questions"
-              title={t('refineJourney')}
+              title={configuring ? t('configureJourney') : t('refineJourney')}
               questions={questions}
               questionIndex={questionIndex}
               answers={ctx?.answers ?? {}}
