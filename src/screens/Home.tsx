@@ -187,13 +187,17 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
     setConfiguring(false)
     adaptToText(seed)
 
+    // Leave the idle landing immediately so the chat layout + work status appear
+    // while the agent runs (mainstream LLM chat feel).
     pushMessages(userMsg)
+    setPhase('conversation')
+
     await withTyping(seed, async (signal) => {
       const ai = await requestDiscoveryAi({
         mode: 'bootstrap',
         userMessage: seed,
         messages: [userMsg],
-        phase: 'idle',
+        phase: 'conversation',
         context: nextCtx,
         signal,
       })
@@ -631,7 +635,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="flex h-full min-h-0 flex-col animate-fade-in">
       <div className="min-h-0 flex-1 overflow-y-auto px-6">
         <div className="mx-auto flex min-h-full w-full max-w-2xl flex-col pb-4 pt-8">
           <div className="mt-auto space-y-4">
@@ -639,7 +643,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
               <AgentMessage key={message.id} message={message} hideActions />
             ))}
             {agentTyping && (
-              <div className="space-y-1.5 px-1">
+              <div className="space-y-1.5 px-1 pt-1">
                 {workStatus.length > 0 ? (
                   workStatus.map((line) => (
                     <p
