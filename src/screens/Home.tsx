@@ -289,8 +289,12 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
     setInput('')
 
     if (phase === 'idle') {
-      // Only curated examples skip discovery. Everything else starts with clarifying questions.
-      if (classifyUserEntry(text) === 'precise') {
+      // Curated examples are the only shortcut to a ready plan.
+      // Any free-typed message starts discovery (questions → proposals → plan).
+      const isCuratedExample = HOME_EXAMPLES.some(
+        (example) => example.toLowerCase() === text.toLowerCase(),
+      )
+      if (isCuratedExample) {
         await enterPlanning(buildPlanFromPrompt(text), text)
       } else {
         await startQuestionnaire(text)
