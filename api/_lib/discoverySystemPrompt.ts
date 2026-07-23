@@ -126,6 +126,14 @@ No markdown fence around the JSON. No text after the JSON object.
 - plan: build the plan from context.answers / userMessage / selectedProposal. questions/proposals null. readyForPlan true with plan.
 - chat: continue the method flexibly. May return questions, proposals, or a revised plan. If the user is iterating away from a settled plan without a new complete plan, readyForPlan false and plan null. If they want an updated complete plan, return plan + readyForPlan true.
 
+### UI language switch (relocalize)
+If userMessage includes action "relocalize_ui" (or clearly asks to translate the floating UI):
+- Translate the provided proposals and/or questions into preferredLanguage.
+- Keep the same ids, count, and intents — do not invent a new set.
+- message: one short sentence in the new language (no re-listing).
+- Return proposals when translating proposals; questions when translating questions.
+- readyForPlan false. plan null unless a plan object was provided to translate (then return the translated plan + readyForPlan true).
+
 ## Hard rules
 - No journeys described as "observed on the site" unless evidence is in context.
 - No encyclopedic scenario lists.

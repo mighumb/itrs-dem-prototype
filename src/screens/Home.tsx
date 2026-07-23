@@ -116,6 +116,107 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
     }
   }
 
+  // Keep latest session fields for locale-switch without stale closures.
+  const sessionRef = useRef({
+    phase,
+    proposals,
+    questions,
+    ctx,
+    configuring,
+    messages,
+    agentTyping,
+    plan,
+  })
+  sessionRef.current = {
+    phase,
+    proposals,
+    questions,
+    ctx,
+    configuring,
+    messages,
+    agentTyping,
+    plan,
+  }
+  const prevLocaleRef = useRef(locale)
+
+  // Floating proposals/questions are Gemini content — refresh them when UI language changes.
+  useEffect(() => {
+    if (prevLocaleRef.current === locale) return
+    prevLocaleRef.current = locale
+
+    const session = sessionRef.current
+    if (session.agentTyping) return
+
+    const needsProposals = session.phase === 'proposals' && session.proposals.length > 0
+    const needsQuestions = session.phase === 'questionnaire' && session.questions.length > 0
+    const needsPlan = session.phase === 'planning' && Boolean(session.plan)
+    if (!needsProposals && !needsQuestions && !needsPlan) return
+
+    void withTyping(async (signal, onStatus) => {
+      const payload = {
+        action: 'relocalize_ui',
+        targetLanguage: locale,
+        proposals: needsProposals ? session.proposals : undefined,
+        questions: needsQuestions ? session.questions : undefined,
+        plan: needsPlan ? session.plan : undefined,
+      }
+
+      const ai = await requestDiscoveryAi({
+        mode: needsProposals
+          ? 'propose'
+          : needsQuestions
+            ? session.configuring
+              ? 'configure'
+              : 'chat'
+            : 'plan',
+        userMessage: JSON.stringify(payload),
+        messages: session.messages,
+        phase: session.phase,
+        context: session.ctx,
+        selectedProposal: session.ctx?.selectedProposal ?? null,
+        preferredLanguage: locale,
+        signal,
+        onStatus,
+      })
+      if (ai.aborted) return
+      noteAi(ai)
+
+      if (needsProposals && ai.proposals && ai.proposals.length > 0) {
+        setProposals(ai.proposals)
+      }
+      if (needsQuestions && ai.questions && ai.questions.length > 0) {
+        // Preserve answers keyed by id when ids stay stable.
+        setQuestions(ai.questions)
+      }
+      if (needsPlan && ai.plan) {
+        setPlan(ai.plan)
+        if (ai.message.trim()) {
+          setMessages((prev) => {
+            if (prev.length === 0) return prev
+            const next = [...prev]
+            const last = next[next.length - 1]
+            if (last?.role === 'agent') {
+              next[next.length - 1] = { ...last, content: ai.message }
+            }
+            return next
+          })
+        }
+      } else if ((needsProposals || needsQuestions) && ai.message.trim()) {
+        // Refresh the short framing line above the form when present.
+        setMessages((prev) => {
+          if (prev.length === 0) return prev
+          const next = [...prev]
+          const last = next[next.length - 1]
+          if (last?.role === 'agent') {
+            next[next.length - 1] = { ...last, content: ai.message }
+          }
+          return next
+        })
+      }
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only react to locale changes
+  }, [locale])
+
   const historyPlus = (...extra: ChatMessage[]) => [...messages, ...extra]
 
   const pushAgentReply = (content: string) => {
