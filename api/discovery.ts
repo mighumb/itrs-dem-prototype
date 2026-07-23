@@ -90,27 +90,46 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     const genAI = new GoogleGenerativeAI(apiKey)
-    const modelName = process.env.GEMINI_MODEL || 'gemini-2.5-flash'
-    const model = genAI.getGenerativeModel({
-      model: modelName,
-      systemInstruction: SYSTEM,
-      generationConfig: {
-        temperature: 0.7,
-        responseMimeType: 'application/json',
-      },
-    })
+    const modelCandidates = [
+      process.env.GEMINI_MODEL,
+      'gemini-2.5-flash',
+      'gemini-2.0-flash',
+      'gemini-flash-latest',
+      'gemini-1.5-flash',
+    ].filter((name, index, all): name is string => Boolean(name) && all.indexOf(name) === index)
 
-    const result = await model.generateContent(buildUserPrompt(body))
-    const text = result.response.text()
-    const parsed = extractJson(text) as Record<string, unknown>
+    let lastError: unknown
+    for (const modelName of modelCandidates) {
+      try {
+        const model = genAI.getGenerativeModel({
+          model: modelName,
+          systemInstruction: SYSTEM,
+          generationConfig: {
+            temperature: 0.7,
+            responseMimeType: 'application/json',
+          },
+        })
 
-    return res.status(200).json({
-      message: typeof parsed.message === 'string' ? parsed.message : 'Here is what I suggest.',
-      questions: Array.isArray(parsed.questions) ? parsed.questions : null,
-      proposals: Array.isArray(parsed.proposals) ? parsed.proposals : null,
-      plan: parsed.plan && typeof parsed.plan === 'object' ? parsed.plan : null,
-      readyForPlan: Boolean(parsed.readyForPlan),
-    })
+        const result = await model.generateContent(buildUserPrompt(body))
+        const text = result.response.text()
+        const parsed = extractJson(text) as Record<string, unknown>
+
+        return res.status(200).json({
+          message: typeof parsed.message === 'string' ? parsed.message : 'Here is what I suggest.',
+          questions: Array.isArray(parsed.questions) ? parsed.questions : null,
+          proposals: Array.isArray(parsed.proposals) ? parsed.proposals : null,
+          plan: parsed.plan && typeof parsed.plan === 'object' ? parsed.plan : null,
+          readyForPlan: Boolean(parsed.readyForPlan),
+          model: modelName,
+        })
+      } catch (error) {
+        lastError = error
+        console.error(`[api/discovery] model ${modelName} failed`, error)
+      }
+    }
+
+    const message = lastError instanceof Error ? lastError.message : 'Gemini request failed'
+    return res.status(502).json({ error: message })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Gemini request failed'
     console.error('[api/discovery]', message)
