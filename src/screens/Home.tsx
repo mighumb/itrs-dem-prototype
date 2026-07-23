@@ -35,7 +35,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
   const [input, setInput] = useState('')
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [agentTyping, setAgentTyping] = useState(false)
-  const [workStatus, setWorkStatus] = useState<string[]>([])
+  const [workStatus, setWorkStatus] = useState<string | null>(null)
   const [ctx, setCtx] = useState<DiscoveryContext | null>(null)
   const [questions, setQuestions] = useState<DiscoveryQuestion[]>([])
   const [questionIndex, setQuestionIndex] = useState(0)
@@ -89,12 +89,13 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
     const steps = inspecting
       ? [t('workingInspect'), t('workingDiagnose'), t('workingDraft')]
       : [t('workingThink'), t('workingDraft')]
-    setWorkStatus([steps[0]])
+    // One rotating status line — mainstream LLM chat convention (not a bullet list).
+    setWorkStatus(steps[0])
 
     let stepIndex = 0
     const timer = window.setInterval(() => {
       stepIndex = Math.min(stepIndex + 1, steps.length - 1)
-      setWorkStatus(steps.slice(0, stepIndex + 1))
+      setWorkStatus(steps[stepIndex])
     }, 1100)
 
     return {
@@ -105,7 +106,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
           abortRef.current = null
         }
         setAgentTyping(false)
-        setWorkStatus([])
+        setWorkStatus(null)
       },
     }
   }
@@ -125,16 +126,12 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
 
   const historyPlus = (...extra: ChatMessage[]) => [...messages, ...extra]
 
-  const pushAgentReply = (content: string, workTrace?: string[] | null) => {
+  const pushAgentReply = (content: string) => {
     if (!content.trim()) return
-    const withTrace =
-      workTrace && workTrace.length > 0
-        ? `${workTrace.map((line) => `· ${line}`).join('\n')}\n\n${content}`
-        : content
     pushMessages({
       id: uid('agent'),
       role: 'agent',
-      content: withTrace,
+      content,
     })
   }
 
@@ -169,7 +166,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
           : ai.message
             ? `${ai.message}\n\n${formatted}`
             : formatted
-      pushAgentReply(content, ai.workTrace)
+      pushAgentReply(content)
       noteAi(ai)
       setPlan(planToShow)
       setPhase('planning')
@@ -207,7 +204,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
       if (ai.proposals && ai.proposals.length > 0) {
         setProposals(ai.proposals)
         setPhase('proposals')
-        pushAgentReply(ai.message, ai.workTrace)
+        pushAgentReply(ai.message)
         return
       }
 
@@ -217,7 +214,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
           : buildDiscoveryQuestions(nextCtx)
       setQuestions(nextQuestions)
       setPhase('questionnaire')
-      pushAgentReply(ai.message, ai.workTrace)
+      pushAgentReply(ai.message)
     })
   }
 
@@ -238,7 +235,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
       const nextProposals = ai.proposals ?? []
       setProposals(nextProposals)
       setPhase(nextProposals.length > 0 ? 'proposals' : 'conversation')
-      pushAgentReply(ai.message, ai.workTrace)
+      pushAgentReply(ai.message)
     })
   }
 
@@ -375,7 +372,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
       noteAi(ai)
       setQuestions(nextQuestions)
       setPhase('questionnaire')
-      pushAgentReply(ai.message, ai.workTrace)
+      pushAgentReply(ai.message)
     })
   }
 
@@ -402,7 +399,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
           ai.message.includes('1.') || ai.message.includes('1)')
             ? ai.message
             : `${ai.message}\n\n${formatted}`
-        pushAgentReply(content, ai.workTrace)
+        pushAgentReply(content)
         setPlan(ai.plan)
         setPhase('planning')
         return
@@ -411,7 +408,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
       if (ai.proposals && ai.proposals.length > 0) {
         setProposals(ai.proposals)
         setPhase('proposals')
-        pushAgentReply(ai.message, ai.workTrace)
+        pushAgentReply(ai.message)
         return
       }
 
@@ -419,11 +416,11 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
         setQuestions(ai.questions)
         setQuestionIndex(0)
         setPhase('questionnaire')
-        pushAgentReply(ai.message, ai.workTrace)
+        pushAgentReply(ai.message)
         return
       }
 
-      pushAgentReply(ai.message, ai.workTrace)
+      pushAgentReply(ai.message)
     })
   }
 
@@ -505,7 +502,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
             ai.message.includes('1.') || ai.message.includes('1)')
               ? ai.message
               : `${ai.message}\n\n${formatPlanMessage(ai.plan)}`
-          pushAgentReply(body, ai.workTrace)
+          pushAgentReply(body)
           setPlan(ai.plan)
           setPhase('planning')
           return
@@ -514,7 +511,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
         if (ai.proposals && ai.proposals.length > 0) {
           setProposals(ai.proposals)
           setPhase('proposals')
-          pushAgentReply(ai.message, ai.workTrace)
+          pushAgentReply(ai.message)
           return
         }
 
@@ -522,7 +519,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
           setQuestions(ai.questions)
           setQuestionIndex(0)
           setPhase('questionnaire')
-          pushAgentReply(ai.message, ai.workTrace)
+          pushAgentReply(ai.message)
           return
         }
 
@@ -533,13 +530,13 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
             ai.message.includes('1.') || ai.message.includes('1)')
               ? ai.message
               : `${ai.message}\n\n${formatPlanMessage(nextPlan)}`
-          pushAgentReply(body, ai.workTrace)
+          pushAgentReply(body)
           setPlan(nextPlan)
           setPhase('planning')
           return
         }
 
-        pushAgentReply(ai.message, ai.workTrace)
+        pushAgentReply(ai.message)
       })
       return
     }
@@ -643,16 +640,14 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
               <AgentMessage key={message.id} message={message} hideActions />
             ))}
             {agentTyping && (
-              <div className="space-y-1.5 px-1 pt-1">
-                {workStatus.length > 0 ? (
-                  workStatus.map((line) => (
-                    <p
-                      key={line}
-                      className="animate-fade-in text-sm text-zinc-500 dark:text-zinc-400"
-                    >
-                      · {line}
-                    </p>
-                  ))
+              <div className="px-1 pt-1">
+                {workStatus ? (
+                  <p
+                    key={workStatus}
+                    className="animate-fade-in text-sm text-zinc-500 dark:text-zinc-400"
+                  >
+                    {workStatus}
+                  </p>
                 ) : (
                   <div className="flex gap-1">
                     <span className="h-2 w-2 animate-pulse rounded-full bg-zinc-300 dark:bg-zinc-600" />
