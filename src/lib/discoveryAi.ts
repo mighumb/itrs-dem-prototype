@@ -258,9 +258,19 @@ export async function requestDiscoveryAi(options: {
   phase?: string
   context?: DiscoveryContext | null
   selectedProposal?: JourneyProposal | null
+  preferredLanguage?: 'en' | 'fr'
   signal?: AbortSignal
 }): Promise<DiscoveryAiResult> {
-  const { mode, userMessage, messages = [], phase, context, selectedProposal, signal } = options
+  const {
+    mode,
+    userMessage,
+    messages = [],
+    phase,
+    context,
+    selectedProposal,
+    preferredLanguage = 'en',
+    signal,
+  } = options
 
   try {
     const response = await fetch('/api/discovery', {
@@ -271,6 +281,7 @@ export async function requestDiscoveryAi(options: {
         mode,
         userMessage,
         phase,
+        preferredLanguage,
         history: historyFromMessages(messages),
         selectedProposal: selectedProposal
           ? {
@@ -294,8 +305,9 @@ export async function requestDiscoveryAi(options: {
               answers: context.answers,
               selectedProposalId: context.selectedProposalId,
               pageSnapshot: context.pageSnapshot ?? null,
+              preferredLanguage,
             }
-          : null,
+          : { preferredLanguage },
       }),
     })
 

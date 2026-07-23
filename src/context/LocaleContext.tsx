@@ -7,19 +7,14 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import {
-  detectLocale,
-  t as translate,
-  type Locale,
-  type MessageKey,
-} from '../i18n/messages'
+import { t as translate, type Locale, type MessageKey } from '../i18n/messages'
 
 const STORAGE_KEY = 'itrs-dem-locale'
 
 interface LocaleContextValue {
   locale: Locale
   setLocale: (locale: Locale) => void
-  adaptToText: (text: string) => Locale
+  toggleLocale: () => void
   t: (key: MessageKey) => string
 }
 
@@ -32,6 +27,7 @@ function readStoredLocale(): Locale {
   } catch {
     // ignore
   }
+  // Product default: English
   return 'en'
 }
 
@@ -54,23 +50,15 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  const adaptToText = useCallback(
-    (text: string) => {
-      const detected = detectLocale(text)
-      if (detected && detected !== locale) {
-        setLocale(detected)
-        return detected
-      }
-      return detected ?? locale
-    },
-    [locale, setLocale],
-  )
+  const toggleLocale = useCallback(() => {
+    setLocale(locale === 'en' ? 'fr' : 'en')
+  }, [locale, setLocale])
 
   const t = useCallback((key: MessageKey) => translate(locale, key), [locale])
 
   const value = useMemo(
-    () => ({ locale, setLocale, adaptToText, t }),
-    [locale, setLocale, adaptToText, t],
+    () => ({ locale, setLocale, toggleLocale, t }),
+    [locale, setLocale, toggleLocale, t],
   )
 
   return <LocaleContext.Provider value={value}>{children}</LocaleContext.Provider>

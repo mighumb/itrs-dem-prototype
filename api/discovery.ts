@@ -10,6 +10,7 @@ type DiscoveryAiRequest = {
   userMessage: string
   history?: ChatTurn[]
   phase?: string
+  preferredLanguage?: 'en' | 'fr'
   selectedProposal?: {
     id?: string
     title?: string
@@ -22,12 +23,17 @@ type DiscoveryAiRequest = {
     answers?: Record<string, string>
     selectedProposalId?: string | null
     pageSnapshot?: string | null
+    preferredLanguage?: 'en' | 'fr'
   }
 }
 
 function buildUserPrompt(body: DiscoveryAiRequest, analysis: SiteAnalysisResult | null): string {
+  const preferredLanguage =
+    body.preferredLanguage ?? body.context?.preferredLanguage ?? 'en'
+
   const context = {
     ...(body.context ?? {}),
+    preferredLanguage,
     pageSnapshot:
       analysis?.snapshot ??
       body.context?.pageSnapshot ??
@@ -47,6 +53,7 @@ function buildUserPrompt(body: DiscoveryAiRequest, analysis: SiteAnalysisResult 
     {
       mode: body.mode,
       phase: body.phase ?? null,
+      preferredLanguage,
       userMessage: body.userMessage,
       selectedProposal: body.selectedProposal ?? null,
       context,

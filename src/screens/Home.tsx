@@ -30,7 +30,7 @@ const uid = (prefix: string) =>
   `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
 
 export default function Home({ userName = 'there', onStart }: HomeProps) {
-  const { t, adaptToText } = useLocale()
+  const { t, locale } = useLocale()
   const [phase, setPhase] = useState<DiscoveryPhase>('idle')
   const [input, setInput] = useState('')
   const [messages, setMessages] = useState<ChatMessage[]>([])
@@ -154,6 +154,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
         phase: 'planning',
         context: ctx,
         selectedProposal: ctx?.selectedProposal,
+        preferredLanguage: locale,
         signal,
       })
       if (ai.aborted) return
@@ -182,7 +183,6 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
     setQuestionIndex(0)
     setQuestions([])
     setConfiguring(false)
-    adaptToText(seed)
 
     // Leave the idle landing immediately so the chat layout + work status appear
     // while the agent runs (mainstream LLM chat feel).
@@ -196,6 +196,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
         messages: [userMsg],
         phase: 'conversation',
         context: nextCtx,
+        preferredLanguage: locale,
         signal,
       })
       if (ai.aborted) return
@@ -227,6 +228,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
         messages: history,
         phase: 'questionnaire',
         context: nextCtx,
+        preferredLanguage: locale,
         signal,
       })
       if (ai.aborted) return
@@ -361,6 +363,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
         phase: 'proposals',
         context: nextCtx,
         selectedProposal: proposal,
+        preferredLanguage: locale,
         signal,
       })
       if (ai.aborted) return
@@ -387,6 +390,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
         messages: history,
         phase: 'conversation',
         context: ctx,
+        preferredLanguage: locale,
         signal,
       })
       if (ai.aborted) return
@@ -425,7 +429,6 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
   }
 
   const handleOther = async (text: string) => {
-    adaptToText(text)
     if (phase === 'questionnaire' && questions[questionIndex]) {
       await saveQuestionnaireAnswer(questions[questionIndex].id, text)
       return
@@ -447,7 +450,6 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
     const text = raw.trim()
     if (!text || agentTyping) return
     setInput('')
-    adaptToText(text)
 
     if (phase === 'idle') {
       // Curated examples are the only shortcut to a ready plan.
@@ -491,7 +493,8 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
           messages: history,
           phase: 'planning',
           context: ctx,
-          signal,
+          preferredLanguage: locale,
+        signal,
         })
         if (ai.aborted) return
         rememberSnapshot(ai)

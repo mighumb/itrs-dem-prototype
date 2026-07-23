@@ -45,6 +45,7 @@ export const messages = {
     workingDiagnose: 'Diagnosing monitoring need…',
     workingDraft: 'Drafting a reply…',
     workingThink: 'Thinking…',
+    language: 'Language',
   },
   fr: {
     signIn: 'Connexion',
@@ -91,6 +92,7 @@ export const messages = {
     workingDiagnose: 'Je diagnostique le besoin de monitoring…',
     workingDraft: 'Je prépare une réponse…',
     workingThink: 'Réflexion…',
+    language: 'Langue',
   },
 } as const
 

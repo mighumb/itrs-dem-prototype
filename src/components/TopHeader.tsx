@@ -23,7 +23,7 @@ export default function TopHeader({
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
   const { theme, toggleTheme } = useTheme()
-  const { t } = useLocale()
+  const { t, locale, setLocale } = useLocale()
 
   useEffect(() => {
     if (!menuOpen) return
@@ -70,6 +70,36 @@ export default function TopHeader({
       )}
 
       <div className={`flex shrink-0 items-center gap-2 ${journeyTitle ? '' : 'ml-auto'}`}>
+        <div
+          className="flex items-center rounded-lg border border-zinc-200 p-0.5 dark:border-zinc-700"
+          role="group"
+          aria-label={t('language')}
+        >
+          <button
+            type="button"
+            onClick={() => setLocale('en')}
+            aria-pressed={locale === 'en'}
+            className={`cursor-pointer rounded-md px-2 py-1 text-xs font-semibold tracking-wide transition ${
+              locale === 'en'
+                ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900'
+                : 'text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-100'
+            }`}
+          >
+            EN
+          </button>
+          <button
+            type="button"
+            onClick={() => setLocale('fr')}
+            aria-pressed={locale === 'fr'}
+            className={`cursor-pointer rounded-md px-2 py-1 text-xs font-semibold tracking-wide transition ${
+              locale === 'fr'
+                ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900'
+                : 'text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-100'
+            }`}
+          >
+            FR
+          </button>
+        </div>
         <div ref={menuRef} className="relative">
           <button
             type="button"
