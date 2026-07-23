@@ -78,14 +78,16 @@ export const messages = {
 
 export type MessageKey = keyof typeof messages.en
 
-const FRENCH_HINT =
-  /[àâäéèêëïîôùûüçœæ]|(\b(je|j'|tu|nous|vous|mon|ma|mes|le|la|les|un|une|des|du|de|des|pour|avec|sur|dans|quel|quelle|quels|quelles|parcours|monitorer|surveiller|recommande|souhaite|veux|voudrais|aide|site|web)\b)/i
-
 export function detectLocale(text: string): Locale | null {
   const trimmed = text.trim()
   if (!trimmed) return null
-  if (FRENCH_HINT.test(trimmed)) return 'fr'
-  // Strong English signals keep/switch to English when clearly English-only.
+  // Accented characters or multiple French function-words → French.
+  const frenchHits = trimmed.match(
+    /\b(je|tu|nous|vous|mon|ma|mes|des|pour|avec|dans|quel|quelle|parcours|monitorer|surveiller|recommande|recommandes|souhaite|veux|voudrais|aide|faire)\b/gi,
+  )
+  if (/[àâäéèêëïîôùûüçœæ]/i.test(trimmed) || (frenchHits && frenchHits.length >= 1)) {
+    return 'fr'
+  }
   if (/\b(the|what|which|journey|monitor|please|recommend|should|website)\b/i.test(trimmed)) {
     return 'en'
   }

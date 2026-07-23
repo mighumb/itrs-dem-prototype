@@ -107,8 +107,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
     setProposals([])
     setPlan(null)
     setQuestionIndex(0)
-    setPhase('questionnaire')
-
+    setQuestions([])
     adaptToText(seed)
 
     pushMessages(userMsg)
@@ -120,6 +119,19 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
         phase: 'idle',
         context: nextCtx,
       })
+
+      // Prefer proactive proposals when the model recommends journeys for a known sector/site.
+      if (ai.proposals && ai.proposals.length > 0) {
+        setProposals(ai.proposals)
+        setPhase('proposals')
+        pushMessages({
+          id: uid('agent'),
+          role: 'agent',
+          content: ai.message,
+        })
+        return
+      }
+
       const nextQuestions =
         ai.questions && ai.questions.length > 0
           ? ai.questions

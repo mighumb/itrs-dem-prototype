@@ -105,9 +105,21 @@ function mockFallback(
 ): DiscoveryAiResult {
   if (mode === 'bootstrap') {
     const nextCtx = ctx ?? createDiscoveryContext(userMessage)
+    const knownSite = Boolean(nextCtx.url) || nextCtx.domain !== 'generic'
+    if (knownSite) {
+      return {
+        message:
+          "You don't need to know the critical path — for this kind of site, DEM teams usually start with these journeys. **#1 is recommended.** Pick one, or tell me what to change.",
+        questions: null,
+        proposals: buildJourneyProposals(nextCtx),
+        plan: null,
+        readyForPlan: false,
+        source: 'mock',
+      }
+    }
     return {
       message:
-        "Got it — I'll refine a journey for this. A few quick questions, then I'll propose **3 paths**. You can also answer in the chat or dismiss the questionnaire anytime.",
+        "Happy to help — no prior knowledge needed. A few quick choices and I'll recommend solid journeys to monitor.",
       questions: buildDiscoveryQuestions(nextCtx),
       proposals: null,
       plan: null,

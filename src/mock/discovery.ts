@@ -26,7 +26,7 @@ export interface DiscoveryPlan {
 export interface DiscoveryContext {
   seed: string
   url: string | null
-  domain: 'nike' | 'train' | 'hotel' | 'generic'
+  domain: 'nike' | 'train' | 'hotel' | 'airline' | 'generic'
   answers: Record<string, string>
   selectedProposalId: string | null
 }
@@ -46,6 +46,15 @@ function detectDomain(text: string): DiscoveryContext['domain'] {
     (lower.includes('paris') && lower.includes('lyon'))
   ) {
     return 'train'
+  }
+  if (
+    lower.includes('airfrance') ||
+    lower.includes('air france') ||
+    lower.includes('airline') ||
+    lower.includes('compagnie aérienne') ||
+    /\b(vol|flight|check-?in)\b/.test(lower)
+  ) {
+    return 'airline'
   }
   if (lower.includes('booking') || lower.includes('hotel') || lower.includes('barcelona')) {
     return 'hotel'
@@ -200,6 +209,18 @@ export function buildDiscoveryQuestions(ctx: DiscoveryContext): DiscoveryQuestio
           ],
         },
       ]
+    case 'airline':
+      return [
+        {
+          id: 'airline-goal',
+          prompt: 'On peut démarrer avec le parcours le plus courant pour une compagnie aérienne — ça te va ?',
+          options: [
+            'Oui — recherche de vol → sélection (recommandé)',
+            'Plutôt gestion de réservation / mon billet',
+            'Plutôt enregistrement en ligne (check-in)',
+          ],
+        },
+      ]
     default: {
       let siteLabel = 'this site'
       if (ctx.url) {
@@ -250,9 +271,36 @@ export function buildJourneyProposals(ctx: DiscoveryContext): JourneyProposal[] 
       return buildTrainProposals(ctx)
     case 'hotel':
       return buildHotelProposals(ctx)
+    case 'airline':
+      return buildAirlineProposals(ctx)
     default:
       return buildGenericProposals(ctx)
   }
+}
+
+function buildAirlineProposals(ctx: DiscoveryContext): JourneyProposal[] {
+  const site = ctx.url ?? 'https://wwws.airfrance.fr'
+  return [
+    {
+      id: 'airline-search-book',
+      title: 'Recommandé — Recherche & sélection de vol',
+      description:
+        'Parcours DEM le plus fréquent pour une compagnie aérienne : recherche → résultats → sélection aller.',
+      prompt: `Open ${site}, search a round-trip flight for 1 passenger (e.g. Paris CDG to Lyon or Nice, departing in about a week), review the results list, select an outbound flight option, and verify the passenger/details step is reachable without completing payment.`,
+    },
+    {
+      id: 'airline-manage',
+      title: 'Gérer une réservation',
+      description: 'Accès “mes réservations” / retrouver un billet — souvent fragile (login + formulaires).',
+      prompt: `Open ${site}, navigate to manage booking / my trips, attempt to retrieve a booking with sample references if a form is shown, and verify the manage-booking flow loads without completing login with real credentials.`,
+    },
+    {
+      id: 'airline-checkin',
+      title: 'Enregistrement en ligne',
+      description: 'Check-in web : disponibilité de la page et entrée dans le tunnel.',
+      prompt: `Open ${site}, open online check-in, and verify the check-in entry page (and any booking lookup form) loads successfully without completing a real check-in.`,
+    },
+  ]
 }
 
 function buildNikeProposals(ctx: DiscoveryContext): JourneyProposal[] {
