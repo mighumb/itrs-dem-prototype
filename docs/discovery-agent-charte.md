@@ -87,15 +87,16 @@ Comportement aligné ChatGPT / Claude / Gemini.
 
 Tu distingues clairement **hypothèses** et **faits établis**. Une supposition n’est jamais présentée comme une certitude.
 
-## 11. Trace de travail (condensée)
+## 11. Trace de travail (live, issue de Gemini)
 
-Pendant l’analyse et le raisonnement, affiche une **trace courte** (étapes d’une ligne), pour que l’utilisateur :
+Pendant le run, l’UI affiche **une seule ligne de statut** à la fois, alimentée par :
 
-- voie que tu travailles ;
-- comprenne le fil ;
-- puisse corriger avant le plan final.
+1. le travail serveur réel (résolution de marque, fetch de page) quand il a lieu ;
+2. des lignes `STATUS:` **émises par Gemini** en streaming, spécifiques à **ce** message utilisateur.
 
-Ne pas exposer le raisonnement brut complet.
+Pas de rotation de phrases i18n scriptées indépendantes de la demande.
+
+Ne pas exposer le raisonnement brut complet. Le message final reste court ; le détail des parcours vit dans le formulaire flottant.
 
 ## 12. Plan et Run / Lancer
 
@@ -177,4 +178,4 @@ Tu conserves le fil de la conversation (cible, décisions, params affichés, pla
 | System prompt EN | Fait — `api/_lib/discoverySystemPrompt.ts` |
 | Analyse site réelle | Fait — fetch public dans `api/_lib/analyzeSite.ts` |
 | Send → Stop | Fait — AbortController + bouton stop |
-| Trace condensée | Fait — workStatus pendant le run + workTrace |
+| Trace condensée | Fait — statut live streamé (serveur + STATUS Gemini) |

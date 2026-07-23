@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import DiscoveryStack from '../components/DiscoveryStack'
 import { AgentMessage } from '../components/GlobalAgent'
 import { useLocale } from '../context/LocaleContext'
-import { looksLikeHttpUrl, requestDiscoveryAi, type DiscoveryAiResult } from '../lib/discoveryAi'
+import { requestDiscoveryAi, type DiscoveryAiResult } from '../lib/discoveryAi'
 import { getHomeExamples, isCuratedHomeExample } from '../mock/data'
 import {
   buildConfigureQuestions,
@@ -79,31 +79,21 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
     setMessages((prev) => [...prev, ...next])
   }
 
-  const beginRun = (seedText?: string) => {
+  const beginRun = () => {
     abortRef.current?.abort()
     const controller = new AbortController()
     abortRef.current = controller
     setAgentTyping(true)
-
-    const inspecting = looksLikeHttpUrl(seedText ?? '') || Boolean(ctx?.url)
-    const steps = inspecting
-      ? [t('workingInspect'), t('workingDiagnose'), t('workingDraft')]
-      : seedText && seedText.trim().length >= 3
-        ? [t('workingResolve'), t('workingInspect'), t('workingDraft')]
-        : [t('workingThink'), t('workingDraft')]
-    // One rotating status line — mainstream LLM chat convention (not a bullet list).
-    setWorkStatus(steps[0])
-
-    let stepIndex = 0
-    const timer = window.setInterval(() => {
-      stepIndex = Math.min(stepIndex + 1, steps.length - 1)
-      setWorkStatus(steps[stepIndex])
-    }, 1100)
+    setWorkStatus(null)
 
     return {
       signal: controller.signal,
+      onStatus: (text: string) => {
+        if (abortRef.current === controller) {
+          setWorkStatus(text)
+        }
+      },
       finish: () => {
-        window.clearInterval(timer)
         if (abortRef.current === controller) {
           abortRef.current = null
         }
@@ -117,10 +107,10 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
     abortRef.current?.abort()
   }
 
-  const withTyping = async (seedText: string | undefined, fn: (signal: AbortSignal) => Promise<void>) => {
-    const run = beginRun(seedText)
+  const withTyping = async (fn: (signal: AbortSignal, onStatus: (text: string) => void) => Promise<void>) => {
+    const run = beginRun()
     try {
-      await fn(run.signal)
+      await fn(run.signal, run.onStatus)
     } finally {
       run.finish()
     }
@@ -147,7 +137,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
     // Keep Run/Lancer hidden until the plan message is fully ready to display.
     setPlan(null)
     setPhase('conversation')
-    await withTyping(nextPlan.prompt, async (signal) => {
+    await withTyping(async (signal, onStatus) => {
       const history = userMsg ? historyPlus(userMsg) : messages
       const ai = await requestDiscoveryAi({
         mode: 'plan',
@@ -158,6 +148,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
         selectedProposal: ctx?.selectedProposal,
         preferredLanguage: locale,
         signal,
+        onStatus,
       })
       if (ai.aborted) return
       rememberSnapshot(ai)
@@ -191,7 +182,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
     pushMessages(userMsg)
     setPhase('conversation')
 
-    await withTyping(seed, async (signal) => {
+    await withTyping(async (signal, onStatus) => {
       const ai = await requestDiscoveryAi({
         mode: 'bootstrap',
         userMessage: seed,
@@ -200,6 +191,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
         context: nextCtx,
         preferredLanguage: locale,
         signal,
+        onStatus,
       })
       if (ai.aborted) return
       rememberSnapshot(ai)
@@ -223,7 +215,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
 
   const openProposals = async (nextCtx: DiscoveryContext, history: ChatMessage[]) => {
     setCtx(nextCtx)
-    await withTyping(nextCtx.seed, async (signal) => {
+    await withTyping(async (signal, onStatus) => {
       const ai = await requestDiscoveryAi({
         mode: 'propose',
         userMessage: nextCtx.seed,
@@ -232,6 +224,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
         context: nextCtx,
         preferredLanguage: locale,
         signal,
+        onStatus,
       })
       if (ai.aborted) return
       rememberSnapshot(ai)
@@ -357,7 +350,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
     }
     pushMessages(userMsg)
 
-    await withTyping(proposal.title, async (signal) => {
+    await withTyping(async (signal, onStatus) => {
       const ai = await requestDiscoveryAi({
         mode: 'configure',
         userMessage: proposal.title,
@@ -367,6 +360,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
         selectedProposal: proposal,
         preferredLanguage: locale,
         signal,
+        onStatus,
       })
       if (ai.aborted) return
       rememberSnapshot(ai)
@@ -385,7 +379,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
     // Iterating away from a settled plan hides Run/Lancer until a full plan is shown again.
     setPlan(null)
     setPhase('conversation')
-    await withTyping(text, async (signal) => {
+    await withTyping(async (signal, onStatus) => {
       const ai = await requestDiscoveryAi({
         mode: 'chat',
         userMessage: text,
@@ -394,6 +388,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
         context: ctx,
         preferredLanguage: locale,
         signal,
+        onStatus,
       })
       if (ai.aborted) return
       rememberSnapshot(ai)
@@ -485,7 +480,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
       // Any new user turn while a plan is shown = iteration → hide Run/Lancer immediately.
       setPlan(null)
       setPhase('conversation')
-      await withTyping(text, async (signal) => {
+      await withTyping(async (signal, onStatus) => {
         const ai = await requestDiscoveryAi({
           mode: 'chat',
           userMessage: text,
@@ -494,6 +489,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
           context: ctx,
           preferredLanguage: locale,
         signal,
+        onStatus,
         })
         if (ai.aborted) return
         rememberSnapshot(ai)

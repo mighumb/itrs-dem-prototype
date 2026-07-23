@@ -42,11 +42,6 @@ export const messages = {
     fallbackMock: 'Offline fallback (mock)',
     stop: 'Stop',
     send: 'Send',
-    workingInspect: 'Looking at the site…',
-    workingResolve: 'Finding the official site…',
-    workingDiagnose: 'Diagnosing monitoring need…',
-    workingDraft: 'Drafting a reply…',
-    workingThink: 'Thinking…',
     language: 'Language',
   },
   fr: {
@@ -91,11 +86,6 @@ export const messages = {
     fallbackMock: 'Mode secours (mock)',
     stop: 'Arrêter',
     send: 'Envoyer',
-    workingInspect: 'Je regarde le site…',
-    workingResolve: 'Je cherche le site officiel…',
-    workingDiagnose: 'Je diagnostique le besoin de monitoring…',
-    workingDraft: 'Je prépare une réponse…',
-    workingThink: 'Réflexion…',
     language: 'Langue',
   },
 } as const
