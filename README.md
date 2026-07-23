@@ -12,7 +12,8 @@ Interactive **frontend-only** prototype for validating the business-user journey
 - **React 19** + **Vite** + **TypeScript**
 - **Tailwind CSS v4**
 - **Lucide React** (icons)
-- No backend — all data mocked
+- **Playwright** journey runner (real step screenshots in the Browser panel)
+- Discovery chat via Gemini (`/api/discovery`)
 
 ## Layout (integrated workspace)
 
@@ -28,15 +29,45 @@ Interactive **frontend-only** prototype for validating the business-user journey
 3. **Monitoring** — opens after the first run
 4. **Save modal** — signup prompt (Try → Save model)
 
-## What's fake
+## Playwright runner (real Browser screenshots)
 
-- Agent responses (pre-scripted with delays)
-- Browser preview (simulated viewport, not real Playwright)
-- KPIs and failing step (mock data)
+The Browser panel shows **real Playwright screenshots** during journey runs.
+
+### On Vercel (production)
+
+`/api/journey-run` launches Chromium via `@sparticuz/chromium` (serverless-compatible).  
+No separate host required for the basic live-capture path.
+
+Limits to expect: ~60s function timeout, cold starts, and sites that block datacenter bots.
+
+### Local
+
+```bash
+npm install
+npx playwright install chromium
+npm run journey:server   # http://localhost:8787 — keep this running
+npm run dev              # Vite proxies /api/journey-run → :8787
+```
+
+### Optional dedicated Docker worker
+
+```bash
+docker build -f services/playwright-runner/Dockerfile -t itrs-journey-runner .
+docker run -p 8787:8787 itrs-journey-runner
+```
+
+Point the frontend with `VITE_JOURNEY_RUNNER_URL=https://your-runner.example/api/journey-run`.
+
+If the runner is down, the UI falls back to simulated frames and says so in chat.
+
+## What's still mocked
+
+- Monitoring KPIs / random failure injection (simulation fallback only)
 - Auth / signup (no API)
+- Take control (button only)
 
 ## Phase 2 (not included)
 
 - Dashboard, Journeys list, Schedule panel
-- Real browser streaming (Playwright)
-- RBAC, Infrastructure, MCP API
+- Persistent journey storage, RBAC, MCP API
+- Cookie/login vault for authenticated journeys

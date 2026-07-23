@@ -5,13 +5,18 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "journey:server": "tsx server/journey-server.ts",
+    "dev:all": "tsx server/journey-server.ts & vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
+    "@sparticuz/chromium": "^147.0.0",
     "lucide-react": "^1.21.0",
+    "playwright": "^1.51.1",
+    "playwright-core": "1.51.1",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"
   },
@@ -24,6 +29,7 @@
     "@vitejs/plugin-react": "^6.0.2",
     "oxlint": "^1.69.0",
     "tailwindcss": "^4.3.1",
+    "tsx": "^4.23.1",
     "typescript": "~6.0.2",
     "vite": "^8.1.0"
   }
