@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import DiscoveryStack from '../components/DiscoveryStack'
 import { AgentMessage } from '../components/GlobalAgent'
 import { useLocale } from '../context/LocaleContext'
-import { requestDiscoveryAi } from '../lib/discoveryAi'
+import { looksLikeHttpUrl, requestDiscoveryAi, type DiscoveryAiResult } from '../lib/discoveryAi'
 import { HOME_EXAMPLES } from '../mock/data'
 import {
   buildConfigureQuestions,
@@ -35,6 +35,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
   const [input, setInput] = useState('')
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [agentTyping, setAgentTyping] = useState(false)
+  const [workStatus, setWorkStatus] = useState<string[]>([])
   const [ctx, setCtx] = useState<DiscoveryContext | null>(null)
   const [questions, setQuestions] = useState<DiscoveryQuestion[]>([])
   const [questionIndex, setQuestionIndex] = useState(0)
@@ -44,6 +45,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
   const [aiProviderLabel, setAiProviderLabel] = useState<string | null>(null)
   const chatEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const abortRef = useRef<AbortController | null>(null)
 
   const noteAi = (ai: { source: 'gemini' | 'mock'; model: string | null }) => {
     if (ai.source === 'gemini') {
@@ -53,30 +55,78 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
     }
   }
 
+  const rememberSnapshot = (ai: DiscoveryAiResult) => {
+    if (!ai.pageSnapshot && !ai.siteAnalysis) return
+    setCtx((prev) => {
+      if (!prev) return prev
+      return {
+        ...prev,
+        url: ai.siteAnalysis?.url ?? prev.url,
+        pageSnapshot: ai.pageSnapshot ?? prev.pageSnapshot ?? null,
+      }
+    })
+  }
+
   const inSession = phase !== 'idle'
   const showStack = phase === 'questionnaire' || phase === 'proposals'
   const showRun = phase === 'planning' && Boolean(plan)
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
-  }, [messages, agentTyping, showStack, showRun])
+  }, [messages, agentTyping, workStatus, showStack, showRun])
 
   const pushMessages = (...next: ChatMessage[]) => {
     setMessages((prev) => [...prev, ...next])
   }
 
-  const withTyping = async (fn: () => void | Promise<void>) => {
+  const beginRun = (seedText?: string) => {
+    abortRef.current?.abort()
+    const controller = new AbortController()
+    abortRef.current = controller
     setAgentTyping(true)
+
+    const inspecting = looksLikeHttpUrl(seedText ?? '') || Boolean(ctx?.url)
+    const steps = inspecting
+      ? [t('workingInspect'), t('workingDiagnose'), t('workingDraft')]
+      : [t('workingThink'), t('workingDraft')]
+    setWorkStatus([steps[0]])
+
+    let stepIndex = 0
+    const timer = window.setInterval(() => {
+      stepIndex = Math.min(stepIndex + 1, steps.length - 1)
+      setWorkStatus(steps.slice(0, stepIndex + 1))
+    }, 1100)
+
+    return {
+      signal: controller.signal,
+      finish: () => {
+        window.clearInterval(timer)
+        if (abortRef.current === controller) {
+          abortRef.current = null
+        }
+        setAgentTyping(false)
+        setWorkStatus([])
+      },
+    }
+  }
+
+  const handleStop = () => {
+    abortRef.current?.abort()
+  }
+
+  const withTyping = async (seedText: string | undefined, fn: (signal: AbortSignal) => Promise<void>) => {
+    const run = beginRun(seedText)
     try {
-      await fn()
+      await fn(run.signal)
     } finally {
-      setAgentTyping(false)
+      run.finish()
     }
   }
 
   const historyPlus = (...extra: ChatMessage[]) => [...messages, ...extra]
 
   const pushAgentReply = (content: string, workTrace?: string[] | null) => {
+    if (!content.trim()) return
     const withTrace =
       workTrace && workTrace.length > 0
         ? `${workTrace.map((line) => `· ${line}`).join('\n')}\n\n${content}`
@@ -98,7 +148,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
     // Keep Run/Lancer hidden until the plan message is fully ready to display.
     setPlan(null)
     setPhase('conversation')
-    await withTyping(async () => {
+    await withTyping(nextPlan.prompt, async (signal) => {
       const history = userMsg ? historyPlus(userMsg) : messages
       const ai = await requestDiscoveryAi({
         mode: 'plan',
@@ -107,7 +157,10 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
         phase: 'planning',
         context: ctx,
         selectedProposal: ctx?.selectedProposal,
+        signal,
       })
+      if (ai.aborted) return
+      rememberSnapshot(ai)
       const planToShow = ai.plan ?? nextPlan
       const formatted = formatPlanMessage(planToShow)
       const content =
@@ -135,15 +188,17 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
     adaptToText(seed)
 
     pushMessages(userMsg)
-    await withTyping(async () => {
+    await withTyping(seed, async (signal) => {
       const ai = await requestDiscoveryAi({
         mode: 'bootstrap',
         userMessage: seed,
         messages: [userMsg],
         phase: 'idle',
         context: nextCtx,
+        signal,
       })
-
+      if (ai.aborted) return
+      rememberSnapshot(ai)
       noteAi(ai)
       if (ai.proposals && ai.proposals.length > 0) {
         setProposals(ai.proposals)
@@ -164,14 +219,17 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
 
   const openProposals = async (nextCtx: DiscoveryContext, history: ChatMessage[]) => {
     setCtx(nextCtx)
-    await withTyping(async () => {
+    await withTyping(nextCtx.seed, async (signal) => {
       const ai = await requestDiscoveryAi({
         mode: 'propose',
         userMessage: nextCtx.seed,
         messages: history,
         phase: 'questionnaire',
         context: nextCtx,
+        signal,
       })
+      if (ai.aborted) return
+      rememberSnapshot(ai)
       noteAi(ai)
       const nextProposals = ai.proposals ?? []
       setProposals(nextProposals)
@@ -294,7 +352,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
     }
     pushMessages(userMsg)
 
-    await withTyping(async () => {
+    await withTyping(proposal.title, async (signal) => {
       const ai = await requestDiscoveryAi({
         mode: 'configure',
         userMessage: proposal.title,
@@ -302,7 +360,10 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
         phase: 'proposals',
         context: nextCtx,
         selectedProposal: proposal,
+        signal,
       })
+      if (ai.aborted) return
+      rememberSnapshot(ai)
       const nextQuestions =
         ai.questions && ai.questions.length > 0
           ? ai.questions
@@ -318,14 +379,17 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
     // Iterating away from a settled plan hides Run/Lancer until a full plan is shown again.
     setPlan(null)
     setPhase('conversation')
-    await withTyping(async () => {
+    await withTyping(text, async (signal) => {
       const ai = await requestDiscoveryAi({
         mode: 'chat',
         userMessage: text,
         messages: history,
         phase: 'conversation',
         context: ctx,
+        signal,
       })
+      if (ai.aborted) return
+      rememberSnapshot(ai)
       noteAi(ai)
 
       if (ai.readyForPlan && ai.plan) {
@@ -419,14 +483,17 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
       // Any new user turn while a plan is shown = iteration → hide Run/Lancer immediately.
       setPlan(null)
       setPhase('conversation')
-      await withTyping(async () => {
+      await withTyping(text, async (signal) => {
         const ai = await requestDiscoveryAi({
           mode: 'chat',
           userMessage: text,
           messages: history,
           phase: 'planning',
           context: ctx,
+          signal,
         })
+        if (ai.aborted) return
+        rememberSnapshot(ai)
         noteAi(ai)
 
         if (ai.readyForPlan && ai.plan) {
@@ -496,6 +563,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
       className="relative"
       onSubmit={(e) => {
         e.preventDefault()
+        if (agentTyping) return
         void handleSubmit(input)
       }}
     >
@@ -505,16 +573,28 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
         onChange={(e) => setInput(e.target.value)}
         placeholder={inputPlaceholder}
         disabled={agentTyping}
+        readOnly={agentTyping}
         className="w-full rounded-2xl border border-zinc-200/80 bg-white py-4 pl-5 pr-14 text-base outline-none shadow-[0_4px_24px_rgba(0,0,0,0.06)] transition placeholder:text-zinc-400 focus:border-[#0071e3] focus:ring-4 focus:ring-[#0071e3]/10 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:shadow-[0_4px_28px_rgba(0,0,0,0.45)] dark:placeholder:text-zinc-500 dark:focus:ring-[#0071e3]/20"
       />
-      <button
-        type="submit"
-        disabled={agentTyping || !input.trim()}
-        className="absolute right-2 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-xl bg-[#0071e3] text-white transition hover:bg-[#0077ed] disabled:cursor-not-allowed disabled:opacity-40"
-        aria-label="Send"
-      >
-        <ArrowUp size={18} />
-      </button>
+      {agentTyping ? (
+        <button
+          type="button"
+          onClick={handleStop}
+          className="absolute right-2 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-xl bg-[#0071e3] text-white transition hover:bg-[#0077ed]"
+          aria-label={t('stop')}
+        >
+          <span className="block h-3.5 w-3.5 rounded-[3px] bg-white" />
+        </button>
+      ) : (
+        <button
+          type="submit"
+          disabled={!input.trim()}
+          className="absolute right-2 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-xl bg-[#0071e3] text-white transition hover:bg-[#0077ed] disabled:cursor-not-allowed disabled:opacity-40"
+          aria-label={t('send')}
+        >
+          <ArrowUp size={18} />
+        </button>
+      )}
     </form>
   )
 
@@ -559,10 +639,23 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
               <AgentMessage key={message.id} message={message} hideActions />
             ))}
             {agentTyping && (
-              <div className="flex gap-1 px-1">
-                <span className="h-2 w-2 animate-pulse rounded-full bg-zinc-300 dark:bg-zinc-600" />
-                <span className="h-2 w-2 animate-pulse rounded-full bg-zinc-300 [animation-delay:150ms] dark:bg-zinc-600" />
-                <span className="h-2 w-2 animate-pulse rounded-full bg-zinc-300 [animation-delay:300ms] dark:bg-zinc-600" />
+              <div className="space-y-1.5 px-1">
+                {workStatus.length > 0 ? (
+                  workStatus.map((line) => (
+                    <p
+                      key={line}
+                      className="animate-fade-in text-sm text-zinc-500 dark:text-zinc-400"
+                    >
+                      · {line}
+                    </p>
+                  ))
+                ) : (
+                  <div className="flex gap-1">
+                    <span className="h-2 w-2 animate-pulse rounded-full bg-zinc-300 dark:bg-zinc-600" />
+                    <span className="h-2 w-2 animate-pulse rounded-full bg-zinc-300 [animation-delay:150ms] dark:bg-zinc-600" />
+                    <span className="h-2 w-2 animate-pulse rounded-full bg-zinc-300 [animation-delay:300ms] dark:bg-zinc-600" />
+                  </div>
+                )}
               </div>
             )}
             <div ref={chatEndRef} />

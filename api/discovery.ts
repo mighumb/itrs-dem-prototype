@@ -1,6 +1,7 @@
 import { GoogleGenerativeAI } from '@google/generative-ai'
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { DISCOVERY_SYSTEM_PROMPT } from './discoverySystemPrompt'
+import { analyzePublicSite, extractHttpUrl, type SiteAnalysisResult } from './_lib/analyzeSite.js'
+import { DISCOVERY_SYSTEM_PROMPT } from './_lib/discoverySystemPrompt.js'
 
 type ChatTurn = { role: 'user' | 'agent'; content: string }
 
@@ -20,19 +21,35 @@ type DiscoveryAiRequest = {
     url?: string | null
     answers?: Record<string, string>
     selectedProposalId?: string | null
-    /** Optional live page evidence (future site analysis). */
     pageSnapshot?: string | null
   }
 }
 
-function buildUserPrompt(body: DiscoveryAiRequest): string {
+function buildUserPrompt(body: DiscoveryAiRequest, analysis: SiteAnalysisResult | null): string {
+  const context = {
+    ...(body.context ?? {}),
+    pageSnapshot:
+      analysis?.snapshot ??
+      body.context?.pageSnapshot ??
+      null,
+    siteAnalysis: analysis
+      ? {
+          ok: analysis.ok,
+          url: analysis.url,
+          reason: analysis.reason,
+          title: analysis.title,
+          status: analysis.status,
+        }
+      : null,
+  }
+
   return JSON.stringify(
     {
       mode: body.mode,
       phase: body.phase ?? null,
       userMessage: body.userMessage,
       selectedProposal: body.selectedProposal ?? null,
-      context: body.context ?? null,
+      context,
       history: (body.history ?? []).slice(-16),
     },
     null,
@@ -54,13 +71,44 @@ function extractJson(text: string): unknown {
   }
 }
 
-function normalizeWorkTrace(raw: unknown): string[] | null {
-  if (!Array.isArray(raw) || raw.length === 0) return null
-  const lines = raw
-    .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
-    .map((line) => line.trim())
-    .slice(0, 5)
-  return lines.length > 0 ? lines : null
+function normalizeWorkTrace(raw: unknown, analysis: SiteAnalysisResult | null): string[] | null {
+  const fromModel = Array.isArray(raw)
+    ? raw
+        .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+        .map((line) => line.trim())
+    : []
+
+  const prefix: string[] = []
+  if (analysis) {
+    if (analysis.ok) {
+      prefix.push(`Inspected ${analysis.url}${analysis.title ? ` — ${analysis.title}` : ''}`)
+    } else {
+      prefix.push(
+        `Could not fully access ${analysis.url}${analysis.reason ? ` (${analysis.reason})` : ''}`,
+      )
+    }
+  }
+
+  const merged = [...prefix, ...fromModel].slice(0, 6)
+  return merged.length > 0 ? merged : null
+}
+
+async function maybeAnalyzeSite(body: DiscoveryAiRequest): Promise<SiteAnalysisResult | null> {
+  if (body.context?.pageSnapshot) return null
+
+  const candidate =
+    body.context?.url ||
+    extractHttpUrl(body.userMessage) ||
+    extractHttpUrl(body.context?.seed ?? null)
+
+  if (!candidate) return null
+
+  // Analyze on bootstrap / propose / chat when a URL is present.
+  if (!['bootstrap', 'chat', 'propose', 'configure', 'plan'].includes(body.mode)) {
+    return null
+  }
+
+  return analyzePublicSite(candidate)
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -80,12 +128,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
+    const analysis = await maybeAnalyzeSite(body)
+
     const genAI = new GoogleGenerativeAI(apiKey)
     const modelCandidates = [
       process.env.GEMINI_MODEL,
       'gemini-2.5-flash',
-      'gemini-2.0-flash',
+      'gemini-2.5-flash-lite',
       'gemini-flash-latest',
+      'gemini-2.0-flash',
       'gemini-1.5-flash',
     ].filter((name, index, all): name is string => Boolean(name) && all.indexOf(name) === index)
 
@@ -101,17 +152,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           },
         })
 
-        const result = await model.generateContent(buildUserPrompt(body))
+        const result = await model.generateContent(buildUserPrompt(body, analysis))
         const text = result.response.text()
         const parsed = extractJson(text) as Record<string, unknown>
 
         return res.status(200).json({
           message: typeof parsed.message === 'string' ? parsed.message : 'Here is what I suggest.',
-          workTrace: normalizeWorkTrace(parsed.workTrace),
+          workTrace: normalizeWorkTrace(parsed.workTrace, analysis),
           questions: Array.isArray(parsed.questions) ? parsed.questions : null,
           proposals: Array.isArray(parsed.proposals) ? parsed.proposals : null,
           plan: parsed.plan && typeof parsed.plan === 'object' ? parsed.plan : null,
           readyForPlan: Boolean(parsed.readyForPlan),
+          pageSnapshot: analysis?.snapshot ?? body.context?.pageSnapshot ?? null,
+          siteAnalysis: analysis
+            ? {
+                ok: analysis.ok,
+                url: analysis.url,
+                reason: analysis.reason,
+                title: analysis.title,
+                status: analysis.status,
+              }
+            : null,
           model: modelName,
         })
       } catch (error) {
@@ -121,7 +182,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     const message = lastError instanceof Error ? lastError.message : 'Gemini request failed'
-    return res.status(502).json({ error: message })
+    return res.status(502).json({
+      error: message,
+      siteAnalysis: analysis
+        ? {
+            ok: analysis.ok,
+            url: analysis.url,
+            reason: analysis.reason,
+            title: analysis.title,
+            status: analysis.status,
+          }
+        : null,
+    })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Gemini request failed'
     console.error('[api/discovery]', message)

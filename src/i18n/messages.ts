@@ -39,6 +39,12 @@ export const messages = {
     fullName: 'Full name',
     poweredByGemini: 'Response via Gemini',
     fallbackMock: 'Offline fallback (mock)',
+    stop: 'Stop',
+    send: 'Send',
+    workingInspect: 'Looking at the site…',
+    workingDiagnose: 'Diagnosing monitoring need…',
+    workingDraft: 'Drafting a reply…',
+    workingThink: 'Thinking…',
   },
   fr: {
     signIn: 'Connexion',
@@ -79,6 +85,12 @@ export const messages = {
     fullName: 'Nom complet',
     poweredByGemini: 'Réponse via Gemini',
     fallbackMock: 'Mode secours (mock)',
+    stop: 'Arrêter',
+    send: 'Envoyer',
+    workingInspect: 'Je regarde le site…',
+    workingDiagnose: 'Je diagnostique le besoin de monitoring…',
+    workingDraft: 'Je prépare une réponse…',
+    workingThink: 'Réflexion…',
   },
 } as const
 

@@ -15,6 +15,14 @@ import type { ChatMessage } from '../types'
 
 export type DiscoveryAiMode = 'bootstrap' | 'chat' | 'propose' | 'configure' | 'plan'
 
+export type SiteAnalysisInfo = {
+  ok: boolean
+  url: string
+  reason: string | null
+  title: string | null
+  status: number | null
+}
+
 export interface DiscoveryAiResult {
   message: string
   workTrace: string[] | null
@@ -22,8 +30,11 @@ export interface DiscoveryAiResult {
   proposals: JourneyProposal[] | null
   plan: DiscoveryPlan | null
   readyForPlan: boolean
+  siteAnalysis: SiteAnalysisInfo | null
+  pageSnapshot: string | null
   source: 'gemini' | 'mock'
   model: string | null
+  aborted?: boolean
 }
 
 function historyFromMessages(messages: ChatMessage[]) {
@@ -41,7 +52,7 @@ function normalizeQuestions(raw: unknown): DiscoveryQuestion[] | null {
       const q = item as Record<string, unknown>
       const options = Array.isArray(q.options)
         ? q.options.filter((o): o is string => typeof o === 'string').slice(0, 3)
-        : []
+      : []
       if (typeof q.prompt !== 'string' || options.length < 2) return null
       return {
         id: typeof q.id === 'string' ? q.id : `q-${index + 1}`,
@@ -106,8 +117,21 @@ function normalizeWorkTrace(raw: unknown): string[] | null {
   const lines = raw
     .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
     .map((line) => line.trim())
-    .slice(0, 5)
+    .slice(0, 6)
   return lines.length > 0 ? lines : null
+}
+
+function normalizeSiteAnalysis(raw: unknown): SiteAnalysisInfo | null {
+  if (!raw || typeof raw !== 'object') return null
+  const a = raw as Record<string, unknown>
+  if (typeof a.url !== 'string') return null
+  return {
+    ok: Boolean(a.ok),
+    url: a.url,
+    reason: typeof a.reason === 'string' ? a.reason : null,
+    title: typeof a.title === 'string' ? a.title : null,
+    status: typeof a.status === 'number' ? a.status : null,
+  }
 }
 
 function mockFallback(
@@ -121,12 +145,18 @@ function mockFallback(
     if (hasTarget) {
       return {
         message:
-          "I couldn't inspect the live page yet (no site snapshot in this offline fallback). Based on what you shared, here are **3 journey options** — **#1 is recommended**. Pick one, or tell me what to change.",
-        workTrace: ['Target identified', 'No live snapshot — hypotheses only', 'Drafting 3 journey options'],
+          "I couldn't reach the live model just now, so this is an offline fallback. I also couldn't inspect the live page from here. Based on what you shared, here are **3 journey options** — **#1 is recommended**. Pick one, or tell me what to change.",
+        workTrace: [
+          'API unavailable — offline fallback',
+          'No live snapshot in this fallback',
+          'Drafting 3 journey options',
+        ],
         questions: null,
         proposals: buildJourneyProposals(nextCtx),
         plan: null,
         readyForPlan: false,
+        siteAnalysis: null,
+        pageSnapshot: null,
         source: 'mock',
         model: null,
       }
@@ -139,6 +169,8 @@ function mockFallback(
       proposals: null,
       plan: null,
       readyForPlan: false,
+      siteAnalysis: null,
+      pageSnapshot: null,
       source: 'mock',
       model: null,
     }
@@ -153,6 +185,8 @@ function mockFallback(
       proposals: buildJourneyProposals(ctx),
       plan: null,
       readyForPlan: false,
+      siteAnalysis: null,
+      pageSnapshot: null,
       source: 'mock',
       model: null,
     }
@@ -167,6 +201,8 @@ function mockFallback(
       proposals: null,
       plan: null,
       readyForPlan: false,
+      siteAnalysis: null,
+      pageSnapshot: null,
       source: 'mock',
       model: null,
     }
@@ -190,6 +226,8 @@ function mockFallback(
       proposals: null,
       plan,
       readyForPlan: true,
+      siteAnalysis: null,
+      pageSnapshot: null,
       source: 'mock',
       model: null,
     }
@@ -202,9 +240,15 @@ function mockFallback(
     proposals: null,
     plan: null,
     readyForPlan: false,
+    siteAnalysis: null,
+    pageSnapshot: null,
     source: 'mock',
     model: null,
   }
+}
+
+export function looksLikeHttpUrl(text: string): boolean {
+  return /https?:\/\/[^\s]+/i.test(text) || /\b[a-z0-9-]+\.[a-z]{2,}(?:\/|\b)/i.test(text)
 }
 
 export async function requestDiscoveryAi(options: {
@@ -214,13 +258,15 @@ export async function requestDiscoveryAi(options: {
   phase?: string
   context?: DiscoveryContext | null
   selectedProposal?: JourneyProposal | null
+  signal?: AbortSignal
 }): Promise<DiscoveryAiResult> {
-  const { mode, userMessage, messages = [], phase, context, selectedProposal } = options
+  const { mode, userMessage, messages = [], phase, context, selectedProposal, signal } = options
 
   try {
     const response = await fetch('/api/discovery', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      signal,
       body: JSON.stringify({
         mode,
         userMessage,
@@ -253,6 +299,22 @@ export async function requestDiscoveryAi(options: {
       }),
     })
 
+    if (signal?.aborted) {
+      return {
+        message: '',
+        workTrace: null,
+        questions: null,
+        proposals: null,
+        plan: null,
+        readyForPlan: false,
+        siteAnalysis: null,
+        pageSnapshot: null,
+        source: 'mock',
+        model: null,
+        aborted: true,
+      }
+    }
+
     if (!response.ok) {
       throw new Error(`API ${response.status}`)
     }
@@ -273,10 +335,31 @@ export async function requestDiscoveryAi(options: {
       proposals: normalizeProposals(data.proposals),
       plan: normalizePlan(data.plan, fallbackPrompt),
       readyForPlan: Boolean(data.readyForPlan),
+      siteAnalysis: normalizeSiteAnalysis(data.siteAnalysis),
+      pageSnapshot: typeof data.pageSnapshot === 'string' ? data.pageSnapshot : null,
       source: 'gemini',
       model: typeof data.model === 'string' ? data.model : 'gemini',
     }
-  } catch {
+  } catch (error) {
+    if (
+      signal?.aborted ||
+      (error instanceof DOMException && error.name === 'AbortError') ||
+      (error instanceof Error && error.name === 'AbortError')
+    ) {
+      return {
+        message: '',
+        workTrace: null,
+        questions: null,
+        proposals: null,
+        plan: null,
+        readyForPlan: false,
+        siteAnalysis: null,
+        pageSnapshot: null,
+        source: 'mock',
+        model: null,
+        aborted: true,
+      }
+    }
     return mockFallback(mode, userMessage, context ?? null)
   }
 }

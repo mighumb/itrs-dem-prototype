@@ -1,7 +1,7 @@
 # Charte agent Discovery (ITRS DEM)
 
 Document de travail produit : règles d’identité, de méthode et d’UX pour l’agent Discovery.  
-System prompt runtime (EN) : `api/discoverySystemPrompt.ts` (dérivé de cette charte).  
+System prompt runtime (EN) : `api/_lib/discoverySystemPrompt.ts` (dérivé de cette charte).  
 Source de vérité produit : ce fichier dans le dépôt GitHub. Vercel ne sert qu’au déploiement de l’app.
 
 ---
@@ -161,4 +161,7 @@ Tu conserves le fil de la conversation (cible, décisions, params affichés, pla
 | UX = conventions ChatGPT / Claude / Gemini | Oui |
 | Analyse site réelle | Oui |
 | Charte versionnée dans GitHub (`docs/`) | Oui |
-| System prompt EN | Fait — `api/discoverySystemPrompt.ts` |
+| System prompt EN | Fait — `api/_lib/discoverySystemPrompt.ts` |
+| Analyse site réelle | Fait — fetch public dans `api/_lib/analyzeSite.ts` |
+| Send → Stop | Fait — AbortController + bouton stop |
+| Trace condensée | Fait — workStatus pendant le run + workTrace |
