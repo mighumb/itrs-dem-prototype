@@ -260,6 +260,7 @@ export async function requestDiscoveryAi(options: {
   selectedProposal?: JourneyProposal | null
   preferredLanguage?: 'en' | 'fr'
   signal?: AbortSignal
+  onStatus?: (text: string) => void
 }): Promise<DiscoveryAiResult> {
   const {
     mode,
@@ -270,12 +271,31 @@ export async function requestDiscoveryAi(options: {
     selectedProposal,
     preferredLanguage = 'en',
     signal,
+    onStatus,
   } = options
+
+  const abortedResult = (): DiscoveryAiResult => ({
+    message: '',
+    workTrace: null,
+    questions: null,
+    proposals: null,
+    plan: null,
+    readyForPlan: false,
+    siteAnalysis: null,
+    pageSnapshot: null,
+    source: 'mock',
+    model: null,
+    aborted: true,
+  })
 
   try {
     const response = await fetch('/api/discovery', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/x-ndjson',
+        'X-Discovery-Stream': '1',
+      },
       signal,
       body: JSON.stringify({
         mode,
@@ -311,31 +331,82 @@ export async function requestDiscoveryAi(options: {
       }),
     })
 
-    if (signal?.aborted) {
-      return {
-        message: '',
-        workTrace: null,
-        questions: null,
-        proposals: null,
-        plan: null,
-        readyForPlan: false,
-        siteAnalysis: null,
-        pageSnapshot: null,
-        source: 'mock',
-        model: null,
-        aborted: true,
-      }
-    }
+    if (signal?.aborted) return abortedResult()
 
     if (!response.ok) {
       throw new Error(`API ${response.status}`)
     }
 
-    const data = (await response.json()) as Record<string, unknown>
+    const contentType = response.headers.get('content-type') ?? ''
     const fallbackPrompt =
-      userMessage ||
-      context?.seed ||
-      (typeof data.message === 'string' ? data.message : 'Monitor critical user journey')
+      userMessage || context?.seed || 'Monitor critical user journey'
+
+    // NDJSON stream (live status + final result)
+    if (contentType.includes('ndjson') && response.body) {
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let resultData: Record<string, unknown> | null = null
+      let streamError: string | null = null
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() ?? ''
+        for (const line of lines) {
+          const trimmed = line.trim()
+          if (!trimmed) continue
+          let event: Record<string, unknown>
+          try {
+            event = JSON.parse(trimmed) as Record<string, unknown>
+          } catch {
+            continue
+          }
+          if (event.type === 'status' && typeof event.text === 'string' && event.text.trim()) {
+            onStatus?.(event.text.trim())
+          } else if (event.type === 'result') {
+            resultData = event
+          } else if (event.type === 'error') {
+            streamError = typeof event.error === 'string' ? event.error : 'Stream error'
+            if (event.siteAnalysis) {
+              resultData = event
+            }
+          }
+        }
+      }
+
+      if (signal?.aborted) return abortedResult()
+
+      if (!resultData || streamError) {
+        throw new Error(streamError || 'No result in stream')
+      }
+
+      return {
+        message:
+          typeof resultData.message === 'string' && resultData.message.trim()
+            ? resultData.message
+            : mockFallback(mode, userMessage, context ?? null).message,
+        workTrace: normalizeWorkTrace(resultData.workTrace),
+        questions: normalizeQuestions(resultData.questions),
+        proposals: normalizeProposals(resultData.proposals),
+        plan: normalizePlan(resultData.plan, fallbackPrompt),
+        readyForPlan: Boolean(resultData.readyForPlan),
+        siteAnalysis: normalizeSiteAnalysis(resultData.siteAnalysis),
+        pageSnapshot: typeof resultData.pageSnapshot === 'string' ? resultData.pageSnapshot : null,
+        source: 'gemini',
+        model: typeof resultData.model === 'string' ? resultData.model : 'gemini',
+      }
+    }
+
+    // Legacy JSON response fallback
+    const data = (await response.json()) as Record<string, unknown>
+    if (Array.isArray(data.workTrace)) {
+      for (const line of data.workTrace) {
+        if (typeof line === 'string' && line.trim()) onStatus?.(line.trim())
+      }
+    }
 
     return {
       message:
@@ -358,19 +429,7 @@ export async function requestDiscoveryAi(options: {
       (error instanceof DOMException && error.name === 'AbortError') ||
       (error instanceof Error && error.name === 'AbortError')
     ) {
-      return {
-        message: '',
-        workTrace: null,
-        questions: null,
-        proposals: null,
-        plan: null,
-        readyForPlan: false,
-        siteAnalysis: null,
-        pageSnapshot: null,
-        source: 'mock',
-        model: null,
-        aborted: true,
-      }
+      return abortedResult()
     }
     return mockFallback(mode, userMessage, context ?? null)
   }
