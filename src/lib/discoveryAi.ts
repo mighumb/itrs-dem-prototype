@@ -22,6 +22,7 @@ export interface DiscoveryAiResult {
   plan: DiscoveryPlan | null
   readyForPlan: boolean
   source: 'gemini' | 'mock'
+  model: string | null
 }
 
 function historyFromMessages(messages: ChatMessage[]) {
@@ -116,6 +117,7 @@ function mockFallback(
         plan: null,
         readyForPlan: false,
         source: 'mock',
+        model: null,
       }
     }
     return {
@@ -126,6 +128,7 @@ function mockFallback(
       plan: null,
       readyForPlan: false,
       source: 'mock',
+      model: null,
     }
   }
 
@@ -138,18 +141,20 @@ function mockFallback(
       plan: null,
       readyForPlan: false,
       source: 'mock',
+      model: null,
     }
   }
 
   if (mode === 'configure' && ctx?.selectedProposal) {
     return {
       message:
-        "Parfait — avant de figer les étapes, choisisons ensemble les paramètres du parcours (tu peux aussi répondre autrement dans le chat).",
+        "Avant de figer les étapes, définissons ensemble les paramètres du parcours. Tu peux aussi préciser autrement dans le chat.",
       questions: buildConfigureQuestions(ctx, ctx.selectedProposal),
       proposals: null,
       plan: null,
       readyForPlan: false,
       source: 'mock',
+      model: null,
     }
   }
 
@@ -171,6 +176,7 @@ function mockFallback(
       plan,
       readyForPlan: true,
       source: 'mock',
+      model: null,
     }
   }
 
@@ -181,6 +187,7 @@ function mockFallback(
     plan: null,
     readyForPlan: false,
     source: 'mock',
+    model: null,
   }
 }
 
@@ -249,6 +256,7 @@ export async function requestDiscoveryAi(options: {
       plan: normalizePlan(data.plan, fallbackPrompt),
       readyForPlan: Boolean(data.readyForPlan),
       source: 'gemini',
+      model: typeof data.model === 'string' ? data.model : 'gemini',
     }
   } catch {
     return mockFallback(mode, userMessage, context ?? null)

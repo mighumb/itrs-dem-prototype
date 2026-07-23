@@ -41,8 +41,17 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
   const [proposals, setProposals] = useState<JourneyProposal[]>([])
   const [plan, setPlan] = useState<DiscoveryPlan | null>(null)
   const [configuring, setConfiguring] = useState(false)
+  const [aiProviderLabel, setAiProviderLabel] = useState<string | null>(null)
   const chatEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+
+  const noteAi = (ai: { source: 'gemini' | 'mock'; model: string | null }) => {
+    if (ai.source === 'gemini') {
+      setAiProviderLabel(ai.model ? `Gemini · ${ai.model}` : 'Gemini')
+    } else {
+      setAiProviderLabel('mock')
+    }
+  }
 
   const inSession = phase !== 'idle'
   const showStack = phase === 'questionnaire' || phase === 'proposals'
@@ -74,8 +83,9 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
     if (userMsg) {
       pushMessages(userMsg)
     }
-    setPlan(nextPlan)
-    setPhase('planning')
+    // Keep Ready to Run hidden until the plan message is fully ready to display.
+    setPlan(null)
+    setPhase('conversation')
     await withTyping(async () => {
       const history = userMsg ? historyPlus(userMsg) : messages
       const ai = await requestDiscoveryAi({
@@ -84,9 +94,9 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
         messages: history,
         phase: 'planning',
         context: ctx,
+        selectedProposal: ctx?.selectedProposal,
       })
       const planToShow = ai.plan ?? nextPlan
-      setPlan(planToShow)
       const formatted = formatPlanMessage(planToShow)
       const content =
         ai.plan && (ai.message.includes('1.') || ai.message.includes('1)'))
@@ -99,6 +109,9 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
         role: 'agent',
         content,
       })
+      noteAi(ai)
+      setPlan(planToShow)
+      setPhase('planning')
     })
   }
 
@@ -124,6 +137,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
       })
 
       // Prefer proactive proposals when the model recommends journeys for a known sector/site.
+      noteAi(ai)
       if (ai.proposals && ai.proposals.length > 0) {
         setProposals(ai.proposals)
         setPhase('proposals')
@@ -159,6 +173,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
         phase: 'questionnaire',
         context: nextCtx,
       })
+      noteAi(ai)
       const nextProposals = ai.proposals ?? []
       setProposals(nextProposals)
       setPhase(nextProposals.length > 0 ? 'proposals' : 'conversation')
@@ -297,6 +312,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
         ai.questions && ai.questions.length > 0
           ? ai.questions
           : buildConfigureQuestions(nextCtx, proposal)
+      noteAi(ai)
       setQuestions(nextQuestions)
       setPhase('questionnaire')
       pushMessages({
@@ -317,6 +333,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
         phase: 'conversation',
         context: ctx,
       })
+      noteAi(ai)
 
       // Brainstorming must not jump to Ready to Run.
       if (ai.proposals && ai.proposals.length > 0) {
@@ -415,6 +432,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
           phase: 'planning',
           context: ctx,
         })
+        noteAi(ai)
 
         const wantsPlanUpdate =
           /\b(update|change|modify|ajoute|retire|modifie|mets à jour|revise|update the plan)\b/i.test(
@@ -423,8 +441,6 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
 
         if (wantsPlanUpdate && (ai.plan || hasExploitableContext(text, ctx))) {
           const nextPlan = ai.plan ?? buildPlanFromPrompt(text)
-          setPlan(nextPlan)
-          setPhase('planning')
           const body =
             ai.plan && (ai.message.includes('1.') || ai.message.includes('1)'))
               ? ai.message
@@ -436,6 +452,8 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
             role: 'agent',
             content: body,
           })
+          setPlan(nextPlan)
+          setPhase('planning')
           return
         }
 
@@ -590,6 +608,11 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
           )}
 
           {composer}
+          {aiProviderLabel && (
+            <p className="px-1 text-[11px] text-zinc-400 dark:text-zinc-500">
+              {aiProviderLabel === 'mock' ? t('fallbackMock') : `${t('poweredByGemini')} (${aiProviderLabel})`}
+            </p>
+          )}
         </div>
       </div>
     </div>

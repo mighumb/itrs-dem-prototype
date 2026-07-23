@@ -37,6 +37,8 @@ export const messages = {
     submit: 'Submit',
     requestDemo: 'Request demo',
     fullName: 'Full name',
+    poweredByGemini: 'Response via Gemini',
+    fallbackMock: 'Offline fallback (mock)',
   },
   fr: {
     signIn: 'Connexion',
@@ -75,6 +77,8 @@ export const messages = {
     submit: 'Envoyer',
     requestDemo: 'Demander une démo',
     fullName: 'Nom complet',
+    poweredByGemini: 'Réponse via Gemini',
+    fallbackMock: 'Mode secours (mock)',
   },
 } as const
 
