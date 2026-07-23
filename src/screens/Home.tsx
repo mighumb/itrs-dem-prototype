@@ -125,7 +125,6 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
     configuring,
     messages,
     agentTyping,
-    plan,
   })
   sessionRef.current = {
     phase,
@@ -135,11 +134,11 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
     configuring,
     messages,
     agentTyping,
-    plan,
   }
   const prevLocaleRef = useRef(locale)
 
-  // Floating proposals/questions are Gemini content — refresh them when UI language changes.
+  // Floating form content is Gemini-generated — refresh it when UI language changes.
+  // Chat history (including plans) stays as written.
   useEffect(() => {
     if (prevLocaleRef.current === locale) return
     prevLocaleRef.current = locale
@@ -149,8 +148,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
 
     const needsProposals = session.phase === 'proposals' && session.proposals.length > 0
     const needsQuestions = session.phase === 'questionnaire' && session.questions.length > 0
-    const needsPlan = session.phase === 'planning' && Boolean(session.plan)
-    if (!needsProposals && !needsQuestions && !needsPlan) return
+    if (!needsProposals && !needsQuestions) return
 
     void withTyping(async (signal, onStatus) => {
       const payload = {
@@ -158,17 +156,14 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
         targetLanguage: locale,
         proposals: needsProposals ? session.proposals : undefined,
         questions: needsQuestions ? session.questions : undefined,
-        plan: needsPlan ? session.plan : undefined,
       }
 
       const ai = await requestDiscoveryAi({
         mode: needsProposals
           ? 'propose'
-          : needsQuestions
-            ? session.configuring
-              ? 'configure'
-              : 'chat'
-            : 'plan',
+          : session.configuring
+            ? 'configure'
+            : 'chat',
         userMessage: JSON.stringify(payload),
         messages: session.messages,
         phase: session.phase,
@@ -187,31 +182,6 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
       if (needsQuestions && ai.questions && ai.questions.length > 0) {
         // Preserve answers keyed by id when ids stay stable.
         setQuestions(ai.questions)
-      }
-      if (needsPlan && ai.plan) {
-        setPlan(ai.plan)
-        if (ai.message.trim()) {
-          setMessages((prev) => {
-            if (prev.length === 0) return prev
-            const next = [...prev]
-            const last = next[next.length - 1]
-            if (last?.role === 'agent') {
-              next[next.length - 1] = { ...last, content: ai.message }
-            }
-            return next
-          })
-        }
-      } else if ((needsProposals || needsQuestions) && ai.message.trim()) {
-        // Refresh the short framing line above the form when present.
-        setMessages((prev) => {
-          if (prev.length === 0) return prev
-          const next = [...prev]
-          const last = next[next.length - 1]
-          if (last?.role === 'agent') {
-            next[next.length - 1] = { ...last, content: ai.message }
-          }
-          return next
-        })
       }
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only react to locale changes

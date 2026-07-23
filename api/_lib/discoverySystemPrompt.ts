@@ -130,9 +130,9 @@ No markdown fence around the JSON. No text after the JSON object.
 If userMessage includes action "relocalize_ui" (or clearly asks to translate the floating UI):
 - Translate the provided proposals and/or questions into preferredLanguage.
 - Keep the same ids, count, and intents — do not invent a new set.
-- message: one short sentence in the new language (no re-listing).
+- message: one short sentence in the new language (no re-listing). Chat history / plans are NOT rewritten by the client — only the floating form is.
 - Return proposals when translating proposals; questions when translating questions.
-- readyForPlan false. plan null unless a plan object was provided to translate (then return the translated plan + readyForPlan true).
+- readyForPlan false. plan null.
 
 ## Hard rules
 - No journeys described as "observed on the site" unless evidence is in context.
