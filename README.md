@@ -29,9 +29,18 @@ Interactive **frontend-only** prototype for validating the business-user journey
 3. **Monitoring** — opens after the first run
 4. **Save modal** — signup prompt (Try → Save model)
 
-## Local Playwright runner
+## Playwright runner (real Browser screenshots)
 
-The Browser panel shows **real Playwright screenshots** when the journey runner is up.
+The Browser panel shows **real Playwright screenshots** during journey runs.
+
+### On Vercel (production)
+
+`/api/journey-run` launches Chromium via `@sparticuz/chromium` (serverless-compatible).  
+No separate host required for the basic live-capture path.
+
+Limits to expect: ~60s function timeout, cold starts, and sites that block datacenter bots.
+
+### Local
 
 ```bash
 npm install
@@ -40,9 +49,16 @@ npm run journey:server   # http://localhost:8787 — keep this running
 npm run dev              # Vite proxies /api/journey-run → :8787
 ```
 
-If the runner is down, the UI falls back to simulated frames and says so in chat.
+### Optional dedicated Docker worker
 
-On Vercel, `/api/journey-run` is deployed, but Chromium may be missing on the serverless runtime — prefer the local `journey:server` (or a dedicated worker) for reliable captures.
+```bash
+docker build -f services/playwright-runner/Dockerfile -t itrs-journey-runner .
+docker run -p 8787:8787 itrs-journey-runner
+```
+
+Point the frontend with `VITE_JOURNEY_RUNNER_URL=https://your-runner.example/api/journey-run`.
+
+If the runner is down, the UI falls back to simulated frames and says so in chat.
 
 ## What's still mocked
 

@@ -60,9 +60,13 @@ export async function runLiveJourney(options: {
 }): Promise<LiveJourneyRunResult> {
   const { steps, prompt, signal, onEvent, onFrame } = options
 
+  const runnerUrl =
+    (import.meta.env.VITE_JOURNEY_RUNNER_URL as string | undefined)?.replace(/\/$/, '') ||
+    '/api/journey-run'
+
   let response: Response
   try {
-    response = await fetch('/api/journey-run', {
+    response = await fetch(runnerUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

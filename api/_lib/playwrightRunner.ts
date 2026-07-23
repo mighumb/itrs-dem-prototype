@@ -1,4 +1,4 @@
-import { chromium, type Browser, type Page } from 'playwright'
+import type { Browser, Page } from 'playwright-core'
 
 export type RunnableStep = {
   id: string
@@ -245,6 +245,21 @@ async function executeStep(page: Page, step: RunnableStep, seedUrl: string | nul
 }
 
 async function launchBrowser(): Promise<Browser> {
+  const onServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME)
+
+  // Vercel / Lambda: use the lightweight Chromium build that fits serverless.
+  if (onServerless) {
+    const sparticuz = (await import('@sparticuz/chromium')).default
+    const { chromium } = await import('playwright-core')
+    return chromium.launch({
+      args: sparticuz.args,
+      executablePath: await sparticuz.executablePath(),
+      headless: true,
+    })
+  }
+
+  // Local / dedicated host: full Playwright Chromium (or system Chrome).
+  const { chromium } = await import('playwright')
   const executablePath =
     process.env.PLAYWRIGHT_CHROME_PATH ||
     process.env.CHROME_PATH ||

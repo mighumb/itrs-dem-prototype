@@ -13,8 +13,10 @@
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
+    "@sparticuz/chromium": "^147.0.0",
     "lucide-react": "^1.21.0",
     "playwright": "^1.51.1",
+    "playwright-core": "1.51.1",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"
   },
