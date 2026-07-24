@@ -40,7 +40,6 @@ export const messages = {
     submit: 'Submit',
     requestDemo: 'Request demo',
     fullName: 'Full name',
-    geminiDisclaimer: 'Gemini is an AI and can make mistakes.',
     geminiUnavailable: 'Gemini unavailable — retry when the connection is back.',
     agentThinking: 'Thinking…',
 
@@ -198,7 +197,6 @@ export const messages = {
     submit: 'Envoyer',
     requestDemo: 'Demander une démo',
     fullName: 'Nom complet',
-    geminiDisclaimer: 'Gemini est une IA et peut faire des erreurs.',
     geminiUnavailable: 'Gemini indisponible — réessaie quand la connexion revient.',
     agentThinking: 'Réflexion en cours…',
 

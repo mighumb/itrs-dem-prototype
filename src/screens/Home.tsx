@@ -848,11 +848,9 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
             )}
 
             {composer}
-            {aiProviderLabel && (
+            {aiProviderLabel === 'unavailable' && (
               <p className="px-1 text-center text-[11px] text-zinc-400 dark:text-zinc-500">
-                {aiProviderLabel === 'unavailable'
-                  ? t('geminiUnavailable')
-                  : t('geminiDisclaimer')}
+                {t('geminiUnavailable')}
               </p>
             )}
           </div>
