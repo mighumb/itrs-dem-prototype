@@ -8,6 +8,7 @@ import { requestDiscoveryAi, type DiscoveryAiResult } from '../lib/discoveryAi'
 import type { JourneyLaunchSession } from '../lib/journeyLaunch'
 import { getHomeExamples } from '../mock/data'
 import {
+  buildJourneyProposals,
   createDiscoveryContext,
   formatPlanMessage,
   hasExploitableContext,
@@ -317,10 +318,22 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
       if (ai.aborted) return
       rememberSnapshot(ai)
       noteAi(ai)
-      const nextProposals = ai.proposals ?? []
+
+      // Always surface a clickable proposal form — never leave the user typing a journey name.
+      const nextProposals =
+        ai.proposals && ai.proposals.length > 0
+          ? ai.proposals
+          : buildJourneyProposals(nextCtx, locale)
+      const agentMessage =
+        ai.proposals && ai.proposals.length > 0
+          ? ai.message
+          : locale === 'fr'
+            ? 'Voici les parcours que je te propose — choisis dans le formulaire ci-dessous.'
+            : 'Here are the journeys I suggest — pick one in the form below.'
+
       setProposals(nextProposals)
-      setPhase(nextProposals.length > 0 ? 'proposals' : 'conversation')
-      pushAgentReply(ai.message)
+      setPhase('proposals')
+      pushAgentReply(agentMessage)
     })
   }
 
