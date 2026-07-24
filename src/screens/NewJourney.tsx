@@ -4,6 +4,7 @@ import BrowserPanel from '../components/BrowserPanel'
 import CollapsedWorkspacePanel from '../components/CollapsedWorkspacePanel'
 import { DetachedPanelsLayer, type DetachablePanelId } from '../components/DetachedPanelWindow'
 import { AgentMessage } from '../components/GlobalAgent'
+import AgentWorkStatus from '../components/AgentWorkStatus'
 import JourneyTimeline from '../components/JourneyTimeline'
 import MonitoringColumn from '../components/MonitoringColumn'
 import WorkspacePanel from '../components/WorkspacePanel'
@@ -973,16 +974,8 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
                 />
               ))}
               {(isRunning || agentTyping) && (
-                <div className="space-y-1 px-2">
-                  {workStatus ? (
-                    <p className="text-[11px] text-zinc-400 dark:text-zinc-500">{workStatus}</p>
-                  ) : (
-                    <div className="flex items-center gap-1 py-0.5" aria-hidden>
-                      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-zinc-400 dark:bg-zinc-500" />
-                      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-zinc-400 [animation-delay:150ms] dark:bg-zinc-500" />
-                      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-zinc-400 [animation-delay:300ms] dark:bg-zinc-500" />
-                    </div>
-                  )}
+                <div className="px-2 py-0.5">
+                  <AgentWorkStatus status={workStatus} compact />
                 </div>
               )}
               <div ref={chatEndRef} />

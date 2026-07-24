@@ -83,6 +83,46 @@ button:disabled,
   animation: pulse-soft 1.5s ease-in-out infinite;
 }
 
+/* Cursor-like shimmer on agent working status (“Thinking…” / live STATUS) */
+@keyframes status-shimmer {
+  0% {
+    background-position: 100% center;
+  }
+  100% {
+    background-position: -100% center;
+  }
+}
+
+.agent-status-shimmer {
+  display: inline-block;
+  max-width: 100%;
+  background-image: linear-gradient(
+    90deg,
+    rgb(113 113 122) 0%,
+    rgb(113 113 122) 38%,
+    rgb(244 244 245) 50%,
+    rgb(113 113 122) 62%,
+    rgb(113 113 122) 100%
+  );
+  background-size: 220% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  animation: status-shimmer 1.7s ease-in-out infinite;
+}
+
+.dark .agent-status-shimmer {
+  background-image: linear-gradient(
+    90deg,
+    rgb(113 113 122) 0%,
+    rgb(113 113 122) 38%,
+    rgb(228 228 231) 50%,
+    rgb(113 113 122) 62%,
+    rgb(113 113 122) 100%
+  );
+}
+
 /* Thin scrollbars — WebKit */
 *::-webkit-scrollbar {
   width: 5px;
