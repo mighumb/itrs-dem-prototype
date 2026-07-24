@@ -49,7 +49,7 @@ function extractUrl(text: string): string | null {
   return `https://${hostPath}`
 }
 
-function siteLabelFromCtx(ctx: DiscoveryContext): string {
+function siteLabelFromCtx(ctx: DiscoveryContext, locale: 'en' | 'fr' = 'en'): string {
   if (ctx.url) {
     try {
       return new URL(ctx.url).hostname.replace(/^www\./, '')
@@ -59,7 +59,7 @@ function siteLabelFromCtx(ctx: DiscoveryContext): string {
   }
   const seedHost = ctx.seed.match(/\b([a-z0-9-]+\.[a-z]{2,})(?:\/|\b)/i)
   if (seedHost) return seedHost[1].replace(/^www\./, '')
-  return 'this site'
+  return locale === 'fr' ? 'ce site' : 'this site'
 }
 
 /** Precise enough to skip brainstorm and go straight to planning (curated samples / multi-step prompts). */
@@ -134,8 +134,42 @@ export function createDiscoveryContext(seed: string): DiscoveryContext {
 }
 
 /** Generic clarification questions — no brand/sector cheat-sheet. */
-export function buildDiscoveryQuestions(ctx: DiscoveryContext): DiscoveryQuestion[] {
-  const siteLabel = siteLabelFromCtx(ctx)
+export function buildDiscoveryQuestions(
+  ctx: DiscoveryContext,
+  locale: 'en' | 'fr' = 'en',
+): DiscoveryQuestion[] {
+  const siteLabel = siteLabelFromCtx(ctx, locale)
+  if (locale === 'fr') {
+    return [
+      {
+        id: 'goal',
+        prompt: `Qu’est-ce qui compte le plus sur ${siteLabel} ?`,
+        options: [
+          'Parcours critique checkout / réservation',
+          'Recherche et trouver un résultat',
+          'Connexion / accès compte',
+        ],
+      },
+      {
+        id: 'depth',
+        prompt: 'Jusqu’où le parcours doit-il aller ?',
+        options: [
+          'Happy path de bout en bout',
+          'Landing + interaction clé',
+          'Disponibilité de page seulement',
+        ],
+      },
+      {
+        id: 'risk',
+        prompt: 'Quel risque surveiller ?',
+        options: [
+          'Pages lentes',
+          'CTA / formulaires cassés',
+          'Pas sûr — propose quelque chose',
+        ],
+      },
+    ]
+  }
   return [
     {
       id: 'goal',
@@ -168,9 +202,12 @@ export function buildDiscoveryQuestions(ctx: DiscoveryContext): DiscoveryQuestio
 }
 
 /** Generic journey proposals derived from URL/seed/answers — not sector templates. */
-export function buildJourneyProposals(ctx: DiscoveryContext): JourneyProposal[] {
-  const url = ctx.url ?? 'the site'
-  const host = siteLabelFromCtx(ctx)
+export function buildJourneyProposals(
+  ctx: DiscoveryContext,
+  locale: 'en' | 'fr' = 'en',
+): JourneyProposal[] {
+  const url = ctx.url ?? (locale === 'fr' ? 'le site' : 'the site')
+  const host = siteLabelFromCtx(ctx, locale)
   const goal = `${ctx.answers.goal ?? ''} ${ctx.seed}`.toLowerCase()
   const depth = ctx.answers.depth ?? ''
   const risk = ctx.answers.risk ?? ''
@@ -181,7 +218,62 @@ export function buildJourneyProposals(ctx: DiscoveryContext): JourneyProposal[] 
       ? 'search'
       : 'checkout'
 
-  const riskNote = risk && !/not sure|pas s[uû]r/i.test(risk) ? ` (watch: ${risk})` : ''
+  const riskNote =
+    risk && !/not sure|pas s[uû]r/i.test(risk)
+      ? locale === 'fr'
+        ? ` (surveiller : ${risk})`
+        : ` (watch: ${risk})`
+      : ''
+
+  if (locale === 'fr') {
+    const primary =
+      focus === 'search'
+        ? {
+            id: 'primary-search',
+            title: `Recommandé — Recherche sur ${host}`,
+            description: `Chercher et vérifier les résultats${riskNote}.`,
+            prompt: `Ouvre ${url} et lance un parcours de recherche (paramètres à confirmer avec l’utilisateur).`,
+          }
+        : focus === 'login'
+          ? {
+              id: 'primary-login',
+              title: `Recommandé — Connexion sur ${host}`,
+              description: `Accès compte / entrée de connexion${depth ? ` · ${depth}` : ''}${riskNote}.`,
+              prompt: `Ouvre ${url} et exerce le parcours de connexion ou d’accès compte (paramètres à confirmer avec l’utilisateur).`,
+            }
+          : {
+              id: 'primary-checkout',
+              title: `Recommandé — Parcours critique sur ${host}`,
+              description: `Happy path checkout / réservation${depth ? ` · ${depth}` : ''}${riskNote}.`,
+              prompt: `Ouvre ${url} et parcours le chemin d’achat ou de réservation principal (paramètres à confirmer avec l’utilisateur).`,
+            }
+
+    return [
+      primary,
+      {
+        id: 'alt-availability',
+        title: `Disponibilité ${host}`,
+        description: `Contrôle léger : la homepage charge et la navigation principale est utilisable.`,
+        prompt: `Ouvre ${url}, attends le chargement de la homepage, et vérifie que la navigation principale est visible.`,
+      },
+      {
+        id: 'alt-secondary',
+        title:
+          focus === 'search'
+            ? `Checkout / réservation sur ${host}`
+            : focus === 'login'
+              ? `Recherche sur ${host}`
+              : `Connexion / compte sur ${host}`,
+        description: 'Parcours alternatif si le premier choix n’est pas le bon focus.',
+        prompt:
+          focus === 'search'
+            ? `Ouvre ${url} et parcours le chemin d’achat ou de réservation principal (paramètres à confirmer avec l’utilisateur).`
+            : focus === 'login'
+              ? `Ouvre ${url} et lance un parcours de recherche (paramètres à confirmer avec l’utilisateur).`
+              : `Ouvre ${url} et exerce le parcours de connexion ou d’accès compte (paramètres à confirmer avec l’utilisateur).`,
+      },
+    ]
+  }
 
   const primary =
     focus === 'search'
@@ -236,10 +328,42 @@ export function buildJourneyProposals(ctx: DiscoveryContext): JourneyProposal[] 
 export function buildConfigureQuestions(
   _ctx: DiscoveryContext,
   proposal: JourneyProposal,
+  locale: 'en' | 'fr' = 'en',
 ): DiscoveryQuestion[] {
   const title = `${proposal.title} ${proposal.description} ${proposal.prompt}`.toLowerCase()
 
   if (/search|recherche|flight|train|hotel|booking|vol|billet/.test(title)) {
+    if (locale === 'fr') {
+      return [
+        {
+          id: 'param-query',
+          prompt: 'Que doit-on rechercher ? (choisis une suggestion ou réponds dans le chat)',
+          options: [
+            'Une requête typique (Suggéré)',
+            'Je préciserai dans le chat',
+            'Le premier résultat disponible convient',
+          ],
+        },
+        {
+          id: 'param-when',
+          prompt: 'Contrainte de date / timing ?',
+          options: [
+            'Flexible / prochain disponible (Suggéré)',
+            'Je préciserai les dates',
+            'Non applicable',
+          ],
+        },
+        {
+          id: 'param-depth',
+          prompt: 'Où le parcours doit-il s’arrêter ?',
+          options: [
+            'Jusqu’à la page résultat / sélection clé (Suggéré)',
+            'Résultats de recherche seulement',
+            'Une étape plus loin dans le tunnel',
+          ],
+        },
+      ]
+    }
     return [
       {
         id: 'param-query',
@@ -272,6 +396,28 @@ export function buildConfigureQuestions(
   }
 
   if (/login|account|compte|connexion|sign-?in/.test(title)) {
+    if (locale === 'fr') {
+      return [
+        {
+          id: 'param-entry',
+          prompt: 'Quel point d’entrée ?',
+          options: [
+            'CTA principal connexion / compte (Suggéré)',
+            'Je décrirai l’entrée',
+            'Inscription plutôt que connexion',
+          ],
+        },
+        {
+          id: 'param-depth',
+          prompt: 'Où s’arrêter ?',
+          options: [
+            'Formulaire de connexion visible (Suggéré)',
+            'Après un message d’échec de validation',
+            'Homepage + ouvrir le menu compte seulement',
+          ],
+        },
+      ]
+    }
     return [
       {
         id: 'param-entry',
@@ -289,6 +435,29 @@ export function buildConfigureQuestions(
           'Sign-in form visible (Suggested)',
           'After a failed validation message',
           'Homepage + open account menu only',
+        ],
+      },
+    ]
+  }
+
+  if (locale === 'fr') {
+    return [
+      {
+        id: 'param-goal',
+        prompt: 'Que doit réussir ce parcours, concrètement ?',
+        options: [
+          'Atteindre la page clé du tunnel (Suggéré)',
+          'Vérifier que la homepage répond',
+          'Je décrirai mon cas dans le chat',
+        ],
+      },
+      {
+        id: 'param-detail',
+        prompt: 'Une valeur précise à utiliser (ville, produit, compte…) ?',
+        options: [
+          'Utiliser une suggestion raisonnable (Suggéré)',
+          'Je préciserai dans le chat',
+          'Pas besoin — garder générique',
         ],
       },
     ]
@@ -344,8 +513,20 @@ export function formatPlanMessage(plan: DiscoveryPlan): string {
   return `${plan.summary}\n\n${lines.join('\n')}`
 }
 
-export function agentNeedsMoreContextMessage(text: string): string {
+export function agentNeedsMoreContextMessage(
+  text: string,
+  locale: 'en' | 'fr' = 'en',
+): string {
   const lower = text.toLowerCase()
+  if (locale === 'fr') {
+    if (/\bcheckout\b|\bcart\b|\bpayment\b|\bpanier\b/.test(lower)) {
+      return 'Je peux préparer un parcours checkout — il me faut un peu plus de contexte. **Quel site ou URL ?** Et où s’arrêter (ex. ajout panier, page paiement) ?'
+    }
+    if (/\bhotel\b|\bbook\b|\br[eé]serv/.test(lower)) {
+      return 'Je peux planifier un parcours de réservation. **Quel site**, quelle intention, et jusqu’où aller ?'
+    }
+    return 'Il me manque encore du contexte pour un parcours fiable. Partage une **URL** ou décris le site, l’objectif, et où le parcours doit s’arrêter — ou utilise le formulaire flottant.'
+  }
   if (/\bcheckout\b|\bcart\b|\bpayment\b|\bpanier\b/.test(lower)) {
     return "I can draft a checkout journey — but I need a bit more context. **Which site or URL?** And where should we stop (e.g. add to bag, payment page)?"
   }

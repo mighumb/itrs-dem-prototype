@@ -6,8 +6,6 @@ import { useLocale } from '../context/LocaleContext'
 import { requestDiscoveryAi, type DiscoveryAiResult } from '../lib/discoveryAi'
 import { getHomeExamples, isCuratedHomeExample } from '../mock/data'
 import {
-  buildConfigureQuestions,
-  buildDiscoveryQuestions,
   buildPlanFromPrompt,
   buildPlanFromProposal,
   createDiscoveryContext,
@@ -274,12 +272,17 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
         return
       }
 
-      const nextQuestions =
-        ai.questions && ai.questions.length > 0
-          ? ai.questions
-          : buildDiscoveryQuestions(nextCtx)
-      setQuestions(nextQuestions)
-      setPhase('questionnaire')
+      // Only show the floating form when Gemini (or localized mock) returned
+      // questions — never inject English hardcoded fallbacks over a FR reply.
+      if (ai.questions && ai.questions.length > 0) {
+        setQuestions(ai.questions)
+        setQuestionIndex(0)
+        setPhase('questionnaire')
+        pushAgentReply(ai.message)
+        return
+      }
+
+      setPhase('conversation')
       pushAgentReply(ai.message)
     })
   }
@@ -435,13 +438,16 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
       })
       if (ai.aborted) return
       rememberSnapshot(ai)
-      const nextQuestions =
-        ai.questions && ai.questions.length > 0
-          ? ai.questions
-          : buildConfigureQuestions(nextCtx, proposal)
       noteAi(ai)
-      setQuestions(nextQuestions)
-      setPhase('questionnaire')
+      if (ai.questions && ai.questions.length > 0) {
+        setQuestions(ai.questions)
+        setQuestionIndex(0)
+        setPhase('questionnaire')
+        pushAgentReply(ai.message)
+        return
+      }
+
+      setPhase('conversation')
       pushAgentReply(ai.message)
     })
   }

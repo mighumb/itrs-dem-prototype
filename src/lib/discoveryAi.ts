@@ -138,21 +138,32 @@ function mockFallback(
   mode: DiscoveryAiMode,
   userMessage: string,
   ctx: DiscoveryContext | null,
+  preferredLanguage: 'en' | 'fr' = 'en',
 ): DiscoveryAiResult {
+  const lang = preferredLanguage
   if (mode === 'bootstrap') {
     const nextCtx = ctx ?? createDiscoveryContext(userMessage)
     const hasTarget = Boolean(nextCtx.url) || /[a-z0-9-]+\.[a-z]{2,}/i.test(nextCtx.seed)
     if (hasTarget) {
       return {
         message:
-          "Offline fallback — here are **3 journey options** for that target. **#1 is recommended**. Pick one in the panel, or tell me what to change.",
-        workTrace: [
-          'API unavailable — offline fallback',
-          'No live snapshot in this fallback',
-          'Drafting 3 journey options',
-        ],
+          lang === 'fr'
+            ? 'Mode hors ligne — voici **3 options de parcours** pour cette cible. **#1 est recommandé**. Choisis dans le panneau, ou dis-moi quoi changer.'
+            : "Offline fallback — here are **3 journey options** for that target. **#1 is recommended**. Pick one in the panel, or tell me what to change.",
+        workTrace:
+          lang === 'fr'
+            ? [
+                'API indisponible — repli hors ligne',
+                'Pas de snapshot live dans ce repli',
+                'Rédaction de 3 options de parcours',
+              ]
+            : [
+                'API unavailable — offline fallback',
+                'No live snapshot in this fallback',
+                'Drafting 3 journey options',
+              ],
         questions: null,
-        proposals: buildJourneyProposals(nextCtx),
+        proposals: buildJourneyProposals(nextCtx, lang),
         plan: null,
         readyForPlan: false,
         siteAnalysis: null,
@@ -163,9 +174,14 @@ function mockFallback(
     }
     return {
       message:
-        "I can help design a monitoring journey — no prior knowledge needed. A few quick choices and I'll recommend solid options.",
-      workTrace: ['Entry is open-ended', 'Need a bit more signal'],
-      questions: buildDiscoveryQuestions(nextCtx),
+        lang === 'fr'
+          ? 'Je peux t’aider à concevoir un parcours de monitoring — sans connaissance préalable. Quelques choix rapides et je te propose des options solides.'
+          : "I can help design a monitoring journey — no prior knowledge needed. A few quick choices and I'll recommend solid options.",
+      workTrace:
+        lang === 'fr'
+          ? ['Entrée ouverte', 'Besoin d’un peu plus de signal']
+          : ['Entry is open-ended', 'Need a bit more signal'],
+      questions: buildDiscoveryQuestions(nextCtx, lang),
       proposals: null,
       plan: null,
       readyForPlan: false,
@@ -179,10 +195,15 @@ function mockFallback(
   if (mode === 'propose' && ctx) {
     return {
       message:
-        'Here are **3 journey options** — **#1 is recommended**. Pick one in the panel, use **Other**, or refine in chat.',
-      workTrace: ['Synthesizing answers', 'Proposing 3 prioritized journeys'],
+        lang === 'fr'
+          ? 'Voici **3 options de parcours** — **#1 est recommandé**. Choisis dans le panneau, utilise **Autre**, ou précise dans le chat.'
+          : 'Here are **3 journey options** — **#1 is recommended**. Pick one in the panel, use **Other**, or refine in chat.',
+      workTrace:
+        lang === 'fr'
+          ? ['Synthèse des réponses', 'Proposition de 3 parcours prioritaires']
+          : ['Synthesizing answers', 'Proposing 3 prioritized journeys'],
       questions: null,
-      proposals: buildJourneyProposals(ctx),
+      proposals: buildJourneyProposals(ctx, lang),
       plan: null,
       readyForPlan: false,
       siteAnalysis: null,
@@ -195,9 +216,14 @@ function mockFallback(
   if (mode === 'configure' && ctx?.selectedProposal) {
     return {
       message:
-        "Before locking the steps, let's set the journey parameters together. You can also clarify in chat.",
-      workTrace: ['Journey type selected', 'Collecting parameters'],
-      questions: buildConfigureQuestions(ctx, ctx.selectedProposal),
+        lang === 'fr'
+          ? 'Avant de figer les étapes, réglons ensemble les paramètres du parcours. Tu peux aussi préciser dans le chat.'
+          : "Before locking the steps, let's set the journey parameters together. You can also clarify in chat.",
+      workTrace:
+        lang === 'fr'
+          ? ['Type de parcours sélectionné', 'Collecte des paramètres']
+          : ['Journey type selected', 'Collecting parameters'],
+      questions: buildConfigureQuestions(ctx, ctx.selectedProposal, lang),
       proposals: null,
       plan: null,
       readyForPlan: false,
@@ -221,7 +247,10 @@ function mockFallback(
     )
     return {
       message: formatPlanMessage(plan),
-      workTrace: ['Parameters gathered', 'Building runnable plan'],
+      workTrace:
+        lang === 'fr'
+          ? ['Paramètres rassemblés', 'Construction du plan exécutable']
+          : ['Parameters gathered', 'Building runnable plan'],
       questions: null,
       proposals: null,
       plan,
@@ -234,7 +263,7 @@ function mockFallback(
   }
 
   return {
-    message: agentNeedsMoreContextMessage(userMessage),
+    message: agentNeedsMoreContextMessage(userMessage, lang),
     workTrace: null,
     questions: null,
     proposals: null,
@@ -387,7 +416,7 @@ export async function requestDiscoveryAi(options: {
         message:
           typeof resultData.message === 'string' && resultData.message.trim()
             ? resultData.message
-            : mockFallback(mode, userMessage, context ?? null).message,
+            : mockFallback(mode, userMessage, context ?? null, preferredLanguage).message,
         workTrace: normalizeWorkTrace(resultData.workTrace),
         questions: normalizeQuestions(resultData.questions),
         proposals: normalizeProposals(resultData.proposals),
@@ -412,7 +441,7 @@ export async function requestDiscoveryAi(options: {
       message:
         typeof data.message === 'string' && data.message.trim()
           ? data.message
-          : mockFallback(mode, userMessage, context ?? null).message,
+          : mockFallback(mode, userMessage, context ?? null, preferredLanguage).message,
       workTrace: normalizeWorkTrace(data.workTrace),
       questions: normalizeQuestions(data.questions),
       proposals: normalizeProposals(data.proposals),
@@ -431,6 +460,6 @@ export async function requestDiscoveryAi(options: {
     ) {
       return abortedResult()
     }
-    return mockFallback(mode, userMessage, context ?? null)
+    return mockFallback(mode, userMessage, context ?? null, preferredLanguage)
   }
 }
