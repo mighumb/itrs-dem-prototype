@@ -13,6 +13,8 @@ export const messages = {
     goodMorning: 'Good morning',
     homeGreetingGuest: 'Good morning there,',
     homeSubtitle: 'what journey should we build today?',
+    homeTitleBefore: 'Which',
+    homeTitleAfter: 'do you want to monitor today?',
     tryExample: 'Or try an example',
     sampleJourneys: 'Sample journeys to explore the product',
     placeholderIdle: 'Describe a journey or paste a URL...',
@@ -169,6 +171,8 @@ export const messages = {
     goodMorning: 'Bonjour',
     homeGreetingGuest: 'Bonjour,',
     homeSubtitle: 'quel parcours construisons-nous aujourd’hui ?',
+    homeTitleBefore: 'Quel',
+    homeTitleAfter: 'souhaitez-vous surveiller aujourd’hui ?',
     tryExample: 'Ou essayez un exemple',
     sampleJourneys: 'Parcours d’exemple pour explorer le produit',
     placeholderIdle: 'Décrivez un parcours ou collez une URL…',
@@ -313,6 +317,12 @@ export const messages = {
     deleteCount: 'Supprimer ({count})',
   },
 } as const
+
+/** Rotating DEM target nouns for the homepage hero title. */
+export const HOME_ROTATING_TARGETS: Record<Locale, readonly string[]> = {
+  en: ['website', 'application', 'SaaS', 'API', 'portal'],
+  fr: ['site web', 'application', 'SaaS', 'API', 'portail'],
+}
 
 export type MessageKey = keyof typeof messages.en
 

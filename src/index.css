@@ -83,6 +83,33 @@ button:disabled,
   animation: pulse-soft 1.5s ease-in-out infinite;
 }
 
+@keyframes home-word-swap {
+  0% {
+    opacity: 0;
+    transform: translateY(55%);
+    filter: blur(5px);
+  }
+  18% {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+  78% {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-45%);
+    filter: blur(4px);
+  }
+}
+
+.home-word-swap {
+  animation: home-word-swap 2.6s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
 /* Cursor-like shimmer on agent working status (“Thinking…” / live STATUS) */
 @keyframes status-shimmer {
   0% {

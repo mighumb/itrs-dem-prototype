@@ -3,7 +3,9 @@ import { useEffect, useRef, useState } from 'react'
 import DiscoveryStack from '../components/DiscoveryStack'
 import { AgentMessage } from '../components/GlobalAgent'
 import AgentWorkStatus from '../components/AgentWorkStatus'
+import RotatingWord from '../components/RotatingWord'
 import { useLocale } from '../context/LocaleContext'
+import { HOME_ROTATING_TARGETS } from '../i18n/messages'
 import { requestDiscoveryAi, type DiscoveryAiResult } from '../lib/discoveryAi'
 import type { JourneyLaunchSession } from '../lib/journeyLaunch'
 import { getHomeExamples, isCuratedHomeExample } from '../mock/data'
@@ -754,16 +756,17 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
     return (
       <div className="flex min-h-full flex-col items-center justify-center px-6 py-16">
         <div className="w-full max-w-2xl animate-fade-in">
-          <h1 className="mb-10 text-center text-3xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-100 md:text-4xl">
-            {userName && userName !== 'there' ? (
-              <>
-                {t('goodMorning')} {userName},
-              </>
-            ) : (
-              t('homeGreetingGuest')
-            )}
-            <br />
-            <span className="text-zinc-500 dark:text-zinc-400">{t('homeSubtitle')}</span>
+          {userName && userName !== 'there' ? (
+            <p className="mb-3 text-center text-sm text-zinc-400 dark:text-zinc-500">
+              {t('goodMorning')} {userName}
+            </p>
+          ) : null}
+          <h1 className="mb-10 text-center text-3xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-100 md:text-4xl md:leading-snug">
+            <span className="inline-flex flex-wrap items-baseline justify-center gap-x-2">
+              <span>{t('homeTitleBefore')}</span>
+              <RotatingWord words={HOME_ROTATING_TARGETS[locale]} />
+              <span>{t('homeTitleAfter')}</span>
+            </span>
           </h1>
 
           {composer}
