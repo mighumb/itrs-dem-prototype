@@ -77,7 +77,7 @@ On each Discovery request: all keys use Flash 2.5 (no Pro / no 3.6). If free key
 
 ## Homepage sample journeys
 
-Idle Home shows three company cards (Salesforce, AXA, TotalEnergies): logo + company name + short journey title. Click runs the real Gemini Discovery pipeline in `configure` mode (journey type already chosen). The agent asks for user params (login, plate, city, etc.) only when steps need them — never invents secrets.
+Idle Home shows four company cards (Salesforce, AXA, Amazon, Airbnb): logo + company name + short journey title. Click runs the real Gemini Discovery pipeline in `configure` mode (journey type already chosen). The agent asks for user params (email, search query, city, etc.) only when steps need them — never invents secrets. Sample seeds favor Navigate/Click/Type with at most one final Verify.
 
 Workspace runs always come from the Discovery plan (or a minimal URL-derived journey if only a prompt is known). There is no hard-coded Nike / Trainline / Booking mock template — Playwright executes the steps for the journey the user asked for.
 
