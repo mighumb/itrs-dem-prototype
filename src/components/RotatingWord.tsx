@@ -30,16 +30,18 @@ export default function RotatingWord({
 
   return (
     <span
-      className={`relative inline-grid overflow-hidden align-baseline ${className}`}
-      style={{ height: '1.2em' }}
+      className={`relative inline-grid justify-items-start overflow-hidden align-baseline text-left ${className}`}
+      style={{ height: '1.15em' }}
     >
-      {/* Reserve width for the longest term so the line doesn’t jump */}
-      <span className="invisible col-start-1 row-start-1 whitespace-nowrap px-1 font-semibold">
+      {/* Reserve width for the longest term so the line doesn’t jump.
+          text-left is required: the headline is text-center, which would
+          otherwise center short words inside that wide slot (huge gap). */}
+      <span className="invisible col-start-1 row-start-1 whitespace-nowrap font-semibold">
         {longest}
       </span>
       <span
         key={`${index}-${current}`}
-        className="home-word-swap col-start-1 row-start-1 whitespace-nowrap px-1 font-semibold text-[#0071e3]"
+        className="home-word-swap col-start-1 row-start-1 whitespace-nowrap font-semibold text-[#0071e3]"
         aria-live="polite"
       >
         {current}
