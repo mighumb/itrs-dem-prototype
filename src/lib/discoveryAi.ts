@@ -6,7 +6,7 @@ import type {
 } from '../mock/discovery'
 import type { ChatMessage } from '../types'
 
-export type DiscoveryAiMode = 'bootstrap' | 'chat' | 'propose' | 'configure' | 'plan'
+export type DiscoveryAiMode = 'bootstrap' | 'chat' | 'propose' | 'configure' | 'plan' | 'iterate'
 
 export type SiteAnalysisInfo = {
   ok: boolean
@@ -159,6 +159,8 @@ export async function requestDiscoveryAi(options: {
   context?: DiscoveryContext | null
   selectedProposal?: JourneyProposal | null
   preferredLanguage?: 'en' | 'fr'
+  journeyName?: string | null
+  currentSteps?: Array<{ id?: string; label: string; action: string }> | null
   signal?: AbortSignal
   onStatus?: (text: string) => void
 }): Promise<DiscoveryAiResult> {
@@ -170,6 +172,8 @@ export async function requestDiscoveryAi(options: {
     context,
     selectedProposal,
     preferredLanguage = 'en',
+    journeyName = null,
+    currentSteps = null,
     signal,
     onStatus,
   } = options
@@ -226,8 +230,10 @@ export async function requestDiscoveryAi(options: {
               selectedProposalId: context.selectedProposalId,
               pageSnapshot: context.pageSnapshot ?? null,
               preferredLanguage,
+              journeyName,
+              currentSteps,
             }
-          : { preferredLanguage },
+          : { preferredLanguage, journeyName, currentSteps },
       }),
     })
 

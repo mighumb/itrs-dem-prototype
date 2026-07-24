@@ -28,10 +28,12 @@ import {
   withoutTransientRunMessages,
   type RunFailureInfo,
 } from '../mock/data'
-import { handleAgentChatInput } from '../mock/agentChat'
+import { requestDiscoveryAi } from '../lib/discoveryAi'
+import { useLocale } from '../context/LocaleContext'
 import { runLiveJourney } from '../lib/journeyRunAi'
 import type { BrowserFrame, ChatMessage, JourneySchedule, JourneyStep } from '../types'
 import { scheduleSummary } from '../types'
+import type { DiscoveryPlan } from '../mock/discovery'
 
 export interface NewJourneyHandle {
   commitAcceptSchedule: () => void
@@ -51,6 +53,30 @@ interface NewJourneyProps {
 const STEP_DELAY = 1400
 const TYPING_DELAY = 600
 
+function extractUrlFromText(text: string): string | null {
+  const match = text.match(/https?:\/\/[^\s<>"']+/i)
+  return match?.[0]?.replace(/[.,);]+$/g, '') ?? null
+}
+
+function planToJourneySteps(plan: DiscoveryPlan, previous: JourneyStep[]): JourneyStep[] {
+  return plan.steps.map((step, index) => {
+    const prev = previous[index]
+    const sameIntent =
+      prev &&
+      prev.label.toLowerCase() === step.label.toLowerCase() &&
+      prev.action.toLowerCase() === step.action.toLowerCase()
+    return {
+      id: sameIntent ? prev.id : `gemini-${Date.now()}-${index}`,
+      label: step.label,
+      action: step.action,
+      duration: prev?.duration ?? (index === 0 ? '3.5s' : '800ms'),
+      target: prev?.target,
+      timeout: prev?.timeout ?? '30s',
+      status: 'pending' as const,
+    }
+  })
+}
+
 const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJourney(
   {
     initialPrompt,
@@ -63,6 +89,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
   },
   ref,
 ) {
+  const { t, locale } = useLocale()
   const journey = useMemo(
     () => resolveJourneyTemplate(initialPrompt || DEMO_PROMPT),
     [initialPrompt],
@@ -84,11 +111,13 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
   const [editMode, setEditMode] = useState(false)
   const [input, setInput] = useState('')
   const [agentTyping, setAgentTyping] = useState(false)
+  const [workStatus, setWorkStatus] = useState<string | null>(null)
   const chatEndRef = useRef<HTMLDivElement>(null)
   const startedRef = useRef(false)
   const runIdRef = useRef(0)
   const scheduleResolvedRef = useRef(false)
   const runAbortRef = useRef<AbortController | null>(null)
+  const chatAbortRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
     scheduleResolvedRef.current = scheduleResolved
@@ -730,46 +759,112 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
       const trimmed = text.trim()
       if (!trimmed || agentTyping) return
 
-      setMessages((prev) => [...prev, { id: `user-${Date.now()}`, role: 'user', content: trimmed }])
+      if (isRunning) {
+        setMessages((prev) => [
+          ...prev,
+          { id: `user-${Date.now()}`, role: 'user', content: trimmed },
+          {
+            id: `agent-busy-${Date.now()}`,
+            role: 'agent',
+            content:
+              locale === 'fr'
+                ? 'Je suis encore en train d’exécuter le parcours — on pourra l’affiner dès que le run est terminé.'
+                : "I'm still running this journey — we can refine it once the current pass finishes.",
+          },
+        ])
+        setInput('')
+        return
+      }
+
+      const userMsg: ChatMessage = { id: `user-${Date.now()}`, role: 'user', content: trimmed }
+      setMessages((prev) => [...prev, userMsg])
       setInput('')
       setAgentTyping(true)
+      setWorkStatus(null)
 
-      await delay(TYPING_DELAY)
+      chatAbortRef.current?.abort()
+      const abort = new AbortController()
+      chatAbortRef.current = abort
 
-      const outcome = handleAgentChatInput(trimmed, {
-        journey,
-        steps,
-        isComplete,
-        isRunning,
-      })
+      const history = [...messages, userMsg]
+      const seedUrl =
+        extractUrlFromText(initialPrompt) ||
+        steps.map((s) => extractUrlFromText(`${s.label} ${s.action} ${s.target ?? ''}`)).find(Boolean) ||
+        null
 
-      setAgentTyping(false)
+      try {
+        const ai = await requestDiscoveryAi({
+          mode: 'iterate',
+          userMessage: trimmed,
+          messages: history,
+          phase: 'workspace',
+          preferredLanguage: locale,
+          journeyName: journey.name,
+          currentSteps: steps.map((s) => ({ id: s.id, label: s.label, action: s.action })),
+          context: {
+            seed: initialPrompt || journey.name,
+            url: seedUrl,
+            answers: {},
+            selectedProposalId: null,
+            selectedProposal: null,
+            pageSnapshot: null,
+          },
+          signal: abort.signal,
+          onStatus: (status) => setWorkStatus(status),
+        })
 
-      if (outcome.kind === 'new_journey') {
-        setMessages((prev) => [...prev, outcome.message])
-        window.setTimeout(() => onRequestNewJourney?.(outcome.prompt), 400)
-        return
+        if (ai.aborted || abort.signal.aborted) return
+
+        const agentMsg: ChatMessage = {
+          id: `agent-gemini-${Date.now()}`,
+          role: 'agent',
+          content: ai.message || (locale === 'fr' ? 'OK.' : 'OK.'),
+        }
+
+        if (ai.plan && (ai.readyForPlan || ai.plan.steps.length > 0)) {
+          const nextSteps = planToJourneySteps(ai.plan, steps)
+          setSteps(nextSteps)
+          setFixActionsResolved(false)
+          setScheduleResolved(false)
+          if (ai.plan.title) {
+            onHeaderChange?.({ title: ai.plan.title, subtitle: ai.plan.summary })
+          }
+          setMessages((prev) => [
+            ...prev.filter((m) => m.id !== 'done-2' && m.id !== RUN_OUTCOME_MESSAGE_ID),
+            agentMsg,
+          ])
+          return
+        }
+
+        // Full switch to another journey only when Gemini didn't return steps but user
+        // clearly asked for a different site — fall back to remount via parent.
+        const pastedUrl = extractUrlFromText(trimmed)
+        const switchIntent =
+          /\b(instead|rather|switch to|start over|new journey|autre parcours|plutôt|change de site)\b/i.test(
+            trimmed,
+          )
+        if (pastedUrl && switchIntent && onRequestNewJourney) {
+          setMessages((prev) => [...prev, agentMsg])
+          window.setTimeout(() => onRequestNewJourney(trimmed), 400)
+          return
+        }
+
+        setMessages((prev) => [...prev, agentMsg])
+      } finally {
+        if (chatAbortRef.current === abort) chatAbortRef.current = null
+        setAgentTyping(false)
+        setWorkStatus(null)
       }
-
-      if (outcome.kind === 'update_steps') {
-        setSteps(outcome.steps)
-        setFixActionsResolved(false)
-        setScheduleResolved(false)
-        setMessages((prev) => [
-          ...prev.filter((m) => m.id !== 'done-2' && m.id !== RUN_OUTCOME_MESSAGE_ID),
-          outcome.message,
-        ])
-        return
-      }
-
-      setMessages((prev) => [...prev, outcome.message])
     },
     [
       agentTyping,
-      journey,
-      steps,
-      isComplete,
       isRunning,
+      locale,
+      messages,
+      steps,
+      journey.name,
+      initialPrompt,
+      onHeaderChange,
       onRequestNewJourney,
     ],
   )
@@ -824,10 +919,15 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
                 />
               ))}
               {(isRunning || agentTyping) && (
-                <div className="flex gap-1 px-2">
-                  <span className="h-2 w-2 animate-pulse rounded-full bg-zinc-300" />
-                  <span className="h-2 w-2 animate-pulse rounded-full bg-zinc-300 [animation-delay:150ms]" />
-                  <span className="h-2 w-2 animate-pulse rounded-full bg-zinc-300 [animation-delay:300ms]" />
+                <div className="space-y-1 px-2">
+                  {workStatus && (
+                    <p className="text-[11px] text-zinc-400 dark:text-zinc-500">{workStatus}</p>
+                  )}
+                  <div className="flex gap-1">
+                    <span className="h-2 w-2 animate-pulse rounded-full bg-zinc-300" />
+                    <span className="h-2 w-2 animate-pulse rounded-full bg-zinc-300 [animation-delay:150ms]" />
+                    <span className="h-2 w-2 animate-pulse rounded-full bg-zinc-300 [animation-delay:300ms]" />
+                  </div>
                 </div>
               )}
               <div ref={chatEndRef} />
@@ -843,7 +943,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
                 <input
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
-                  placeholder="Ask or refine…"
+                  placeholder={t('placeholderWorkspace')}
                   disabled={agentTyping}
                   className="w-full rounded-xl border border-zinc-200 bg-zinc-50 py-2.5 pl-3 pr-10 text-sm outline-none transition focus:border-[#0071e3] focus:bg-white focus:ring-2 focus:ring-[#0071e3]/20 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:bg-zinc-900"
                 />

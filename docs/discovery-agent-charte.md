@@ -179,3 +179,4 @@ Tu conserves le fil de la conversation (cible, décisions, params affichés, pla
 | Exemples d’accueil | Même pipeline Gemini que le chat libre (pas de plan template) |
 | Fermer / Passer (fin) le flottant | Réponse Gemini (`dismiss_floating_ui`) — plus de message i18n scripté |
 | Hors ligne / API down | Message d’indisponibilité honnête — plus de mock Discovery scripté |
+| Chat NewJourney (workspace) | Fait — mode `iterate` Gemini (plus de `mock/agentChat`) |
