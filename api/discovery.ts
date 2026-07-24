@@ -288,61 +288,84 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { analysis, target } = await resolveAndAnalyzeWithStatus(body, apiKey)
 
     const genAI = new GoogleGenerativeAI(apiKey)
+    // Prefer 2.5 Flash first — free-tier 2.0 often hits quota before other models.
     const modelCandidates = [
-      process.env.GEMINI_MODEL,
       'gemini-2.5-flash',
+      process.env.GEMINI_MODEL,
       'gemini-flash-latest',
       'gemini-2.0-flash',
     ].filter((name, index, all): name is string => Boolean(name) && all.indexOf(name) === index)
 
+    const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+    const isQuotaError = (error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error)
+      return /\b429\b|Too Many Requests|quota|rate.?limit/i.test(message)
+    }
+    const retryDelayMs = (error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error)
+      const match = message.match(/retry in ([\d.]+)\s*s/i)
+      if (!match) return 1500
+      return Math.min(8000, Math.max(500, Math.ceil(parseFloat(match[1]) * 1000)))
+    }
+
     let lastError: unknown
     for (const modelName of modelCandidates) {
-      try {
-        const model = genAI.getGenerativeModel({
-          model: modelName,
-          systemInstruction: DISCOVERY_SYSTEM_PROMPT,
-          generationConfig: {
-            temperature: 0.7,
-          },
-        })
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const model = genAI.getGenerativeModel({
+            model: modelName,
+            systemInstruction: DISCOVERY_SYSTEM_PROMPT,
+            generationConfig: {
+              temperature: 0.7,
+            },
+          })
 
-        const streamedStatuses: string[] = []
-        let buffer = ''
-        const streamResult = await model.generateContentStream(
-          buildUserPrompt(body, analysis, target),
-        )
+          const streamedStatuses: string[] = []
+          let buffer = ''
+          const streamResult = await model.generateContentStream(
+            buildUserPrompt(body, analysis, target),
+          )
 
-        for await (const chunk of streamResult.stream) {
-          const piece = chunk.text()
-          if (!piece) continue
-          buffer += piece
-          const pulled = pullStatusLines(buffer)
-          buffer = pulled.rest
-          for (const status of pulled.statuses) {
-            streamedStatuses.push(status)
-            sendStatus(status)
+          for await (const chunk of streamResult.stream) {
+            const piece = chunk.text()
+            if (!piece) continue
+            buffer += piece
+            const pulled = pullStatusLines(buffer)
+            buffer = pulled.rest
+            for (const status of pulled.statuses) {
+              streamedStatuses.push(status)
+              sendStatus(status)
+            }
           }
-        }
 
-        const aggregatedResponse = await streamResult.response
-        const fullText = aggregatedResponse.text()
+          const aggregatedResponse = await streamResult.response
+          const fullText = aggregatedResponse.text()
 
-        const { statuses, parsed } = parseModelOutput(fullText || buffer)
-        for (const status of statuses) {
-          if (!streamedStatuses.includes(status)) {
-            streamedStatuses.push(status)
-            sendStatus(status)
+          const { statuses, parsed } = parseModelOutput(fullText || buffer)
+          for (const status of statuses) {
+            if (!streamedStatuses.includes(status)) {
+              streamedStatuses.push(status)
+              sendStatus(status)
+            }
           }
-        }
 
-        writeNdjson(
-          res,
-          buildResultPayload(parsed, analysis, target, body, modelName, streamedStatuses),
-        )
-        return res.end()
-      } catch (error) {
-        lastError = error
-        console.error(`[api/discovery] model ${modelName} failed`, error)
+          writeNdjson(
+            res,
+            buildResultPayload(parsed, analysis, target, body, modelName, streamedStatuses),
+          )
+          return res.end()
+        } catch (error) {
+          lastError = error
+          console.error(
+            `[api/discovery] model ${modelName} attempt ${attempt + 1} failed`,
+            error,
+          )
+          if (attempt === 0 && isQuotaError(error)) {
+            await sleep(retryDelayMs(error))
+            continue
+          }
+          break
+        }
       }
     }
 

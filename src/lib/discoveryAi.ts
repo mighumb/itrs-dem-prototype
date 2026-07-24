@@ -254,8 +254,8 @@ function geminiUnavailable(preferredLanguage: 'en' | 'fr'): DiscoveryAiResult {
   return {
     message:
       preferredLanguage === 'fr'
-        ? 'Gemini est indisponible pour le moment. Réessaie dans un instant — je ne peux pas inventer un parcours hors ligne.'
-        : 'Gemini is unavailable right now. Try again in a moment — I won’t invent an offline journey.',
+        ? 'L’assistant est indisponible pour le moment. Réessaie dans un instant — je ne peux pas inventer un parcours hors ligne.'
+        : 'The assistant is unavailable right now. Try again in a moment — I won’t invent an offline journey.',
     workTrace: null,
     questions: null,
     proposals: null,

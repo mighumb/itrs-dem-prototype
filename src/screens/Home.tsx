@@ -41,20 +41,11 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
   const [proposals, setProposals] = useState<JourneyProposal[]>([])
   const [plan, setPlan] = useState<DiscoveryPlan | null>(null)
   const [configuring, setConfiguring] = useState(false)
-  const [aiProviderLabel, setAiProviderLabel] = useState<string | null>(null)
   const chatEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const abortRef = useRef<AbortController | null>(null)
   const messagesRef = useRef<ChatMessage[]>([])
   messagesRef.current = messages
-
-  const noteAi = (ai: { source: 'gemini' | 'unavailable'; model: string | null }) => {
-    if (ai.source === 'gemini') {
-      setAiProviderLabel(ai.model ? `Gemini · ${ai.model}` : 'Gemini')
-    } else {
-      setAiProviderLabel('unavailable')
-    }
-  }
 
   const rememberSnapshot = (ai: DiscoveryAiResult) => {
     if (!ai.pageSnapshot && !ai.siteAnalysis) return
@@ -181,7 +172,6 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
         onStatus,
       })
       if (ai.aborted) return
-      noteAi(ai)
 
       if (needsProposals && ai.proposals && ai.proposals.length > 0) {
         setProposals(ai.proposals)
@@ -230,7 +220,6 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
       })
       if (ai.aborted) return
       rememberSnapshot(ai)
-      noteAi(ai)
 
       // Nominal path: only show Run when Gemini produced a plan — never a local template.
       if (ai.plan) {
@@ -282,7 +271,6 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
       })
       if (ai.aborted) return
       rememberSnapshot(ai)
-      noteAi(ai)
 
       // Complete plan → show steps + Run (homepage examples and precise free-typed seeds).
       if (ai.plan && (ai.readyForPlan || ai.plan.steps.length > 0)) {
@@ -335,7 +323,6 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
       })
       if (ai.aborted) return
       rememberSnapshot(ai)
-      noteAi(ai)
 
       // Always surface a clickable proposal form — never leave the user typing a journey name.
       const nextProposals =
@@ -470,7 +457,6 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
       })
       if (ai.aborted) return
       rememberSnapshot(ai)
-      noteAi(ai)
       if (ai.proposals && ai.proposals.length > 0) {
         setProposals(ai.proposals)
         setPhase('proposals')
@@ -531,7 +517,6 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
       })
       if (ai.aborted) return
       rememberSnapshot(ai)
-      noteAi(ai)
       if (ai.questions && ai.questions.length > 0) {
         setQuestions(ai.questions)
         setQuestionIndex(0)
@@ -562,7 +547,6 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
       })
       if (ai.aborted) return
       rememberSnapshot(ai)
-      noteAi(ai)
 
       if (ai.readyForPlan && ai.plan) {
         const formatted = formatPlanMessage(ai.plan)
@@ -658,8 +642,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
         })
         if (ai.aborted) return
         rememberSnapshot(ai)
-        noteAi(ai)
-
+  
         if (ai.readyForPlan && ai.plan) {
           const body =
             ai.message.includes('1.') || ai.message.includes('1)')
@@ -866,11 +849,6 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
             )}
 
             {composer}
-            {aiProviderLabel === 'unavailable' && (
-              <p className="px-1 text-center text-[11px] text-zinc-400 dark:text-zinc-500">
-                {t('geminiUnavailable')}
-              </p>
-            )}
           </div>
         </div>
       </div>

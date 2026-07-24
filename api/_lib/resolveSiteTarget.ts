@@ -112,10 +112,10 @@ async function resolveBrandWithGemini(
   preferredLanguage?: 'en' | 'fr' | null,
 ): Promise<{ url: string | null; label: string | null; note: string | null }> {
   const genAI = new GoogleGenerativeAI(apiKey)
-  // Prefer current Flash models. Avoid flash-lite (404 for many new keys).
+  // Prefer 2.5 Flash first — free-tier 2.0 often hits quota before other models.
   const modelCandidates = [
-    process.env.GEMINI_MODEL,
     'gemini-2.5-flash',
+    process.env.GEMINI_MODEL,
     'gemini-flash-latest',
     'gemini-2.0-flash',
   ].filter((name, index, all): name is string => Boolean(name) && all.indexOf(name) === index)
