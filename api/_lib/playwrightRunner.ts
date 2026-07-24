@@ -4,7 +4,12 @@ export type RunnableStep = {
   id: string
   label: string
   action: string
+  /** CSS selector or URL (legacy). */
   target?: string
+  /** Visible link/button text observed on the site. */
+  targetHint?: string
+  /** Absolute URL observed for this step (navigate or click-through). */
+  href?: string
 }
 
 export type RunnerFrame = {
@@ -50,6 +55,8 @@ function extractUrl(text: string | undefined | null): string | null {
 
 function guessSeedUrl(steps: RunnableStep[], prompt?: string): string | null {
   for (const step of steps) {
+    const fromHref = extractUrl(step.href)
+    if (fromHref) return fromHref
     const fromTarget = extractUrl(step.target)
     if (fromTarget) return fromTarget
     const fromLabel = extractUrl(step.label)
@@ -139,6 +146,36 @@ function searchQueryFromStep(step: RunnableStep): string {
 }
 
 async function clickFromStep(page: Page, step: RunnableStep) {
+  // Prefer an observed href: click the matching anchor, else navigate directly.
+  const href = step.href || (step.target && /^https?:\/\//i.test(step.target) ? step.target : null)
+  if (href) {
+    try {
+      let pathOnly = ''
+      try {
+        pathOnly = new URL(href).pathname
+      } catch {
+        pathOnly = ''
+      }
+      const selectors = [`a[href="${href}"]`]
+      if (pathOnly) selectors.push(`a[href="${pathOnly}"]`)
+      const byHref = page.locator(selectors.join(', ')).first()
+      if (await byHref.isVisible({ timeout: 900 })) {
+        await byHref.click({ timeout: 4000 })
+        await page.waitForLoadState('domcontentloaded', { timeout: 15000 }).catch(() => undefined)
+        return
+      }
+    } catch {
+      // fall through
+    }
+    try {
+      await page.goto(href, { waitUntil: 'domcontentloaded', timeout: 25000 })
+      await dismissNoise(page)
+      return
+    } catch {
+      // fall through to text heuristics
+    }
+  }
+
   if (step.target && !/^https?:\/\//i.test(step.target)) {
     try {
       await page.locator(step.target).first().click({ timeout: 5000 })
@@ -150,17 +187,19 @@ async function clickFromStep(page: Page, step: RunnableStep) {
   }
 
   const textHints = [
-    step.label
-      .replace(/^(click|select|choose|open|choisis|sélectionne|ouvre)\s+/i, '')
-      .split(/\s+and\b/i)[0]
-      ?.trim(),
+    step.targetHint,
     step.label.match(/"([^"]+)"/)?.[1],
     step.label.match(/«\s*([^»]+)\s*»/)?.[1],
-  ].filter((v): v is string => Boolean(v && v.length > 1 && v.length < 60))
+    step.label
+      .replace(/^(click|select|choose|open|choisis|sélectionne|ouvre|clique)\s+/i, '')
+      .split(/\s+and\b/i)[0]
+      ?.trim(),
+  ].filter((v): v is string => Boolean(v && v.length > 1 && v.length < 80))
 
   for (const hint of textHints) {
+    const pattern = new RegExp(hint.slice(0, 40).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i')
     try {
-      const loc = page.getByRole('button', { name: new RegExp(hint.slice(0, 32), 'i') }).first()
+      const loc = page.getByRole('button', { name: pattern }).first()
       if (await loc.isVisible({ timeout: 700 })) {
         await loc.click({ timeout: 4000 })
         await page.waitForLoadState('domcontentloaded', { timeout: 15000 }).catch(() => undefined)
@@ -170,7 +209,7 @@ async function clickFromStep(page: Page, step: RunnableStep) {
       // continue
     }
     try {
-      const loc = page.getByRole('link', { name: new RegExp(hint.slice(0, 32), 'i') }).first()
+      const loc = page.getByRole('link', { name: pattern }).first()
       if (await loc.isVisible({ timeout: 700 })) {
         await loc.click({ timeout: 4000 })
         await page.waitForLoadState('domcontentloaded', { timeout: 15000 }).catch(() => undefined)
@@ -197,12 +236,13 @@ async function clickFromStep(page: Page, step: RunnableStep) {
 async function executeStep(page: Page, step: RunnableStep, seedUrl: string | null) {
   const action = step.action.trim().toLowerCase()
   const blob = `${step.action} ${step.label}`
-  const url = extractUrl(step.target) || extractUrl(step.label) || null
+  const url =
+    extractUrl(step.href) || extractUrl(step.target) || extractUrl(step.label) || null
 
   if (
     action === 'navigate' ||
-    Boolean(url) ||
-    /navigate|go to|open url|va sur|ouvre https?/i.test(blob)
+    (Boolean(url) && /navigate|go to|open url|va sur|ouvre https?/i.test(blob)) ||
+    (/navigate|go to|open url|va sur|ouvre https?/i.test(blob) && Boolean(url || seedUrl))
   ) {
     const dest = url || seedUrl
     if (!dest) throw new Error('No URL to navigate to')
@@ -227,15 +267,21 @@ async function executeStep(page: Page, step: RunnableStep, seedUrl: string | nul
     return
   }
 
-  if (action === 'click' || /click|select|choose|choisis|sélectionne|ouvre/i.test(blob)) {
+  if (action === 'click' || /click|select|choose|choisis|sélectionne|ouvre|clique/i.test(blob)) {
     await clickFromStep(page, step)
     await dismissNoise(page)
     return
   }
 
   // Verify / wait / unknown — observe current page
-  await page.waitForTimeout(700)
-  if (step.target && !/^https?:\/\//i.test(step.target)) {
+  await new Promise((resolve) => setTimeout(resolve, 500))
+  if (step.targetHint) {
+    await page
+      .getByText(step.targetHint, { exact: false })
+      .first()
+      .waitFor({ state: 'visible', timeout: 8000 })
+      .catch(() => undefined)
+  } else if (step.target && !/^https?:\/\//i.test(step.target)) {
     await page
       .locator(step.target)
       .first()
@@ -318,7 +364,7 @@ export async function runJourneyWithPlaywright(options: {
       try {
         await executeStep(page, step, seedUrl)
         throwIfAborted()
-        await page.waitForTimeout(350)
+        await new Promise((resolve) => setTimeout(resolve, 250))
         const frame = await captureFrame(page)
         await onEvent({
           type: 'step_frame',
@@ -356,6 +402,93 @@ export async function runJourneyWithPlaywright(options: {
     const message = error instanceof Error ? error.message : 'Playwright run failed'
     if (message !== 'Aborted') {
       await onEvent({ type: 'error', error: message })
+    }
+  } finally {
+    await browser?.close().catch(() => undefined)
+  }
+}
+
+export type DryRunResult = {
+  ok: boolean
+  stepsOk: number
+  failedIndex: number | null
+  failedLabel: string | null
+  error: string | null
+}
+
+/**
+ * Fast headless rehearsal (no screenshots) to validate a plan before showing Run.
+ */
+export async function dryRunJourneyWithPlaywright(options: {
+  steps: RunnableStep[]
+  prompt?: string
+  deadlineMs?: number
+  onStatus?: (text: string) => void
+}): Promise<DryRunResult> {
+  const { steps, prompt, onStatus } = options
+  const deadlineMs = options.deadlineMs ?? 18_000
+  const started = Date.now()
+  const timeLeft = () => deadlineMs - (Date.now() - started)
+
+  if (steps.length === 0) {
+    return { ok: false, stepsOk: 0, failedIndex: null, failedLabel: null, error: 'No steps' }
+  }
+
+  const seedUrl = guessSeedUrl(steps, prompt)
+  let browser: Browser | null = null
+
+  try {
+    onStatus?.('Rehearsing the journey in the browser…')
+    browser = await launchBrowser()
+    const page = await browser.newPage({
+      viewport: { width: 1280, height: 800 },
+      userAgent:
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+    })
+
+    if (seedUrl && timeLeft() > 3_000) {
+      await page.goto(seedUrl, {
+        waitUntil: 'domcontentloaded',
+        timeout: Math.min(20_000, timeLeft()),
+      }).catch(() => undefined)
+      await dismissNoise(page)
+    }
+
+    let stepsOk = 0
+    for (let i = 0; i < steps.length; i++) {
+      if (timeLeft() < 2_500) {
+        return {
+          ok: false,
+          stepsOk,
+          failedIndex: i,
+          failedLabel: steps[i]?.label ?? null,
+          error: 'Dry-run deadline reached',
+        }
+      }
+      const step = steps[i]!
+      try {
+        await executeStep(page, step, seedUrl)
+        stepsOk += 1
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Step failed'
+        return {
+          ok: false,
+          stepsOk,
+          failedIndex: i,
+          failedLabel: step.label,
+          error: message,
+        }
+      }
+    }
+
+    return { ok: true, stepsOk, failedIndex: null, failedLabel: null, error: null }
+  } catch (error) {
+    return {
+      ok: false,
+      stepsOk: 0,
+      failedIndex: null,
+      failedLabel: null,
+      error: error instanceof Error ? error.message : 'Dry-run failed',
     }
   } finally {
     await browser?.close().catch(() => undefined)

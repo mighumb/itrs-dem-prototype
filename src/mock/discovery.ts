@@ -13,10 +13,19 @@ export interface JourneyProposal {
   prompt: string
 }
 
+export interface DiscoveryPlanStep {
+  label: string
+  action: string
+  /** Observed link/button label from site explore. */
+  targetHint?: string
+  /** Observed absolute URL for navigate/click-through. */
+  href?: string
+}
+
 export interface DiscoveryPlan {
   title: string
   summary: string
-  steps: { label: string; action: string }[]
+  steps: DiscoveryPlanStep[]
   prompt: string
 }
 

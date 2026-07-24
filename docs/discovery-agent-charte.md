@@ -228,9 +228,11 @@ Tu conserves le fil de la conversation (cible, décisions, params affichés, pla
 | Cible claire → propose direct ; vague → 1–2 questions soft | Oui |
 | Charte versionnée dans GitHub (`docs/`) | Oui |
 | System prompt EN | Fait — `api/_lib/discoverySystemPrompt.ts` |
-| Analyse site réelle | Fait — fetch public dans `api/_lib/analyzeSite.ts` |
+| Analyse site réelle | Fait — Playwright explore (`exploreSite.ts`) + fallback HTTP (`analyzeSite.ts`) |
+| Steps ancrés (targetHint/href) + dry-run avant Run | Fait — `planGrounding.ts` + dry-run Playwright |
+| Cache explore (TTL) / hôtes liés | Fait — cache origine 15 min + eTLD+1 |
 | Send → Stop | Fait — AbortController + bouton stop |
-| Trace condensée | Fait — statut live = STATUS Gemini uniquement (pas de statut serveur scripté) |
+| Trace condensée | Fait — STATUS Gemini + statuts explore/dry-run serveur |
 | Exemples d’accueil | Cartes entreprise (logo + nom + titre de parcours) → Gemini mode `configure` ; params demandés seulement si nécessaires — pas de plan template local |
 | Fermer / Passer (fin) le flottant | Réponse Gemini (`dismiss_floating_ui`) — plus de message i18n scripté |
 | Hors ligne / API down | Message d’indisponibilité honnête — plus de mock Discovery scripté |

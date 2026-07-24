@@ -82,6 +82,8 @@ function planToJourneySteps(plan: DiscoveryPlan, previous: JourneyStep[], siteUr
       duration: prev?.duration ?? step.duration,
       timeout: prev?.timeout ?? step.timeout,
       target: step.target ?? prev?.target,
+      targetHint: step.targetHint ?? prev?.targetHint,
+      href: step.href ?? prev?.href,
       status: 'pending' as const,
     }
   })

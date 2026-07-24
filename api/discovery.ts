@@ -3,9 +3,15 @@ import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { analyzePublicSite, type SiteAnalysisResult } from './_lib/analyzeSite.js'
 import {
   explorePublicSite,
+  peekExploreCache,
   siteExplorePromptView,
   type SiteExploreResult,
 } from './_lib/exploreSite.js'
+import { applyGroundingToPlan } from './_lib/planGrounding.js'
+import {
+  dryRunJourneyWithPlaywright,
+  type RunnableStep,
+} from './_lib/playwrightRunner.js'
 import { DISCOVERY_SYSTEM_PROMPT } from './_lib/discoverySystemPrompt.js'
 import {
   resolveSiteTarget,
@@ -244,16 +250,18 @@ async function gatherSiteEvidence(
 ): Promise<{ analysis: SiteAnalysisResult | null; explore: SiteExploreResult | null }> {
   // Cached evidence from a prior turn — do not re-crawl.
   if (body.context?.pageSnapshot) {
+    const url = body.context.url ?? target?.url ?? ''
+    const cachedExplore = peekExploreCache(url)
     return {
       analysis: {
         ok: true,
-        url: body.context.url ?? target?.url ?? '',
+        url,
         reason: null,
         snapshot: body.context.pageSnapshot,
-        title: null,
+        title: cachedExplore?.title ?? null,
         status: 200,
       },
-      explore: null,
+      explore: cachedExplore,
     }
   }
 
@@ -266,11 +274,12 @@ async function gatherSiteEvidence(
   }
 
   // Fresh browser explore (Playwright) with HTTP fallback inside explorePublicSite.
+  // Keep budget tight so a plan dry-run can still fit in the function window.
   const { explore, analysis } = await explorePublicSite(target.url, {
     preferredLanguage: body.preferredLanguage ?? body.context?.preferredLanguage ?? null,
     onStatus,
     maxPages: 6,
-    deadlineMs: 28_000,
+    deadlineMs: 20_000,
   })
 
   // If both failed hard, still try a last HTTP pass (explore already does this,
@@ -281,6 +290,108 @@ async function gatherSiteEvidence(
   }
 
   return { analysis, explore }
+}
+
+function planStepsToRunnable(
+  plan: Record<string, unknown>,
+  seedUrl: string | null,
+): RunnableStep[] {
+  const steps = Array.isArray(plan.steps) ? plan.steps : []
+  return steps
+    .map((step, index) => {
+      if (!step || typeof step !== 'object') return null
+      const s = step as Record<string, unknown>
+      if (typeof s.label !== 'string' || typeof s.action !== 'string') return null
+      const href = typeof s.href === 'string' ? s.href : undefined
+      const targetHint = typeof s.targetHint === 'string' ? s.targetHint : undefined
+      return {
+        id: `dry-${index + 1}`,
+        label: s.label,
+        action: s.action,
+        href,
+        targetHint,
+        target: href ?? (index === 0 ? seedUrl ?? undefined : undefined),
+      }
+    })
+    .filter((s): s is RunnableStep => Boolean(s))
+}
+
+async function groundAndMaybeDryRunPlan(options: {
+  parsed: Record<string, unknown>
+  explore: SiteExploreResult | null
+  analysis: SiteAnalysisResult | null
+  target: ResolvedSiteTarget | null
+  body: DiscoveryAiRequest
+  requestStartedAt: number
+  sendStatus: (text: string) => void
+}): Promise<Record<string, unknown>> {
+  const { explore, analysis, target, body, requestStartedAt, sendStatus } = options
+  let parsed = { ...options.parsed }
+  const lang = body.preferredLanguage ?? body.context?.preferredLanguage ?? 'en'
+  const budgetLeft = () => 55_000 - (Date.now() - requestStartedAt)
+
+  if (!parsed.plan || typeof parsed.plan !== 'object' || !parsed.readyForPlan) {
+    return parsed
+  }
+
+  const grounded = applyGroundingToPlan(parsed.plan as Record<string, unknown>, explore)
+  parsed = { ...parsed, plan: grounded.plan }
+
+  if (grounded.issues.length > 0) {
+    const trace = Array.isArray(parsed.workTrace) ? [...parsed.workTrace] : []
+    trace.push(
+      lang === 'fr'
+        ? 'Certaines étapes manquent encore d’ancrage observé — hypothèses possibles'
+        : 'Some steps still lack observed anchors — may include hypotheses',
+    )
+    parsed.workTrace = trace.slice(0, 8)
+  }
+
+  // Dry-run when we still have time (explore cache hits leave more room).
+  if (budgetLeft() < 16_000) {
+    return parsed
+  }
+
+  const seedUrl = analysis?.url ?? target?.url ?? body.context?.url ?? null
+  const runnable = planStepsToRunnable(parsed.plan as Record<string, unknown>, seedUrl)
+  if (runnable.length === 0) return parsed
+
+  sendStatus(
+    lang === 'fr'
+      ? 'Je vérifie le parcours dans le navigateur…'
+      : 'Checking the journey in the browser…',
+  )
+
+  const dry = await dryRunJourneyWithPlaywright({
+    steps: runnable.slice(0, 8),
+    prompt:
+      typeof (parsed.plan as Record<string, unknown>).prompt === 'string'
+        ? ((parsed.plan as Record<string, unknown>).prompt as string)
+        : body.userMessage,
+    deadlineMs: Math.min(18_000, budgetLeft() - 4_000),
+  })
+
+  const trace = Array.isArray(parsed.workTrace) ? [...parsed.workTrace] : []
+  if (dry.ok) {
+    trace.push(
+      lang === 'fr'
+        ? `Répétition OK (${dry.stepsOk} étapes)`
+        : `Dry-run OK (${dry.stepsOk} steps)`,
+    )
+  } else {
+    trace.push(
+      lang === 'fr'
+        ? `Répétition partielle — étape ${
+            dry.failedIndex != null ? dry.failedIndex + 1 : '?'
+          } fragile${dry.error ? ` (${dry.error})` : ''}`
+        : `Partial dry-run — step ${
+            dry.failedIndex != null ? dry.failedIndex + 1 : '?'
+          } fragile${dry.error ? ` (${dry.error})` : ''}`,
+    )
+    // Keep readyForPlan true — user can still run; honesty lives in workTrace.
+  }
+  parsed.workTrace = trace.slice(0, 8)
+  return parsed
 }
 
 function buildResultPayload(
@@ -344,6 +455,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   let analysis: SiteAnalysisResult | null = null
   let target: ResolvedSiteTarget | null = null
   let explore: SiteExploreResult | null = null
+  const requestStartedAt = Date.now()
 
   try {
     target = await resolveTargetOnly(
@@ -408,13 +520,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             const aggregatedResponse = await streamResult.response
             const fullText = aggregatedResponse.text()
 
-            const { statuses, parsed } = parseModelOutput(fullText || buffer)
+            const { statuses, parsed: rawParsed } = parseModelOutput(fullText || buffer)
             for (const status of statuses) {
               if (!streamedStatuses.includes(status)) {
                 streamedStatuses.push(status)
                 sendStatus(status)
               }
             }
+
+            const parsed = await groundAndMaybeDryRunPlan({
+              parsed: rawParsed,
+              explore,
+              analysis,
+              target,
+              body,
+              requestStartedAt,
+              sendStatus,
+            })
 
             writeNdjson(
               res,

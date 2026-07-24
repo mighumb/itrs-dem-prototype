@@ -81,7 +81,10 @@ export function buildJourneyFromDiscovery(options: {
 
   const steps: Omit<JourneyStep, 'status'>[] = plan.steps.map((step, index) => {
     const action = normalizeAction(step.action, step.label)
-    const urlInStep = extractUrlFromText(step.label) ?? extractUrlFromText(step.action)
+    const urlInStep =
+      step.href ??
+      extractUrlFromText(step.label) ??
+      extractUrlFromText(step.action)
     const target =
       action === 'Navigate'
         ? (urlInStep ?? seedUrl ?? undefined)
@@ -93,17 +96,20 @@ export function buildJourneyFromDiscovery(options: {
       action,
       duration: index === 0 ? '3.5s' : '800ms',
       target,
+      targetHint: step.targetHint,
+      href: step.href ?? (target?.startsWith('http') ? target : undefined),
       timeout: '30s',
     }
   })
 
   // Guarantee at least one Navigate target when we know the site URL.
-  if (seedUrl && steps.length > 0 && !steps.some((s) => s.action === 'Navigate' && s.target)) {
+  if (seedUrl && steps.length > 0 && !steps.some((s) => s.action === 'Navigate' && (s.target || s.href))) {
     const first = steps[0]!
     steps[0] = {
       ...first,
       action: 'Navigate',
       target: seedUrl,
+      href: seedUrl,
       label: first.label.match(/https?:\/\//i) ? first.label : `Open ${seedUrl}`,
     }
   }

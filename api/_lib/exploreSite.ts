@@ -42,10 +42,35 @@ type ExploreOptions = {
 }
 
 const DEFAULT_MAX_PAGES = 6
-const DEFAULT_DEADLINE_MS = 28_000
+const DEFAULT_DEADLINE_MS = 20_000
 const MAX_SNAPSHOT_CHARS = 9_000
 const MAX_LINKS_PER_PAGE = 18
 const MAX_BUTTONS_PER_PAGE = 12
+const EXPLORE_CACHE_TTL_MS = 15 * 60 * 1000
+
+type ExploreCacheEntry = {
+  expires: number
+  explore: SiteExploreResult
+  analysis: SiteAnalysisResult
+}
+
+const exploreCache = new Map<string, ExploreCacheEntry>()
+
+function cacheKeyFor(url: string): string {
+  try {
+    return new URL(url).origin
+  } catch {
+    return url
+  }
+}
+
+/** Read a still-fresh explore result without re-crawling (used on later Discovery turns). */
+export function peekExploreCache(url: string | null | undefined): SiteExploreResult | null {
+  if (!url) return null
+  const entry = exploreCache.get(cacheKeyFor(url))
+  if (!entry || entry.expires <= Date.now()) return null
+  return entry.explore
+}
 
 type RawInventory = {
   title: string
@@ -59,16 +84,38 @@ function t(lang: 'en' | 'fr', en: string, fr: string): string {
   return lang === 'fr' ? fr : en
 }
 
-function sameOrigin(base: URL, href: string): string | null {
+/** Crude eTLD+1 key so www ↔ apex and language subdomains can be crawled. */
+function registrableKey(hostname: string): string {
+  const host = hostname.toLowerCase().replace(/\.$/, '')
+  const parts = host.split('.').filter(Boolean)
+  if (parts.length <= 2) return parts.join('.')
+  const sld = new Set(['co', 'com', 'net', 'org', 'gov', 'ac', 'edu'])
+  if (parts.length >= 3 && sld.has(parts[parts.length - 2]!)) {
+    return parts.slice(-3).join('.')
+  }
+  return parts.slice(-2).join('.')
+}
+
+function relatedUrl(base: URL, href: string): string | null {
   try {
     const next = new URL(href, base)
     if (next.protocol !== 'http:' && next.protocol !== 'https:') return null
-    if (next.origin !== base.origin) return null
+    if (registrableKey(next.hostname) !== registrableKey(base.hostname)) return null
     next.hash = ''
     return next.toString()
   } catch {
     return null
   }
+}
+
+function detectLoginWall(page: SiteExplorePage): boolean {
+  const blob = `${page.title} ${page.heading ?? ''} ${page.buttons.join(' ')}`.toLowerCase()
+  const hasPasswordField = page.forms.some((form) =>
+    form.fields.some((field) => /pass|pwd|motdepasse|mot de passe/i.test(field)),
+  )
+  const loginCta = /sign in|log in|connexion|se connecter|create account/.test(blob)
+  const thinContent = page.links.length < 3 && page.buttons.length < 3
+  return hasPasswordField && (loginCta || thinContent)
 }
 
 function linkScore(label: string, href: string): number {
@@ -263,6 +310,18 @@ export async function explorePublicSite(
     return { explore, analysis: toAnalysis(explore) }
   }
 
+  const cached = exploreCache.get(cacheKeyFor(start.toString()))
+  if (cached && cached.expires > Date.now()) {
+    onStatus?.(
+      t(
+        lang,
+        `Reusing recent site map for ${start.hostname}`,
+        `Je réutilise la carte récente de ${start.hostname}`,
+      ),
+    )
+    return { explore: cached.explore, analysis: cached.analysis }
+  }
+
   onStatus?.(
     t(lang, `Exploring ${start.hostname} in the browser…`, `J’explore ${start.hostname} dans le navigateur…`),
   )
@@ -285,7 +344,7 @@ export async function explorePublicSite(
       const next = queue.shift()
       if (!next) break
 
-      const normalized = sameOrigin(start, next.url)
+      const normalized = relatedUrl(start, next.url)
       if (!normalized || visited.has(normalized)) continue
       visited.add(normalized)
 
@@ -324,10 +383,10 @@ export async function explorePublicSite(
         pages.push(pageData)
 
         for (const link of inventory.links) {
-          const abs = sameOrigin(start, link.href)
+          const abs = relatedUrl(start, link.href)
           if (!abs || visited.has(abs)) continue
           if (queue.some((q) => q.url === abs)) continue
-          // Same-origin links are worth visiting even with a modest score.
+          // Related-host links are worth visiting even with a modest score.
           const score = Math.max(1, linkScore(link.label, abs))
           queue.push({ url: abs, score })
         }
@@ -375,6 +434,27 @@ export async function explorePublicSite(
       ),
     )
 
+    const loginWall = pages.length > 0 && pages.every((p) => detectLoginWall(p))
+    if (loginWall) {
+      const explore: SiteExploreResult = {
+        ok: false,
+        url: pages[0]?.url ?? start.toString(),
+        reason: 'Login-wall suspected — little public content available',
+        method: 'playwright',
+        pagesVisited: pages.length,
+        pages,
+        snapshot,
+        title: pages[0]?.title ?? null,
+      }
+      const analysis = toAnalysis(explore)
+      exploreCache.set(cacheKeyFor(start.toString()), {
+        expires: Date.now() + EXPLORE_CACHE_TTL_MS,
+        explore,
+        analysis,
+      })
+      return { explore, analysis }
+    }
+
     const explore: SiteExploreResult = {
       ok: true,
       url: pages[0]?.url ?? start.toString(),
@@ -385,7 +465,13 @@ export async function explorePublicSite(
       snapshot,
       title: pages[0]?.title ?? null,
     }
-    return { explore, analysis: toAnalysis(explore) }
+    const analysis = toAnalysis(explore)
+    exploreCache.set(cacheKeyFor(start.toString()), {
+      expires: Date.now() + EXPLORE_CACHE_TTL_MS,
+      explore,
+      analysis,
+    })
+    return { explore, analysis }
   } catch (error) {
     if (browser) {
       await browser.close().catch(() => undefined)

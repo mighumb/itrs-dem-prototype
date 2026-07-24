@@ -52,7 +52,7 @@ function frameFromEvent(event: {
  * Falls back to throwing if the runner is unavailable (caller may simulate).
  */
 export async function runLiveJourney(options: {
-  steps: Array<Pick<JourneyStep, 'id' | 'label' | 'action' | 'target'>>
+  steps: Array<Pick<JourneyStep, 'id' | 'label' | 'action' | 'target' | 'targetHint' | 'href'>>
   prompt?: string
   signal?: AbortSignal
   onEvent: (event: JourneyRunEvent) => void
@@ -80,6 +80,8 @@ export async function runLiveJourney(options: {
           label: s.label,
           action: s.action,
           target: s.target,
+          targetHint: s.targetHint,
+          href: s.href,
         })),
       }),
     })
