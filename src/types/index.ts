@@ -70,7 +70,6 @@ export interface JourneyMonitoringPreview {
 export interface JourneyTemplate {
   id: string
   name: string
-  matchPrompts: string[]
   steps: Omit<JourneyStep, 'status'>[]
   browserFrames: BrowserFrame[]
   monitoring: JourneyMonitoringPreview

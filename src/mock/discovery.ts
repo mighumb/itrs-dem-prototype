@@ -1,6 +1,3 @@
-import { isCuratedHomeExample, resolveJourneyTemplate } from './data'
-import type { JourneyTemplate } from '../types'
-
 export type DiscoveryPhase = 'idle' | 'questionnaire' | 'proposals' | 'planning' | 'conversation'
 
 export interface DiscoveryQuestion {
@@ -62,14 +59,10 @@ function siteLabelFromCtx(ctx: DiscoveryContext, locale: 'en' | 'fr' = 'en'): st
   return locale === 'fr' ? 'ce site' : 'this site'
 }
 
-/** Precise enough to skip brainstorm and go straight to planning (curated samples / multi-step prompts). */
+/** Precise enough to skip brainstorm and go straight to planning (multi-step prompts with concrete params). */
 export function isPrecisePrompt(text: string): boolean {
   const trimmed = text.trim()
   if (!trimmed) return false
-
-  if (isCuratedHomeExample(trimmed)) {
-    return true
-  }
 
   const lower = trimmed.toLowerCase()
 
@@ -483,27 +476,6 @@ export function buildConfigureQuestions(
       ],
     },
   ]
-}
-
-export function buildPlanFromPrompt(prompt: string): DiscoveryPlan {
-  const template = resolveJourneyTemplate(prompt)
-  return planFromTemplate(template, prompt)
-}
-
-export function buildPlanFromProposal(proposal: JourneyProposal): DiscoveryPlan {
-  return buildPlanFromPrompt(proposal.prompt)
-}
-
-function planFromTemplate(template: JourneyTemplate, prompt: string): DiscoveryPlan {
-  return {
-    title: template.name,
-    summary: `Here's the journey I propose for **${template.name}**. Review the steps — we can refine in chat, or hit **Run** when you're ready.`,
-    steps: template.steps.map((step) => ({
-      label: step.label,
-      action: step.action,
-    })),
-    prompt,
-  }
 }
 
 export function formatPlanMessage(plan: DiscoveryPlan): string {

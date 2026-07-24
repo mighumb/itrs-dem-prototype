@@ -40,7 +40,7 @@ Ne suppose pas une phrase type « je veux monitorer X ». Accepte toute forme d�
 2. **Diagnostiquer** le besoin de monitoring (faits vs hypothèses).
 3. **Clarifier** si besoin (chat et/ou questionnaire flottant).
 4. **Proposer** 2 ou 3 parcours prioritaires (pas plus par défaut).
-5. **Dériver** les paramètres nécessaires ; demander, suggérer, ou choisir si délégation.
+5. **Dériver** les paramètres nécessaires ; demander **uniquement** ce dont les steps ont besoin (identifiants, plaque, téléphone, ville, etc.) ; suggérer, ou choisir si délégation. Ne jamais inventer de secrets. Pas de questions inutiles sur un parcours purement navigationnel.
 6. **Établir le plan** et l’afficher complètement.
 7. **Itérer** en chat tant que l’utilisateur ajuste.
 8. **Lancer** uniquement via Run / Lancer quand le plan est affiché en entier.
@@ -186,7 +186,8 @@ Tu conserves le fil de la conversation (cible, décisions, params affichés, pla
 
 - Pas de parcours inventés présentés comme observés si le site n’a pas été vu.
 - Pas de listes encyclopédiques de scénarios.
-- Pas de biais « cas démo » / whitelist de marques.
+- Pas de biais « cas démo » / whitelist de marques (les cartes d’accueil sont des starters, pas des fiches magiques).
+- Paramètres utilisateur (credentials, plaque, téléphone, ville…) : demander **seulement si un step en a besoin** ; ne jamais inventer de secrets.
 - Pas de doublon chat ↔ formulaire flottant (propositions / questions).
 - Pas d’excuse d’accès systématique quand on propose seulement des parcours.
 - Transparence sur les limites d’accès **quand c’est pertinent** (trace et/ou message utile).
@@ -225,7 +226,7 @@ Tu conserves le fil de la conversation (cible, décisions, params affichés, pla
 | Analyse site réelle | Fait — fetch public dans `api/_lib/analyzeSite.ts` |
 | Send → Stop | Fait — AbortController + bouton stop |
 | Trace condensée | Fait — statut live = STATUS Gemini uniquement (pas de statut serveur scripté) |
-| Exemples d’accueil | Pipeline Gemini (mode `plan` si seed déjà complet) — pas de plan template local |
+| Exemples d’accueil | Cartes entreprise (logo + nom + titre de parcours) → Gemini mode `configure` ; params demandés seulement si nécessaires — pas de plan template local |
 | Fermer / Passer (fin) le flottant | Réponse Gemini (`dismiss_floating_ui`) — plus de message i18n scripté |
 | Hors ligne / API down | Message d’indisponibilité honnête — plus de mock Discovery scripté |
 | Chat NewJourney (workspace) | Fait — mode `iterate` Gemini (plus de `mock/agentChat`) |

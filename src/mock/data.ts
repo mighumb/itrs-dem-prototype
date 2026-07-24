@@ -7,410 +7,85 @@ import type {
 } from '../types'
 import { tf, type Locale } from '../i18n/messages'
 
-/** Ready-made demo prompts — not to be confused with agent-generated Suggestions (URL-only → analyzed paths). */
-export const HOME_EXAMPLES_EN = [
-  'Go to https://www.nike.com, search for France 2026 Stadium Home, select size L, personalize with Miguel / 6, and verify "Add to bag" is visible.',
-  'Go to https://www.thetrainline.com, search for trains from Paris Gare de Lyon to Lyon Part-Dieu tomorrow morning, select a morning TGV, choose a Standard ticket, and verify you can enter passenger details.',
-  'Go to https://www.booking.com, search for hotels in Barcelona next weekend, open the first result, and verify room options are shown.',
+/** Homepage sample cards — company + short journey title (not full step-by-step prompts). */
+export type HomeJourneyExample = {
+  id: 'salesforce' | 'axa' | 'totalenergies'
+  company: string
+  logoSrc: string
+  url: string
+  journeyTitle: { en: string; fr: string }
+  /** Seed passed to Gemini (site + journey intent; params collected only if needed). */
+  seed: { en: string; fr: string }
+}
+
+export const HOME_JOURNEY_EXAMPLES: readonly HomeJourneyExample[] = [
+  {
+    id: 'salesforce',
+    company: 'Salesforce',
+    logoSrc: '/logos/salesforce.svg',
+    url: 'https://www.salesforce.com',
+    journeyTitle: {
+      en: 'Sign in to Sales Cloud',
+      fr: 'Se connecter à Sales Cloud',
+    },
+    seed: {
+      en: 'Monitor https://www.salesforce.com — journey: Sign in to Sales Cloud (login).',
+      fr: 'Monitorer https://www.salesforce.com — parcours : Se connecter à Sales Cloud (connexion).',
+    },
+  },
+  {
+    id: 'axa',
+    company: 'AXA',
+    logoSrc: '/logos/axa.svg',
+    url: 'https://www.axa.fr',
+    journeyTitle: {
+      en: 'Get a car insurance quote',
+      fr: 'Obtenir un devis assurance auto',
+    },
+    seed: {
+      en: 'Monitor https://www.axa.fr — journey: Get a car insurance quote.',
+      fr: 'Monitorer https://www.axa.fr — parcours : Obtenir un devis assurance auto.',
+    },
+  },
+  {
+    id: 'totalenergies',
+    company: 'TotalEnergies',
+    logoSrc: '/logos/totalenergies.svg',
+    url: 'https://www.totalenergies.fr',
+    journeyTitle: {
+      en: 'Find a nearby station',
+      fr: 'Trouver une station proche',
+    },
+    seed: {
+      en: 'Monitor https://www.totalenergies.fr — journey: Find a nearby station.',
+      fr: 'Monitorer https://www.totalenergies.fr — parcours : Trouver une station proche.',
+    },
+  },
 ] as const
 
-export const HOME_EXAMPLES_FR = [
-  'Va sur https://www.nike.com, recherche France 2026 Stadium Home, sélectionne la taille L, personnalise avec Miguel / 6, et vérifie que « Ajouter au panier » est visible.',
-  'Va sur https://www.thetrainline.com, recherche des trains de Paris Gare de Lyon à Lyon Part-Dieu demain matin, sélectionne un TGV du matin, choisis un billet Standard, et vérifie que tu peux saisir les détails passager.',
-  'Va sur https://www.booking.com, recherche des hôtels à Barcelone le week-end prochain, ouvre le premier résultat, et vérifie que les options de chambres s’affichent.',
-] as const
-
-/** @deprecated Prefer getHomeExamples(locale) — kept for journey template matchPrompts. */
-export const HOME_EXAMPLES = [...HOME_EXAMPLES_EN]
-
-export function getHomeExamples(locale: 'en' | 'fr'): readonly string[] {
-  return locale === 'fr' ? HOME_EXAMPLES_FR : HOME_EXAMPLES_EN
+export function getHomeExamples(_locale: Locale | 'en' | 'fr'): readonly HomeJourneyExample[] {
+  return HOME_JOURNEY_EXAMPLES
 }
 
 export function isCuratedHomeExample(text: string): boolean {
   const normalized = text.trim().toLowerCase()
-  return [...HOME_EXAMPLES_EN, ...HOME_EXAMPLES_FR].some(
-    (example) => example.toLowerCase() === normalized,
+  return HOME_JOURNEY_EXAMPLES.some(
+    (example) =>
+      example.seed.en.toLowerCase() === normalized ||
+      example.seed.fr.toLowerCase() === normalized ||
+      example.journeyTitle.en.toLowerCase() === normalized ||
+      example.journeyTitle.fr.toLowerCase() === normalized ||
+      `${example.company} — ${example.journeyTitle.en}`.toLowerCase() === normalized ||
+      `${example.company} — ${example.journeyTitle.fr}`.toLowerCase() === normalized,
   )
-}
-
-export const DEMO_PROMPT =
-  'Go to https://www.nike.com, search for France 2026 Stadium Home, select size L, personalize with name Miguel and number 6, then finish.'
-
-const TRAIN_JOURNEY: JourneyTemplate = {
-  id: 'train',
-  name: 'Paris → Lyon Train',
-  matchPrompts: [HOME_EXAMPLES[1]],
-  steps: [
-    {
-      id: 'train-1',
-      label: 'Navigate to thetrainline.com',
-      action: 'Navigate',
-      duration: '3.8s',
-      target: 'https://www.thetrainline.com',
-      timeout: '30s',
-    },
-    {
-      id: 'train-2',
-      label: 'Search Paris Gare de Lyon → Lyon',
-      action: 'Type',
-      duration: '1.4s',
-      target: 'input[name="origin"], input[name="destination"]',
-      timeout: '30s',
-    },
-    {
-      id: 'train-3',
-      label: 'Set outbound to tomorrow morning',
-      action: 'Click',
-      duration: '890ms',
-      target: 'button[data-testid="date-picker"]',
-      timeout: '30s',
-    },
-    {
-      id: 'train-4',
-      label: 'Select a morning TGV',
-      action: 'Click',
-      duration: '720ms',
-      target: '.search-results__item[data-train-type="tgv"]',
-      timeout: '30s',
-    },
-    {
-      id: 'train-5',
-      label: 'Choose Standard ticket',
-      action: 'Click',
-      duration: '640ms',
-      target: 'button[data-fare="standard"]',
-      timeout: '30s',
-    },
-    {
-      id: 'train-6',
-      label: 'Verify passenger details form',
-      action: 'Verify',
-      duration: '420ms',
-      target: 'form.passenger-details',
-      timeout: '30s',
-    },
-  ],
-  browserFrames: [
-    {
-      url: 'https://www.thetrainline.com',
-      title: 'Trainline — Train tickets',
-      highlight: 'Homepage loaded',
-    },
-    {
-      url: 'https://www.thetrainline.com',
-      title: 'Trainline — Search',
-      highlight: 'Paris Gare de Lyon → Lyon Part-Dieu',
-      cursor: { x: 45, y: 35 },
-    },
-    {
-      url: 'https://www.thetrainline.com',
-      title: 'Trainline — Date',
-      highlight: 'Tomorrow · Morning',
-      cursor: { x: 52, y: 28 },
-    },
-    {
-      url: 'https://www.thetrainline.com/search',
-      title: 'Trainline — Results',
-      highlight: 'Morning TGV — selected',
-      cursor: { x: 50, y: 48 },
-    },
-    {
-      url: 'https://www.thetrainline.com/book/ticket-options',
-      title: 'Trainline — Ticket options',
-      highlight: 'Standard ticket — selected',
-      cursor: { x: 62, y: 55 },
-    },
-    {
-      url: 'https://www.thetrainline.com/book/passenger-details',
-      title: 'Trainline — Passenger details',
-      highlight: 'Passenger form — verified ✓',
-    },
-  ],
-  monitoring: {
-    kpi: { availability: '100%', totalTime: '7.87 s', failingSteps: '0 issues' },
-    lastRunLabel: 'Preview run',
-  },
-}
-
-const HOTEL_JOURNEY: JourneyTemplate = {
-  id: 'hotel',
-  name: 'Barcelona Hotels',
-  matchPrompts: [HOME_EXAMPLES[2]],
-  steps: [
-    {
-      id: 'hotel-1',
-      label: 'Navigate to booking.com',
-      action: 'Navigate',
-      duration: '4.2s',
-      target: 'https://www.booking.com',
-      timeout: '30s',
-    },
-    {
-      id: 'hotel-2',
-      label: 'Search Barcelona, next weekend',
-      action: 'Type',
-      duration: '1.8s',
-      target: 'input[name="ss"]',
-      timeout: '30s',
-    },
-    {
-      id: 'hotel-3',
-      label: 'Open first hotel result',
-      action: 'Click',
-      duration: '950ms',
-      target: '.sr_property_block:first-child a',
-      timeout: '30s',
-    },
-    {
-      id: 'hotel-4',
-      label: 'View available rooms',
-      action: 'Click',
-      duration: '680ms',
-      target: '#hprt-table',
-      timeout: '30s',
-    },
-    {
-      id: 'hotel-5',
-      label: 'Verify room options shown',
-      action: 'Verify',
-      duration: '380ms',
-      target: '.hprt-roomtype-link',
-      timeout: '30s',
-    },
-  ],
-  browserFrames: [
-    {
-      url: 'https://www.booking.com',
-      title: 'Booking.com',
-      highlight: 'Homepage loaded',
-    },
-    {
-      url: 'https://www.booking.com',
-      title: 'Booking.com — Search',
-      highlight: 'Barcelona · Next weekend',
-      cursor: { x: 48, y: 32 },
-    },
-    {
-      url: 'https://www.booking.com/hotel/es/example.html',
-      title: 'Hotel Arts Barcelona — Booking.com',
-      highlight: 'Hotel page',
-      cursor: { x: 40, y: 55 },
-    },
-    {
-      url: 'https://www.booking.com/hotel/es/example.html',
-      title: 'Hotel Arts Barcelona — Booking.com',
-      highlight: 'Available rooms',
-      cursor: { x: 55, y: 62 },
-    },
-    {
-      url: 'https://www.booking.com/hotel/es/example.html',
-      title: 'Hotel Arts Barcelona — Booking.com',
-      highlight: 'Room options — verified ✓',
-    },
-  ],
-  monitoring: {
-    kpi: { availability: '100%', totalTime: '8.01 s', failingSteps: '0 issues' },
-    lastRunLabel: 'Preview run',
-  },
-}
-
-const NIKE_JOURNEY: JourneyTemplate = {
-  id: 'nike',
-  name: 'Nike Checkout',
-  matchPrompts: [HOME_EXAMPLES[0], DEMO_PROMPT],
-  steps: [
-    {
-      id: 'nike-1',
-      label: 'Navigate to nike.com',
-      action: 'Navigate',
-      duration: '6.2s',
-      target: 'https://www.nike.com',
-      timeout: '30s',
-    },
-    {
-      id: 'nike-2',
-      label: 'Dismiss cookie banner',
-      action: 'Click',
-      duration: '634ms',
-      target: 'button#onetrust-accept-btn-handler',
-      timeout: '30s',
-    },
-    {
-      id: 'nike-3',
-      label: 'Search for France 2026 Stadium',
-      action: 'Type',
-      duration: '1.9s',
-      target: 'input[name="search"]',
-      timeout: '30s',
-    },
-    {
-      id: 'nike-4',
-      label: 'Select product',
-      action: 'Click',
-      duration: '1.1s',
-      target: 'a.product-card[href*="france-jersey"]',
-      timeout: '30s',
-    },
-    {
-      id: 'nike-5',
-      label: 'Select size L',
-      action: 'Click',
-      duration: '890ms',
-      target: 'button.size-selector[data-value="L"]',
-      timeout: '30s',
-    },
-    {
-      id: 'nike-6',
-      label: 'Personalize — Miguel, 6',
-      action: 'Type',
-      duration: '2.4s',
-      target: 'input[name="customName"], input[name="customNumber"]',
-      timeout: '30s',
-    },
-    {
-      id: 'nike-7',
-      label: 'Verify "Add to bag" visible',
-      action: 'Verify',
-      duration: '420ms',
-      target: 'button[data-qa="add-to-bag"]',
-      timeout: '30s',
-    },
-  ],
-  browserFrames: [
-    {
-      url: 'https://www.nike.com',
-      title: 'Nike. Just Do It.',
-      highlight: 'Homepage loaded',
-    },
-    {
-      url: 'https://www.nike.com',
-      title: 'Nike. Just Do It.',
-      highlight: 'Cookie banner — Accept',
-      cursor: { x: 72, y: 78 },
-    },
-    {
-      url: 'https://www.nike.com/search',
-      title: 'Search — Nike',
-      highlight: 'Search: France 2026 Stadium',
-      cursor: { x: 45, y: 12 },
-    },
-    {
-      url: 'https://www.nike.com/t/france-jersey',
-      title: 'France 2026 Stadium Home — Nike',
-      highlight: 'Product page',
-    },
-    {
-      url: 'https://www.nike.com/t/france-jersey',
-      title: 'France 2026 Stadium Home — Nike',
-      highlight: 'Size L selected',
-      cursor: { x: 58, y: 52 },
-    },
-    {
-      url: 'https://www.nike.com/customize',
-      title: 'Personalize — Nike',
-      highlight: 'Name: Miguel · Number: 6',
-      cursor: { x: 50, y: 45 },
-    },
-    {
-      url: 'https://www.nike.com/t/france-jersey',
-      title: 'France 2026 Stadium Home — Nike',
-      highlight: 'Add to bag — verified ✓',
-    },
-  ],
-  monitoring: {
-    kpi: { availability: '100%', totalTime: '13.54 s', failingSteps: '0 issues' },
-    lastRunLabel: 'Preview run',
-  },
-}
-
-export const JOURNEY_TEMPLATES: JourneyTemplate[] = [
-  NIKE_JOURNEY,
-  TRAIN_JOURNEY,
-  HOTEL_JOURNEY,
-]
-
-const STEP_FRAME_MAP = new Map<string, BrowserFrame>()
-for (const template of JOURNEY_TEMPLATES) {
-  template.steps.forEach((step, index) => {
-    STEP_FRAME_MAP.set(step.id, template.browserFrames[index])
-  })
-}
-
-export function resolveJourneyTemplate(prompt: string): JourneyTemplate {
-  const trimmed = prompt.trim()
-  const lower = trimmed.toLowerCase()
-
-  const exact = JOURNEY_TEMPLATES.find((template) =>
-    template.matchPrompts.some((match) => match.toLowerCase() === lower),
-  )
-  if (exact) return exact
-
-  if (lower.includes('nike') || lower.includes('stadium') || lower.includes('jersey')) {
-    return NIKE_JOURNEY
-  }
-  if (
-    lower.includes('trainline') ||
-    lower.includes('thetrainline') ||
-    lower.includes('train') ||
-    (lower.includes('paris') && lower.includes('lyon'))
-  ) {
-    return TRAIN_JOURNEY
-  }
-  if (
-    lower.includes('booking.com') ||
-    lower.includes('hotel') ||
-    lower.includes('barcelona')
-  ) {
-    return HOTEL_JOURNEY
-  }
-  if (
-    lower.includes('checkout') ||
-    lower.includes('cart') ||
-    lower.includes('payment') ||
-    lower.includes('shipping') ||
-    lower.includes('add to bag')
-  ) {
-    return NIKE_JOURNEY
-  }
-
-  if (trimmed) return NIKE_JOURNEY
-  return NIKE_JOURNEY
-}
-
-/** @deprecated Use resolveJourneyTemplate().name */
-export const JOURNEY_NAME = NIKE_JOURNEY.name
-
-/** @deprecated Use resolveJourneyTemplate().steps */
-export const MOCK_STEPS = NIKE_JOURNEY.steps
-
-/** @deprecated Use resolveJourneyTemplate().browserFrames */
-export const BROWSER_FRAMES = NIKE_JOURNEY.browserFrames
-
-/** @deprecated Use journey.monitoring.kpi */
-export const RESULTS_KPI = NIKE_JOURNEY.monitoring.kpi
-
-export const AGENT_INTRO: ChatMessage = {
-  id: 'intro',
-  role: 'agent',
-  content:
-    "Hello! I'm the ITRS DEM assistant. Tell me what to monitor, or paste a URL to get started.",
-}
-
-export const SCHEDULE_SUGGESTION = {
-  primary: 'Every 15 min, 24/7, from Paris + Frankfurt',
-  alternatives: ['Every hour, business hours only', 'Custom schedule…'],
 }
 
 export function getBrowserFrameForStep(step: JourneyStep, index: number): BrowserFrame {
-  const known = STEP_FRAME_MAP.get(step.id)
-  if (known) return known
-
-  const url = step.target?.startsWith('http')
-    ? step.target
-    : step.label.toLowerCase().includes('nike')
-      ? 'https://www.nike.com'
-      : 'https://example.com'
+  const urlFromLabel = step.label.match(/https?:\/\/[^\s<>"']+/i)?.[0]?.replace(/[.,);]+$/g, '')
+  const url =
+    (step.target?.startsWith('http') ? step.target : null) ??
+    urlFromLabel ??
+    'about:blank'
 
   const cursorOffset = { x: 35 + (index * 11) % 45, y: 25 + (index * 9) % 50 }
 
@@ -489,20 +164,19 @@ export function applyAgentStepFix(
   let newTarget = step.target
   const label = step.label.toLowerCase()
 
-  if (label.includes('select product')) {
-    newTarget = 'a.product-card__link[href*="france-jersey"]'
-  } else if (/cookie|bandeau|consent|rgpd|gdpr/i.test(label)) {
+  if (/cookie|bandeau|consent|rgpd|gdpr/i.test(label)) {
     newTarget =
       '#onetrust-accept-btn-handler, button:has-text("Accept"), button:has-text("Tout accepter"), [aria-label*="accept" i]'
   } else if (step.action === 'Click') {
-    newTarget = `[data-testid="${step.id}-target"]`
-  } else if (step.action === 'Type') {
-    // Destination / search fields often sit under a leftover consent overlay.
     newTarget = step.target?.includes(',')
       ? step.target
-      : `${step.target ?? 'input[type="search"], input[name*="destination" i]'}, input[autocomplete="off"]`
+      : `[data-testid="${step.id}-target"], button, a, [role="button"]`
+  } else if (step.action === 'Type') {
+    newTarget = step.target?.includes(',')
+      ? step.target
+      : `${step.target ?? 'input, textarea'}, input[autocomplete="off"]`
   } else if (step.action === 'Verify') {
-    newTarget = `${step.target ?? 'button'}, [data-qa="add-to-bag"]`
+    newTarget = step.target ?? 'body, main, h1'
   }
 
   const changeSummary =

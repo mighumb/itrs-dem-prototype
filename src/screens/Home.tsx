@@ -8,7 +8,7 @@ import { useLocale } from '../context/LocaleContext'
 import { HOME_ROTATING_TARGETS } from '../i18n/messages'
 import { requestDiscoveryAi, type DiscoveryAiResult } from '../lib/discoveryAi'
 import type { JourneyLaunchSession } from '../lib/journeyLaunch'
-import { getHomeExamples, isCuratedHomeExample } from '../mock/data'
+import { getHomeExamples, type HomeJourneyExample } from '../mock/data'
 import {
   buildJourneyProposals,
   createDiscoveryContext,
@@ -259,13 +259,11 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
     setPhase('conversation')
 
     await withTyping(async (signal, onStatus) => {
-      // Curated homepage examples are already full journeys → ask Gemini for a plan directly.
-      const mode = isCuratedHomeExample(seed) ? 'plan' : 'bootstrap'
       const ai = await requestDiscoveryAi({
-        mode,
+        mode: 'bootstrap',
         userMessage: seed,
         messages: [userMsg],
-        phase: mode === 'plan' ? 'planning' : 'conversation',
+        phase: 'conversation',
         context: nextCtx,
         preferredLanguage: locale,
         signal,
@@ -274,7 +272,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
       if (ai.aborted) return
       rememberSnapshot(ai)
 
-      // Complete plan → show steps + Run (homepage examples and precise free-typed seeds).
+      // Complete plan → show steps + Run (precise free-typed seeds).
       if (ai.plan && (ai.readyForPlan || ai.plan.steps.length > 0)) {
         const formatted = formatPlanMessage(ai.plan)
         const content =
@@ -594,10 +592,78 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
     }
   }
 
-  const handleExample = async (example: string) => {
+  const handleExample = async (example: HomeJourneyExample) => {
     setInput('')
-    // Same Gemini Discovery pipeline as free-typed chat — no template shortcut.
-    await startQuestionnaire(example)
+    const title = example.journeyTitle[locale]
+    const seed = example.seed[locale]
+    const display = `${example.company} — ${title}`
+    const proposal: JourneyProposal = {
+      id: example.id,
+      title,
+      description: display,
+      prompt: seed,
+    }
+    const nextCtx: DiscoveryContext = {
+      ...createDiscoveryContext(seed),
+      url: example.url,
+      selectedProposalId: proposal.id,
+      selectedProposal: proposal,
+      answers: {},
+    }
+    setCtx(nextCtx)
+    setProposals([])
+    setPlan(null)
+    setConfiguring(true)
+    setQuestionIndex(0)
+    setQuestions([])
+    setPhase('conversation')
+
+    const userMsg: ChatMessage = { id: uid('user'), role: 'user', content: display }
+    pushMessages(userMsg)
+
+    // Journey type already chosen → configure (ask user params only if steps need them).
+    await withTyping(async (signal, onStatus) => {
+      const ai = await requestDiscoveryAi({
+        mode: 'configure',
+        userMessage: seed,
+        messages: [userMsg],
+        phase: 'proposals',
+        context: nextCtx,
+        selectedProposal: proposal,
+        preferredLanguage: locale,
+        signal,
+        onStatus,
+      })
+      if (ai.aborted) return
+      rememberSnapshot(ai)
+
+      if (ai.plan && (ai.readyForPlan || ai.plan.steps.length > 0)) {
+        setConfiguring(false)
+        const formatted = formatPlanMessage(ai.plan)
+        const content =
+          ai.message.includes('1.') || ai.message.includes('1)')
+            ? ai.message
+            : ai.message
+              ? `${ai.message}\n\n${formatted}`
+              : formatted
+        pushAgentReply(content)
+        setPlan(ai.plan)
+        setPhase('planning')
+        return
+      }
+
+      if (ai.questions && ai.questions.length > 0) {
+        setQuestions(ai.questions)
+        setQuestionIndex(0)
+        setPhase('questionnaire')
+        pushAgentReply(ai.message)
+        return
+      }
+
+      setConfiguring(false)
+      setPhase('conversation')
+      pushAgentReply(ai.message)
+    })
   }
 
   const handleSubmit = async (raw: string) => {
@@ -776,12 +842,24 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
             <div className="space-y-2">
               {getHomeExamples(locale).map((example) => (
                 <button
-                  key={example}
+                  key={example.id}
                   type="button"
                   onClick={() => void handleExample(example)}
-                  className="w-full cursor-pointer rounded-xl border border-zinc-200/70 bg-zinc-50 px-4 py-3 text-left text-sm leading-relaxed text-zinc-600 transition hover:border-zinc-300 hover:bg-white dark:border-zinc-700/50 dark:bg-zinc-900/60 dark:text-zinc-300 dark:hover:border-zinc-600 dark:hover:bg-zinc-800"
+                  className="flex w-full cursor-pointer items-center gap-3 rounded-xl border border-zinc-200/70 bg-zinc-50 px-4 py-3 text-left transition hover:border-zinc-300 hover:bg-white dark:border-zinc-700/50 dark:bg-zinc-900/60 dark:hover:border-zinc-600 dark:hover:bg-zinc-800"
                 >
-                  {example}
+                  <img
+                    src={example.logoSrc}
+                    alt=""
+                    className="h-7 w-7 shrink-0 object-contain"
+                  />
+                  <span className="min-w-0">
+                    <span className="block text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                      {example.company}
+                    </span>
+                    <span className="block text-sm leading-snug text-zinc-700 dark:text-zinc-200">
+                      {example.journeyTitle[locale]}
+                    </span>
+                  </span>
                 </button>
               ))}
             </div>
@@ -815,7 +893,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
                 title={configuring ? t('configureJourney') : t('refineJourney')}
                 questions={questions}
                 questionIndex={questionIndex}
-                answers={ctx?.answers ?? {}}
+                answers={ctx?.answers}
                 onQuestionIndexChange={setQuestionIndex}
                 onSelectOption={(id, option) => void handleSelectOption(id, option)}
                 onSkipQuestion={() => void handleSkipQuestion()}
