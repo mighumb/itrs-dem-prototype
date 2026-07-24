@@ -2,6 +2,7 @@ import { useCallback, useState, type DragEvent } from 'react'
 
 export type WorkspacePanelId = 'agent' | 'steps' | 'browser' | 'monitoring'
 
+/** @deprecated Prefer i18n panel* keys via useLocale().t */
 export const PANEL_LABELS: Record<WorkspacePanelId, string> = {
   agent: 'Agent',
   steps: 'Steps',

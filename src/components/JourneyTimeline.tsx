@@ -11,6 +11,7 @@ import {
   Type,
 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
+import { useLocale } from '../context/LocaleContext'
 import { defaultStepDurationForAction } from '../mock/data'
 import type { JourneyStep } from '../types'
 
@@ -61,6 +62,7 @@ export default function JourneyTimeline({
   onStepsChange,
   onStepClick,
 }: JourneyTimelineProps) {
+  const { t, tf } = useLocale()
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set())
   const [expandedTech, setExpandedTech] = useState<string | null>(null)
@@ -188,10 +190,10 @@ export default function JourneyTimeline({
 
   const deleteLabel =
     checkedIds.size === 0
-      ? 'Delete'
+      ? t('delete')
       : checkedIds.size === steps.length
-        ? 'Delete all'
-        : `Delete (${checkedIds.size})`
+        ? t('deleteAll')
+        : tf('deleteCount', { count: checkedIds.size })
 
   const stepCardClass = (state: {
     isDropTarget: boolean
@@ -237,7 +239,7 @@ export default function JourneyTimeline({
     <div className="overflow-y-auto px-3 py-3">
       {canEdit && (
         <div className="mb-2 flex min-h-9 items-center gap-2 rounded-xl border border-zinc-200/80 bg-zinc-50/80 py-2 pl-2.5 pr-3 dark:border-zinc-700/80 dark:bg-zinc-800/50">
-          <label className={`${CHECKBOX_SLOT} cursor-pointer`} title="Select all steps">
+          <label className={`${CHECKBOX_SLOT} cursor-pointer`} title={t('selectAllSteps')}>
             <input
               ref={selectAllRef}
               type="checkbox"
@@ -247,7 +249,7 @@ export default function JourneyTimeline({
             />
           </label>
           <span className="min-w-0 flex-1 text-left text-[11px] font-medium leading-none text-zinc-600 dark:text-zinc-400">
-            Select all
+            {t('selectAllSteps')}
           </span>
           <button
             type="button"
@@ -301,7 +303,7 @@ export default function JourneyTimeline({
                 {canEdit && (
                   <label
                     className={`${CHECKBOX_SLOT} cursor-pointer`}
-                    title="Select step"
+                    title={t('selectStep')}
                     onClick={(e) => e.stopPropagation()}
                   >
                     <input
@@ -325,7 +327,7 @@ export default function JourneyTimeline({
                       setDropIndex(null)
                     }}
                     className={`${GRIP_SLOT} cursor-grab touch-none text-zinc-300 active:cursor-grabbing hover:text-zinc-500`}
-                    title="Drag to reorder"
+                    title={t('dragToReorder')}
                   >
                     <GripVertical size={14} />
                   </div>
@@ -359,7 +361,7 @@ export default function JourneyTimeline({
                         e.stopPropagation()
                         deleteStep(step.id)
                       }}
-                      title="Delete step"
+                      title={t('deleteStep')}
                       className="flex shrink-0 cursor-pointer items-center justify-center rounded-md p-1 text-red-500 transition hover:bg-red-100"
                     >
                       <Trash2 size={11} />

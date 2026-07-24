@@ -1,5 +1,6 @@
 import { GripVertical, Plus } from 'lucide-react'
 import type { DragEvent } from 'react'
+import { useLocale } from '../context/LocaleContext'
 
 interface CollapsedWorkspacePanelProps {
   id: string
@@ -24,6 +25,7 @@ export default function CollapsedWorkspacePanel({
   onDrop,
   onDragEnd,
 }: CollapsedWorkspacePanelProps) {
+  const { t } = useLocale()
   return (
     <div
       onDragOver={(event) => onDragOver(event, id)}
@@ -37,7 +39,7 @@ export default function CollapsedWorkspacePanel({
           draggable
           onDragStart={(event) => onDragStart(event, id)}
           onDragEnd={onDragEnd}
-          title="Drag into the workspace to restore"
+          title={t('dragToRestore')}
           className="flex cursor-grab items-center rounded p-1 text-zinc-300 transition hover:bg-zinc-50 hover:text-zinc-500 active:cursor-grabbing"
         >
           <GripVertical size={14} />
@@ -49,7 +51,7 @@ export default function CollapsedWorkspacePanel({
           <button
             type="button"
             onClick={onRestore}
-            title="Restore panel"
+            title={t('restorePanel')}
             className="cursor-pointer rounded p-1 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
           >
             <Plus size={14} />

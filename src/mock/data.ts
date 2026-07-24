@@ -5,6 +5,7 @@ import type {
   JourneyTemplate,
   StepMonitoringMetrics,
 } from '../types'
+import { tf, type Locale } from '../i18n/messages'
 
 /** Ready-made demo prompts — not to be confused with agent-generated Suggestions (URL-only → analyzed paths). */
 export const HOME_EXAMPLES_EN = [
@@ -439,24 +440,23 @@ export function pickRandomFailureIndex(stepCount: number): number | null {
   return Math.floor(Math.random() * stepCount)
 }
 
-export function buildJourneyReadyMessage(journey: JourneyTemplate): ChatMessage {
-  const stepCount = journey.steps.length
+export function buildJourneyReadyMessage(journey: JourneyTemplate, locale: Locale = 'en'): ChatMessage {
   return {
     id: 'done-1',
     role: 'agent',
-    content: `Journey ready — **${journey.name}** (${stepCount} steps). Use **Run** in Steps to replay, or **Edit** to adjust the flow.`,
+    content: tf(locale, 'journeyReady', { name: journey.name, count: journey.steps.length }),
   }
 }
 
-export function buildScheduleMessage(): ChatMessage {
+export function buildScheduleMessage(locale: Locale = 'en'): ChatMessage {
   return {
     id: 'done-2',
     role: 'agent',
-    content: 'Suggested schedule:',
+    content: tf(locale, 'suggestedSchedule', {}),
     actions: [
-      { id: 'accept-schedule', label: 'Every 15 min, Paris + Frankfurt', variant: 'primary' },
-      { id: 'custom-schedule', label: 'Customize', variant: 'secondary' },
-      { id: 'skip-schedule', label: 'Skip for now', variant: 'secondary' },
+      { id: 'accept-schedule', label: tf(locale, 'scheduleOptionPrimary', {}), variant: 'primary' },
+      { id: 'custom-schedule', label: tf(locale, 'scheduleCustomize', {}), variant: 'secondary' },
+      { id: 'skip-schedule', label: tf(locale, 'scheduleSkip', {}), variant: 'secondary' },
     ],
   }
 }
@@ -481,7 +481,10 @@ export function ensureFullJourneySteps(
   return merged
 }
 
-export function applyAgentStepFix(step: JourneyStep): { step: JourneyStep; changeSummary: string } {
+export function applyAgentStepFix(
+  step: JourneyStep,
+  locale: Locale = 'en',
+): { step: JourneyStep; changeSummary: string } {
   const previousTarget = step.target ?? step.label
   let newTarget = step.target
 
@@ -497,8 +500,12 @@ export function applyAgentStepFix(step: JourneyStep): { step: JourneyStep; chang
 
   const changeSummary =
     newTarget && newTarget !== step.target
-      ? `I updated **${step.label}** — the target moved on the page (\`${previousTarget}\` → \`${newTarget}\`). Continuing from here.`
-      : `I refreshed the locator for **${step.label}** to match the current page. Continuing from here.`
+      ? tf(locale, 'fixLocatorUpdated', {
+          label: step.label,
+          from: previousTarget,
+          to: newTarget,
+        })
+      : tf(locale, 'fixLocatorRefreshed', { label: step.label })
 
   return {
     step: { ...step, status: 'pending', target: newTarget ?? step.target },
@@ -509,16 +516,16 @@ export function applyAgentStepFix(step: JourneyStep): { step: JourneyStep; chang
 export function buildRunOutcomeMessage(
   failedStep: RunFailureInfo | null,
   totalSteps?: number,
+  locale: Locale = 'en',
 ): ChatMessage {
   if (!failedStep) {
-    const countLabel =
-      totalSteps && totalSteps > 0
-        ? `all **${totalSteps} steps**`
-        : 'all steps'
     return {
       id: RUN_OUTCOME_MESSAGE_ID,
       role: 'agent',
-      content: `Run complete — ${countLabel} executed successfully.`,
+      content:
+        totalSteps && totalSteps > 0
+          ? tf(locale, 'runCompleteAll', { count: totalSteps })
+          : tf(locale, 'runComplete', {}),
     }
   }
 
@@ -526,11 +533,8 @@ export function buildRunOutcomeMessage(
   return {
     id: RUN_OUTCOME_MESSAGE_ID,
     role: 'agent',
-    content:
-      `Run stopped at step ${stepNumber} — **${failedStep.stepLabel}** could not complete. ` +
-      'Remaining steps were not executed.\n\n' +
-      'The page layout may have changed since this journey was recorded. I can update the locator and continue for you.',
-    actions: [{ id: 'fix-auto-continue', label: 'Fix and continue', variant: 'primary' }],
+    content: tf(locale, 'runStoppedAt', { n: stepNumber, label: failedStep.stepLabel }),
+    actions: [{ id: 'fix-auto-continue', label: tf(locale, 'fixAndContinue', {}), variant: 'primary' }],
   }
 }
 
@@ -538,21 +542,22 @@ export function applyPostRunMessages(
   messages: ChatMessage[],
   journey: JourneyTemplate,
   failedStep: RunFailureInfo | null,
-  options?: { addJourneyReady?: boolean },
+  options?: { addJourneyReady?: boolean; locale?: Locale },
 ): ChatMessage[] {
+  const locale = options?.locale ?? 'en'
   let next = withoutTransientRunMessages(messages)
 
   if (options?.addJourneyReady && !next.some((message) => message.id === 'done-1')) {
-    next = [...next, buildJourneyReadyMessage(journey)]
+    next = [...next, buildJourneyReadyMessage(journey, locale)]
   }
 
   if (failedStep) {
     next = next.filter((message) => message.id !== 'done-2')
   } else if (!next.some((message) => message.id === 'done-2')) {
-    next = [...next, buildScheduleMessage()]
+    next = [...next, buildScheduleMessage(locale)]
   }
 
-  return [...next, buildRunOutcomeMessage(failedStep, journey.steps.length)]
+  return [...next, buildRunOutcomeMessage(failedStep, journey.steps.length, locale)]
 }
 
 /** Drop transient run messages so agent chat matches the latest run only. */
@@ -573,7 +578,10 @@ export function buildMonitoringPreviewSteps(steps: JourneyStep[]): JourneyStep[]
   return steps.filter((step) => step.status === 'done' || step.status === 'failed')
 }
 
-export function computeRunMonitoringKpi(steps: JourneyStep[]): {
+export function computeRunMonitoringKpi(
+  steps: JourneyStep[],
+  locale: Locale = 'en',
+): {
   availability: string
   totalTime: string
   failingSteps: string
@@ -590,26 +598,23 @@ export function computeRunMonitoringKpi(steps: JourneyStep[]): {
     return {
       availability: '—',
       totalTime: '—',
-      failingSteps: formatFailingStepsLabel(0),
+      failingSteps: formatFailingStepsLabel(0, locale),
     }
   }
 
-  const totalMs = executed.reduce(
-    (sum, step) => sum + stepDurationMs(step),
-    0,
-  )
+  const totalMs = executed.reduce((sum, step) => sum + stepDurationMs(step), 0)
 
   return {
     availability: formatAvailabilityPercent(doneCount, steps.length),
     totalTime: formatMs(totalMs),
-    failingSteps: formatFailingStepsLabel(failedCount),
+    failingSteps: formatFailingStepsLabel(failedCount, locale),
   }
 }
 
-export function formatFailingStepsLabel(failedCount: number): string {
-  if (failedCount === 0) return '0 issues'
-  if (failedCount === 1) return '1 issue'
-  return `${failedCount} issues`
+export function formatFailingStepsLabel(failedCount: number, locale: Locale = 'en'): string {
+  if (failedCount === 0) return tf(locale, 'zeroIssues', {})
+  if (failedCount === 1) return tf(locale, 'oneIssue', {})
+  return tf(locale, 'nIssues', { count: failedCount })
 }
 
 export function formatAvailabilityPercent(doneCount: number, totalCount: number): string {
@@ -650,7 +655,7 @@ const SLOW_STEP_THRESHOLDS_MS: Record<string, number> = {
   Verify: 800,
 }
 
-function formatExecutedAt(stepIndex: number, allSteps: JourneyStep[]): string {
+function formatExecutedAt(stepIndex: number, allSteps: JourneyStep[], locale: Locale): string {
   let msBefore = 0
   for (let i = 0; i < stepIndex; i++) {
     const prior = allSteps[i]
@@ -659,7 +664,11 @@ function formatExecutedAt(stepIndex: number, allSteps: JourneyStep[]): string {
     }
   }
   const executedAt = new Date(Date.now() - msBefore)
-  return `Today at ${executedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+  const time = executedAt.toLocaleTimeString(locale === 'fr' ? 'fr-FR' : 'en-US', {
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+  return tf(locale, 'todayAt', { time })
 }
 
 export function defaultStepDurationForAction(action: string): string {
@@ -675,18 +684,18 @@ function formatMs(ms: number): string {
   return `${(ms / 1000).toFixed(2)} s`
 }
 
-function previewCaptionForStep(step: JourneyStep): string {
+function previewCaptionForStep(step: JourneyStep, locale: Locale): string {
   switch (step.action) {
     case 'Navigate':
-      return 'Page loaded successfully'
+      return tf(locale, 'captionNavigate', {})
     case 'Click':
-      return 'Element clicked as expected'
+      return tf(locale, 'captionClick', {})
     case 'Type':
-      return 'Text entered in the field'
+      return tf(locale, 'captionType', {})
     case 'Verify':
-      return 'Check passed — element visible'
+      return tf(locale, 'captionVerify', {})
     default:
-      return 'Step completed'
+      return tf(locale, 'captionDefault', {})
   }
 }
 
@@ -694,6 +703,7 @@ export function getStepMonitoringMetrics(
   step: JourneyStep,
   index: number,
   allSteps: JourneyStep[] = [],
+  locale: Locale = 'en',
 ): StepMonitoringMetrics {
   const isFailing = step.status === 'failed'
   const expectedMs = stepDurationMs(step)
@@ -706,25 +716,38 @@ export function getStepMonitoringMetrics(
   const lcpMs = isPageLoad ? Math.round(stepMs * 0.48) : null
   const loadMs = isPageLoad ? Math.round(stepMs * 0.82) : null
 
-  const showInteractionMetrics = !isFailing && (isPageLoad || step.action === 'Type' || step.action === 'Click')
+  const showInteractionMetrics =
+    !isFailing && (isPageLoad || step.action === 'Type' || step.action === 'Click')
 
   return {
     stepDuration: formatMs(stepMs),
     readyForUser: showInteractionMetrics ? formatMs(readyMs) : null,
     mainContentVisible: !isFailing && lcpMs !== null ? formatMs(lcpMs) : null,
     pageFullyLoaded: !isFailing && loadMs !== null ? formatMs(loadMs) : null,
-    layoutStability: isFailing ? 'Unstable' : isDegraded ? 'Mostly stable' : 'Stable',
-    status: isFailing ? 'failing' : isDegraded ? 'degraded' : 'ok',
-    statusLabel: isFailing ? 'Not working' : isDegraded ? 'Needs attention' : 'Working well',
-    insight: isFailing
-      ? 'This step could not finish — the page may have changed since the journey was recorded.'
+    layoutStability: isFailing
+      ? tf(locale, 'layoutUnstable', {})
       : isDegraded
-        ? `This step took ${formatMs(expectedMs)} — slower than the ${formatMs(slowThreshold)} target for ${step.action} actions.`
+        ? tf(locale, 'layoutMostlyStable', {})
+        : tf(locale, 'layoutStable', {}),
+    status: isFailing ? 'failing' : isDegraded ? 'degraded' : 'ok',
+    statusLabel: isFailing
+      ? tf(locale, 'statusNotWorking', {})
+      : isDegraded
+        ? tf(locale, 'statusNeedsAttention', {})
+        : tf(locale, 'statusWorkingWell', {}),
+    insight: isFailing
+      ? tf(locale, 'insightStepFailing', {})
+      : isDegraded
+        ? tf(locale, 'insightStepDegraded', {
+            duration: formatMs(expectedMs),
+            target: formatMs(slowThreshold),
+            action: step.action,
+          })
         : undefined,
-    executedAt: formatExecutedAt(index, allSteps.length > 0 ? allSteps : [step]),
+    executedAt: formatExecutedAt(index, allSteps.length > 0 ? allSteps : [step], locale),
     location: MONITORING_LOCATIONS[index % MONITORING_LOCATIONS.length],
     previewCaption: isFailing
-      ? 'Expected element was not found on the page'
-      : previewCaptionForStep(step),
+      ? tf(locale, 'previewCaptionFailing', {})
+      : previewCaptionForStep(step, locale),
   }
 }

@@ -1,5 +1,6 @@
 import { GripVertical, SquareArrowOutUpRight, X } from 'lucide-react'
 import type { DragEvent, ReactNode } from 'react'
+import { useLocale } from '../context/LocaleContext'
 
 interface WorkspacePanelProps {
   id: string
@@ -34,6 +35,7 @@ export default function WorkspacePanel({
   onDragEnd,
   children,
 }: WorkspacePanelProps) {
+  const { t } = useLocale()
   return (
     <section
       onDragOver={(event) => onDragOver(event, id)}
@@ -47,7 +49,7 @@ export default function WorkspacePanel({
           draggable
           onDragStart={(event) => onDragStart(event, id)}
           onDragEnd={onDragEnd}
-          title="Drag to reorder"
+          title={t('dragToReorder')}
           className="flex cursor-grab items-center rounded p-1 text-zinc-300 transition hover:bg-zinc-50 hover:text-zinc-500 active:cursor-grabbing dark:hover:bg-zinc-800 dark:hover:text-zinc-400"
         >
           <GripVertical size={14} />
@@ -61,7 +63,7 @@ export default function WorkspacePanel({
             <button
               type="button"
               onClick={onDetach}
-              title="Open in detached window"
+              title={t('openDetached')}
               className="cursor-pointer rounded p-1 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
             >
               <SquareArrowOutUpRight size={14} />
@@ -71,7 +73,7 @@ export default function WorkspacePanel({
             <button
               type="button"
               onClick={onClose}
-              title="Close panel"
+              title={t('closePanel')}
               className="cursor-pointer rounded p-1 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
             >
               <X size={14} />

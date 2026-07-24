@@ -1,5 +1,6 @@
 import { AlertTriangle, CheckCircle2, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import { useLocale } from '../context/LocaleContext'
 import { buildMonitoringPreviewSteps, computeRunMonitoringKpi, getStepMonitoringMetrics } from '../mock/data'
 import type { JourneyMonitoringPreview, JourneyStep, StepMonitoringMetrics } from '../types'
 
@@ -22,16 +23,16 @@ export default function MonitoringColumn({
   onSave,
   embedded,
 }: MonitoringColumnProps) {
+  const { t, tf, locale } = useLocale()
   const previewSteps = buildMonitoringPreviewSteps(steps)
   const [selectedStepId, setSelectedStepId] = useState(previewSteps[0]?.id ?? '')
 
   const failedCount = previewSteps.filter((s) => s.status === 'failed').length
-  const kpi = computeRunMonitoringKpi(steps)
+  const kpi = computeRunMonitoringKpi(steps, locale)
   const showAlert = failedCount > 0
-  const alertTitle = monitoring.alertTitle ?? 'Step failure detected'
+  const alertTitle = monitoring.alertTitle ?? t('stepFailureDetected')
   const alertMessage =
-    monitoring.alertMessage ??
-    `${failedCount} step${failedCount === 1 ? '' : 's'} did not complete successfully in this run.`
+    monitoring.alertMessage ?? tf('stepsFailedInRun', { count: failedCount })
 
   useEffect(() => {
     if (!previewSteps.some((step) => step.id === selectedStepId)) {
@@ -46,7 +47,7 @@ export default function MonitoringColumn({
     : -1
   const selectedMetrics =
     selectedStep && selectedOriginalIndex >= 0
-      ? getStepMonitoringMetrics(selectedStep, selectedOriginalIndex, steps)
+      ? getStepMonitoringMetrics(selectedStep, selectedOriginalIndex, steps, locale)
       : null
   const hasUnrunSteps = steps.some((step) => step.status === 'pending')
 
@@ -67,13 +68,13 @@ export default function MonitoringColumn({
 
         <div className="mb-4 grid grid-cols-3 gap-2">
           <KpiCard
-            label="Availability"
+            label={t('availability')}
             value={kpi.availability}
             negative={failedCount > 0}
           />
-          <KpiCard label="Total time" value={kpi.totalTime} />
+          <KpiCard label={t('totalTime')} value={kpi.totalTime} />
           <KpiCard
-            label="Issues"
+            label={t('issues')}
             value={kpi.failingSteps}
             negative={!kpi.failingSteps.startsWith('0')}
           />
@@ -82,7 +83,7 @@ export default function MonitoringColumn({
         <div className="rounded-xl border border-zinc-200/80 bg-zinc-50/50 p-3 dark:border-zinc-700/80 dark:bg-zinc-800/40">
           {previewSteps.length === 0 ? (
             <p className="py-4 text-center text-xs text-zinc-400">
-              No executed steps yet. Run the journey to populate monitoring.
+              {t('noExecutedSteps')}
             </p>
           ) : (
             <div className="flex gap-2 overflow-x-auto pb-1">
@@ -131,7 +132,7 @@ export default function MonitoringColumn({
 
         {hasUnrunSteps && previewSteps.length > 0 && (
           <p className="mt-2 text-[11px] text-zinc-400">
-            New steps appear here after you run the journey.
+            {t('newStepsAppear')}
           </p>
         )}
 
@@ -150,15 +151,15 @@ export default function MonitoringColumn({
                 onClick={onSave}
                 className="cursor-pointer font-medium text-[#0071e3] hover:underline"
               >
-                Sign up
+                {t('signUpLink')}
               </button>{' '}
-              to unlock full monitoring.
+              {t('signUpToUnlockMonitoring')}
             </p>
           </div>
         ) : (
           <div className="mt-4 flex items-start gap-2 rounded-lg bg-emerald-50 px-3 py-2.5 text-[11px] text-emerald-800">
             <CheckCircle2 size={14} className="mt-0.5 shrink-0" />
-            Live monitoring for this journey.
+            {t('liveMonitoringActive')}
           </div>
         )}
       </div>
@@ -173,12 +174,12 @@ export default function MonitoringColumn({
     <section className="flex min-h-0 w-[min(480px,40%)] shrink-0 flex-col border-l border-zinc-200/80 bg-[#f5f5f7]">
       <div className="flex shrink-0 items-center justify-between border-b border-zinc-100 px-3 py-2">
         <p className="text-xs font-medium uppercase tracking-wider text-zinc-400">
-          Monitoring
+          {t('panelMonitoring')}
         </p>
         <button
           type="button"
           onClick={onClose}
-          title="Close monitoring"
+          title={t('closeMonitoring')}
           className="cursor-pointer rounded p-1 text-zinc-400 transition hover:bg-zinc-200/60 hover:text-zinc-600"
         >
           <X size={14} />
@@ -198,12 +199,13 @@ function StepDetailPanel({
   stepIndex: number
   metrics: StepMonitoringMetrics
 }) {
+  const { t, tf } = useLocale()
   return (
     <div className="mt-3 rounded-xl border border-zinc-200/80 bg-white p-4 dark:border-zinc-700/80 dark:bg-zinc-900">
       <div className="mb-3 flex items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="text-[10px] font-medium uppercase tracking-wider text-zinc-400">
-            Step {stepIndex + 1}
+            {tf('stepN', { n: stepIndex + 1 })}
           </p>
           <p className="mt-0.5 truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100">{step.label}</p>
         </div>
@@ -211,39 +213,39 @@ function StepDetailPanel({
       </div>
 
       <p className="mb-2 text-[10px] font-medium uppercase tracking-wider text-zinc-400">
-        What we measured
+        {t('whatWeMeasured')}
       </p>
       <div className="grid grid-cols-2 gap-2">
         <ExperienceMetric
-          label="Step duration"
+          label={t('stepDuration')}
           value={metrics.stepDuration}
-          hint="Time to complete this action"
+          hint={t('stepDurationHint')}
         />
         {metrics.readyForUser && (
           <ExperienceMetric
-            label="Ready for user"
+            label={t('readyForUser')}
             value={metrics.readyForUser}
-            hint="Page responds to clicks & typing"
+            hint={t('readyForUserHint')}
           />
         )}
         {metrics.mainContentVisible && (
           <ExperienceMetric
-            label="Main content visible"
+            label={t('mainContentVisible')}
             value={metrics.mainContentVisible}
-            hint="Key content appeared on screen"
+            hint={t('mainContentVisibleHint')}
           />
         )}
         {metrics.pageFullyLoaded && (
           <ExperienceMetric
-            label="Page fully loaded"
+            label={t('pageFullyLoaded')}
             value={metrics.pageFullyLoaded}
-            hint="Everything finished loading"
+            hint={t('pageFullyLoadedHint')}
           />
         )}
         <ExperienceMetric
-          label="Visual stability"
+          label={t('visualStability')}
           value={metrics.layoutStability}
-          hint="Did the page shift while loading?"
+          hint={t('visualStabilityHint')}
         />
       </div>
 

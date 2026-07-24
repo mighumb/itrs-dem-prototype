@@ -216,6 +216,7 @@ async function resolveAndAnalyzeWithStatus(
   const target = await resolveSiteTarget(seedText, {
     apiKey,
     existingUrl: body.context?.url,
+    preferredLanguage: body.preferredLanguage ?? body.context?.preferredLanguage ?? null,
   })
 
   if (!target.url) {
