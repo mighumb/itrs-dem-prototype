@@ -70,11 +70,12 @@ Set on Vercel → Project → Settings → Environment Variables (Production + P
 | `GEMINI_API_KEY_2` | no | Free-tier failover — same **`gemini-2.5-flash`** |
 | `GEMINI_API_KEY_3`…`_5` | no | Extra free-tier failovers |
 | `GEMINI_API_KEYS` | no | Optional comma-separated free-tier list |
-| `GOOGLE_API_IP_LABEL` | no | **Last resort** billed key — prefers **`gemini-2.5-pro`** (strongest), then Flash |
-| `GEMINI_MODEL` | no | Optional override for free-tier model preference |
-| `GEMINI_PAID_MODEL` | no | Optional override for paid last-resort model preference |
+| `GOOGLE_API_IP_LABEL` | no | **Last resort** billed key — also **`gemini-2.5-flash`** (prototype cost control) |
+| `GEMINI_MODEL` | no | Optional override for Flash model preference |
 
-On each Discovery request: free keys use Flash 2.5 only (no legacy Flash-8B). If both free keys fail on quota, paid key tries Pro first. After a free-tier reset, the next request starts again on `GEMINI_API_KEY`.## What's still mocked
+On each Discovery request: all keys use Flash 2.5 (no Pro / no 3.6). If free keys fail on quota, paid key is last resort but still on Flash. After a free-tier reset, the next request starts again on `GEMINI_API_KEY`.
+
+## What's still mocked
 
 - Monitoring KPIs / random failure injection (simulation fallback only)
 - Auth / signup (no API)
