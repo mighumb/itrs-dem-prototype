@@ -64,7 +64,9 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
   }
 
   const inSession = phase !== 'idle'
-  const showStack = phase === 'questionnaire' || phase === 'proposals'
+  // Floating form is for user choice only — never keep it over the chat while Gemini works.
+  const showStack =
+    !agentTyping && (phase === 'questionnaire' || phase === 'proposals')
   const showRun = phase === 'planning' && Boolean(plan)
 
   useEffect(() => {
@@ -318,10 +320,13 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
     questions.length > 0 && questions.every((q) => Boolean(nextCtx.answers[q.id]))
 
   const commitQuestionnaireAndPropose = async (nextCtx: DiscoveryContext) => {
+    // Snapshot before dismissing — React state clear must not wipe the answer summary.
+    const answered = questions.filter((q) => Boolean(nextCtx.answers[q.id]))
+    setQuestions([])
+    setPhase('conversation')
+
     if (configuring && nextCtx.selectedProposal) {
-      const blocks = questions
-        .filter((q) => nextCtx.answers[q.id])
-        .map((q) => `${q.prompt} → ${nextCtx.answers[q.id]}`)
+      const blocks = answered.map((q) => `${q.prompt} → ${nextCtx.answers[q.id]}`)
       const summary = blocks.join('\n')
       const userMsg: ChatMessage = {
         id: uid('user'),
@@ -349,9 +354,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
       return
     }
 
-    const blocks = questions
-      .filter((q) => nextCtx.answers[q.id])
-      .map((q) => `Q : ${q.prompt}\nR : ${nextCtx.answers[q.id]}`)
+    const blocks = answered.map((q) => `Q : ${q.prompt}\nR : ${nextCtx.answers[q.id]}`)
 
     const extra: ChatMessage[] = []
     if (blocks.length > 0) {
@@ -462,6 +465,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
     setPlan(null)
     setConfiguring(true)
     setQuestionIndex(0)
+    setPhase('conversation')
 
     const userMsg: ChatMessage = {
       id: uid('user'),

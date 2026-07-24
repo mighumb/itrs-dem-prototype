@@ -12,6 +12,12 @@ export type ResolvedSiteTarget = {
   note: string | null
 }
 
+/** Product / intent vocabulary — never treat these leftovers as a brand to Search. */
+const INTENT_STOPWORD_RE =
+  /\b(je|j|tu|il|on|nous|vous|ils|me|moi|mon|ma|mes|ton|ta|tes|son|sa|ses|veux|voudrais|aimerais|aimerai|souhaite|souhaiterais|besoin|faire|fais|fait|faisons|faites|font|créer|cree|creer|crée|crées|créons|créez|créent|créé|créée|construire|construis|construit|construisons|construisez|construisent|créons|build|building|builds|built|create|creating|creates|created|make|making|makes|made|start|starting|starts|started|commencer|commence|commençons|lance(?:r|z)?|lançons|préparer|prépare|préparons|setup|set\s*up|let'?s|lets|surveiller|monitor(?:er|ing)?|parcours|journey|journeys|flow|flows|scenario|scénario|tunnel|checkout|cart|panier|site|website|web|app|application|pour|avec|de|du|des|le|la|les|un|une|the|a|an|to|for|of|on|in|dans|please|svp|merci|aide[- ]?moi|help\s+me|i\s+want|i'd\s+like|i\s+would\s+like|can\s+you|could\s+you|quel(?:le)?s?|what|which|how|comment|aujourd['’]?hui|today)\b/gi
+
+const BRAND_RESOLVE_TIMEOUT_MS = 12_000
+
 function shouldTryBrandResolve(text: string): boolean {
   const t = text.trim()
   if (!t || t.length < 3) return false
@@ -24,16 +30,13 @@ function shouldTryBrandResolve(text: string): boolean {
   }
 
   // Only resolve when something brandish remains after stripping product intent
-  // vocabulary ("parcours" / "journey" alone must never become parcours.cc).
+  // vocabulary ("parcours" / "Construisons" must never become a Search query).
   return extractBrandishTokens(t).length > 0
 }
 
 function extractBrandishTokens(text: string): string[] {
   const leftover = text
-    .replace(
-      /\b(je|j|tu|il|nous|vous|ils|me|moi|mon|ma|mes|ton|ta|tes|son|sa|ses|veux|voudrais|aimerais|aimerai|souhaite|souhaiterais|besoin|faire|fais|fait|créer|cree|creer|build|create|make|start|commencer|surveiller|monitor(?:er|ing)?|parcours|journey|journeys|flow|flows|scenario|scénario|tunnel|checkout|cart|panier|site|website|web|app|application|pour|avec|de|du|des|le|la|les|un|une|the|a|an|to|for|of|on|in|dans|please|svp|merci|aide[- ]?moi|help\s+me|i\s+want|i'd\s+like|i\s+would\s+like|can\s+you|could\s+you|quel(?:le)?s?|what|which|how|comment|aujourd['’]?hui|today)\b/gi,
-      ' ',
-    )
+    .replace(INTENT_STOPWORD_RE, ' ')
     .replace(/[^\p{L}\p{N}.-]+/gu, ' ')
     .trim()
 
@@ -42,6 +45,21 @@ function extractBrandishTokens(text: string): string[] {
     .split(/\s+/)
     .map((w) => w.replace(/^['’]+|['’]+$/g, ''))
     .filter((w) => w.length >= 3)
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(fallback), ms)
+    promise
+      .then((value) => {
+        clearTimeout(timer)
+        resolve(value)
+      })
+      .catch(() => {
+        clearTimeout(timer)
+        resolve(fallback)
+      })
+  })
 }
 
 function firstUrlFromText(text: string): string | null {
@@ -104,7 +122,7 @@ Rules:
       const candidates = [
         ...(fromText ? [{ url: fromText, title: null as string | null }] : []),
         ...grounded,
-      ]
+      ].slice(0, 2)
 
       for (const candidate of candidates) {
         // Quick reachability check — prefer a URL that actually responds
@@ -171,7 +189,15 @@ export async function resolveSiteTarget(
     return { url: null, source: 'none', label: null, note: null }
   }
 
-  const resolved = await resolveBrandWithGemini(brandTokens.join(' '), options.apiKey)
+  const resolved = await withTimeout(
+    resolveBrandWithGemini(brandTokens.join(' '), options.apiKey),
+    BRAND_RESOLVE_TIMEOUT_MS,
+    {
+      url: null,
+      label: null,
+      note: 'Brand resolve timed out — continuing without a resolved URL',
+    },
+  )
   if (!resolved.url) {
     return {
       url: null,
