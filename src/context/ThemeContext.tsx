@@ -25,13 +25,11 @@ function readStoredTheme(): Theme {
 
 function applyFavicon(theme: Theme) {
   const svg = document.getElementById('app-favicon-svg') as HTMLLinkElement | null
-  const png = document.getElementById('app-favicon-png') as HTMLLinkElement | null
   if (svg) {
-    svg.href = theme === 'dark' ? '/favicon-dark.svg' : '/favicon-light.svg'
-  }
-  if (png) {
-    png.href =
-      theme === 'dark' ? '/favicon-dark-32x32.png' : '/favicon-light-32x32.png'
+    svg.href =
+      theme === 'dark'
+        ? '/itrs-favicon-dark-mode.svg'
+        : '/itrs-favicon-light-mode.svg'
   }
 }
 

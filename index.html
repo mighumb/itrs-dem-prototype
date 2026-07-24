@@ -2,9 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link id="app-favicon-svg" rel="icon" type="image/svg+xml" href="/favicon-light.svg" />
-    <link id="app-favicon-png" rel="icon" type="image/png" sizes="32x32" href="/favicon-light-32x32.png" />
-    <link rel="apple-touch-icon" href="/favicon-dark-96x96.png" />
+    <link id="app-favicon-svg" rel="icon" type="image/svg+xml" href="/itrs-favicon-light-mode.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>ITRS DEM</title>
     <script>
@@ -14,9 +12,12 @@
           document.documentElement.classList.add('dark')
         }
         var svg = document.getElementById('app-favicon-svg')
-        var png = document.getElementById('app-favicon-png')
-        if (svg) svg.href = theme === 'dark' ? '/favicon-dark.svg' : '/favicon-light.svg'
-        if (png) png.href = theme === 'dark' ? '/favicon-dark-32x32.png' : '/favicon-light-32x32.png'
+        if (svg) {
+          svg.href =
+            theme === 'dark'
+              ? '/itrs-favicon-dark-mode.svg'
+              : '/itrs-favicon-light-mode.svg'
+        }
       } catch (_) {}
     </script>
   </head>
