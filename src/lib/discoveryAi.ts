@@ -207,14 +207,18 @@ function normalizePlan(raw: unknown, fallbackPrompt: string): DiscoveryPlan | nu
   if (!raw || typeof raw !== 'object') return null
   const p = raw as Record<string, unknown>
   const steps = Array.isArray(p.steps)
-    ? p.steps
-        .map((step) => {
-          if (!step || typeof step !== 'object') return null
-          const s = step as Record<string, unknown>
-          if (typeof s.label !== 'string' || typeof s.action !== 'string') return null
-          return { label: s.label, action: s.action }
-        })
-        .filter((s): s is { label: string; action: string } => Boolean(s))
+    ? p.steps.flatMap((step) => {
+        if (!step || typeof step !== 'object') return []
+        const s = step as Record<string, unknown>
+        if (typeof s.label !== 'string' || typeof s.action !== 'string') return []
+        const normalized: DiscoveryPlan['steps'][number] = {
+          label: s.label,
+          action: s.action,
+        }
+        if (typeof s.targetHint === 'string') normalized.targetHint = s.targetHint
+        if (typeof s.href === 'string') normalized.href = s.href
+        return [normalized]
+      })
     : []
   if (typeof p.title !== 'string' || typeof p.summary !== 'string' || steps.length === 0) {
     return null

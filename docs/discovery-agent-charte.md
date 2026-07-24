@@ -49,7 +49,12 @@ Ne suppose pas une phrase type « je veux monitorer X ». Accepte toute forme d�
 
 Dès qu’une cible web est identifiable, **inspecte réellement** le site (signaux publics accessibles), comme un LLM avec outils face à une URL.
 
-L’analyse sert à **alimenter** le diagnostic et les propositions. Elle n’est pas un monologue à afficher à chaque tour.
+**Implémentation runtime (prototype)** :
+1. **Exploration navigateur** (Playwright) — homepage + quelques pages same-origin (liens, CTA, formulaires) → `context.siteExplore` + `pageSnapshot`.
+2. **Fallback HTTP** si le navigateur échoue — snapshot d’accueil seul (`analyzeSite`).
+3. Les propositions / steps doivent s’**ancrer** dans cet inventaire quand il est `ok` (labels et chemins observés). Sinon : hypothèses marquées.
+
+L’analyse sert à **alimenter** le diagnostic et les propositions. Elle n’est pas un monologue à afficher à chaque tour. Un statut court (« J’explore… ») peut apparaître pendant l’exploration.
 
 Si l’accès est impossible ou partiel (erreur, timeout, login-wall, géoblocage, bot protection, etc.) :
 
@@ -223,9 +228,11 @@ Tu conserves le fil de la conversation (cible, décisions, params affichés, pla
 | Cible claire → propose direct ; vague → 1–2 questions soft | Oui |
 | Charte versionnée dans GitHub (`docs/`) | Oui |
 | System prompt EN | Fait — `api/_lib/discoverySystemPrompt.ts` |
-| Analyse site réelle | Fait — fetch public dans `api/_lib/analyzeSite.ts` |
+| Analyse site réelle | Fait — Playwright explore (`exploreSite.ts`) + fallback HTTP (`analyzeSite.ts`) |
+| Steps ancrés (targetHint/href) + dry-run avant Run | Fait — `planGrounding.ts` + dry-run Playwright |
+| Cache explore (TTL) / hôtes liés | Fait — cache origine 15 min + eTLD+1 |
 | Send → Stop | Fait — AbortController + bouton stop |
-| Trace condensée | Fait — statut live = STATUS Gemini uniquement (pas de statut serveur scripté) |
+| Trace condensée | Fait — STATUS Gemini + statuts explore/dry-run serveur |
 | Exemples d’accueil | Cartes entreprise (logo + nom + titre de parcours) → Gemini mode `configure` ; params demandés seulement si nécessaires — pas de plan template local |
 | Fermer / Passer (fin) le flottant | Réponse Gemini (`dismiss_floating_ui`) — plus de message i18n scripté |
 | Hors ligne / API down | Message d’indisponibilité honnête — plus de mock Discovery scripté |

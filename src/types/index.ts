@@ -9,6 +9,10 @@ export interface JourneyStep {
   duration?: string
   status: StepStatus
   target?: string
+  /** Visible link/button text from site explore. */
+  targetHint?: string
+  /** Absolute URL observed for this step. */
+  href?: string
   timeout?: string
 }
 

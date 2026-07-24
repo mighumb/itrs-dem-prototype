@@ -1,6 +1,17 @@
 import { GoogleGenerativeAI } from '@google/generative-ai'
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { analyzePublicSite, type SiteAnalysisResult } from './_lib/analyzeSite.js'
+import {
+  explorePublicSite,
+  peekExploreCache,
+  siteExplorePromptView,
+  type SiteExploreResult,
+} from './_lib/exploreSite.js'
+import { applyGroundingToPlan } from './_lib/planGrounding.js'
+import {
+  dryRunJourneyWithPlaywright,
+  type RunnableStep,
+} from './_lib/playwrightRunner.js'
 import { DISCOVERY_SYSTEM_PROMPT } from './_lib/discoverySystemPrompt.js'
 import {
   resolveSiteTarget,
@@ -39,6 +50,7 @@ function buildUserPrompt(
   body: DiscoveryAiRequest,
   analysis: SiteAnalysisResult | null,
   target: ResolvedSiteTarget | null,
+  explore: SiteExploreResult | null,
 ): string {
   const preferredLanguage =
     body.preferredLanguage ?? body.context?.preferredLanguage ?? 'en'
@@ -65,6 +77,7 @@ function buildUserPrompt(
           status: analysis.status,
         }
       : null,
+    siteExplore: siteExplorePromptView(explore),
   }
 
   return JSON.stringify(
@@ -100,6 +113,7 @@ function normalizeWorkTrace(
   raw: unknown,
   analysis: SiteAnalysisResult | null,
   target: ResolvedSiteTarget | null,
+  explore: SiteExploreResult | null,
   streamedStatuses: string[],
 ): string[] | null {
   const fromModel = Array.isArray(raw)
@@ -110,9 +124,17 @@ function normalizeWorkTrace(
 
   const prefix: string[] = []
   if (target?.note) prefix.push(target.note)
-  if (analysis) {
+  if (explore?.ok && explore.method === 'playwright') {
+    prefix.push(
+      `Explored ${explore.pagesVisited} page${explore.pagesVisited === 1 ? '' : 's'} on ${explore.url}`,
+    )
+  } else if (analysis) {
     if (analysis.ok) {
-      prefix.push(`Inspected ${analysis.url}${analysis.title ? ` — ${analysis.title}` : ''}`)
+      prefix.push(
+        `Inspected ${analysis.url}${analysis.title ? ` — ${analysis.title}` : ''}${
+          explore?.method === 'http-fallback' ? ' (HTTP fallback)' : ''
+        }`,
+      )
     } else {
       prefix.push(
         `Could not fully access ${analysis.url}${analysis.reason ? ` (${analysis.reason})` : ''}`,
@@ -190,50 +212,193 @@ function parseModelOutput(fullText: string): {
   }
 }
 
-async function resolveAndAnalyzeWithStatus(
+async function resolveTargetOnly(
   body: DiscoveryAiRequest,
   apiKeys: string[],
-): Promise<{ analysis: SiteAnalysisResult | null; target: ResolvedSiteTarget | null }> {
+): Promise<ResolvedSiteTarget | null> {
   if (body.context?.pageSnapshot) {
-    return { analysis: null, target: null }
+    const existing = body.context?.url ?? null
+    return existing
+      ? { url: existing, source: 'explicit_url', label: null, note: null }
+      : null
   }
 
-  // Language switch — reuse existing context, do not re-resolve/fetch the site.
   if (/\brelocalize_ui\b/.test(body.userMessage)) {
     const existing = body.context?.url ?? null
-    return {
-      analysis: null,
-      target: existing
-        ? { url: existing, source: 'explicit_url', label: null, note: null }
-        : null,
-    }
+    return existing
+      ? { url: existing, source: 'explicit_url', label: null, note: null }
+      : null
   }
 
   if (!['bootstrap', 'chat', 'propose', 'configure', 'plan', 'iterate'].includes(body.mode)) {
-    return { analysis: null, target: null }
+    return null
   }
 
   const seedText = [body.userMessage, body.context?.seed].filter(Boolean).join(' — ')
 
-  const target = await resolveSiteTarget(seedText, {
+  return resolveSiteTarget(seedText, {
     apiKeys,
     existingUrl: body.context?.url,
     preferredLanguage: body.preferredLanguage ?? body.context?.preferredLanguage ?? null,
   })
+}
 
-  if (!target.url) {
-    return { target, analysis: null }
+async function gatherSiteEvidence(
+  body: DiscoveryAiRequest,
+  target: ResolvedSiteTarget | null,
+  onStatus: (text: string) => void,
+): Promise<{ analysis: SiteAnalysisResult | null; explore: SiteExploreResult | null }> {
+  // Cached evidence from a prior turn — do not re-crawl.
+  if (body.context?.pageSnapshot) {
+    const url = body.context.url ?? target?.url ?? ''
+    const cachedExplore = peekExploreCache(url)
+    return {
+      analysis: {
+        ok: true,
+        url,
+        reason: null,
+        snapshot: body.context.pageSnapshot,
+        title: cachedExplore?.title ?? null,
+        status: 200,
+      },
+      explore: cachedExplore,
+    }
   }
 
-  // Silent evidence fetch for Gemini context — never emit scripted UI status lines.
-  const analysis = await analyzePublicSite(target.url)
-  return { target, analysis }
+  if (/\brelocalize_ui\b/.test(body.userMessage)) {
+    return { analysis: null, explore: null }
+  }
+
+  if (!target?.url) {
+    return { analysis: null, explore: null }
+  }
+
+  // Fresh browser explore (Playwright) with HTTP fallback inside explorePublicSite.
+  // Keep budget tight so a plan dry-run can still fit in the function window.
+  const { explore, analysis } = await explorePublicSite(target.url, {
+    preferredLanguage: body.preferredLanguage ?? body.context?.preferredLanguage ?? null,
+    onStatus,
+    maxPages: 6,
+    deadlineMs: 20_000,
+  })
+
+  // If both failed hard, still try a last HTTP pass (explore already does this,
+  // but keep analyzePublicSite available if explore returned method none without snapshot).
+  if (!analysis.ok && !analysis.snapshot) {
+    const fallback = await analyzePublicSite(target.url)
+    return { analysis: fallback, explore }
+  }
+
+  return { analysis, explore }
+}
+
+function planStepsToRunnable(
+  plan: Record<string, unknown>,
+  seedUrl: string | null,
+): RunnableStep[] {
+  const steps = Array.isArray(plan.steps) ? plan.steps : []
+  return steps
+    .map((step, index) => {
+      if (!step || typeof step !== 'object') return null
+      const s = step as Record<string, unknown>
+      if (typeof s.label !== 'string' || typeof s.action !== 'string') return null
+      const href = typeof s.href === 'string' ? s.href : undefined
+      const targetHint = typeof s.targetHint === 'string' ? s.targetHint : undefined
+      return {
+        id: `dry-${index + 1}`,
+        label: s.label,
+        action: s.action,
+        href,
+        targetHint,
+        target: href ?? (index === 0 ? seedUrl ?? undefined : undefined),
+      }
+    })
+    .filter((s): s is RunnableStep => Boolean(s))
+}
+
+async function groundAndMaybeDryRunPlan(options: {
+  parsed: Record<string, unknown>
+  explore: SiteExploreResult | null
+  analysis: SiteAnalysisResult | null
+  target: ResolvedSiteTarget | null
+  body: DiscoveryAiRequest
+  requestStartedAt: number
+  sendStatus: (text: string) => void
+}): Promise<Record<string, unknown>> {
+  const { explore, analysis, target, body, requestStartedAt, sendStatus } = options
+  let parsed = { ...options.parsed }
+  const lang = body.preferredLanguage ?? body.context?.preferredLanguage ?? 'en'
+  const budgetLeft = () => 55_000 - (Date.now() - requestStartedAt)
+
+  if (!parsed.plan || typeof parsed.plan !== 'object' || !parsed.readyForPlan) {
+    return parsed
+  }
+
+  const grounded = applyGroundingToPlan(parsed.plan as Record<string, unknown>, explore)
+  parsed = { ...parsed, plan: grounded.plan }
+
+  if (grounded.issues.length > 0) {
+    const trace = Array.isArray(parsed.workTrace) ? [...parsed.workTrace] : []
+    trace.push(
+      lang === 'fr'
+        ? 'Certaines étapes manquent encore d’ancrage observé — hypothèses possibles'
+        : 'Some steps still lack observed anchors — may include hypotheses',
+    )
+    parsed.workTrace = trace.slice(0, 8)
+  }
+
+  // Dry-run when we still have time (explore cache hits leave more room).
+  if (budgetLeft() < 16_000) {
+    return parsed
+  }
+
+  const seedUrl = analysis?.url ?? target?.url ?? body.context?.url ?? null
+  const runnable = planStepsToRunnable(parsed.plan as Record<string, unknown>, seedUrl)
+  if (runnable.length === 0) return parsed
+
+  sendStatus(
+    lang === 'fr'
+      ? 'Je vérifie le parcours dans le navigateur…'
+      : 'Checking the journey in the browser…',
+  )
+
+  const dry = await dryRunJourneyWithPlaywright({
+    steps: runnable.slice(0, 8),
+    prompt:
+      typeof (parsed.plan as Record<string, unknown>).prompt === 'string'
+        ? ((parsed.plan as Record<string, unknown>).prompt as string)
+        : body.userMessage,
+    deadlineMs: Math.min(18_000, budgetLeft() - 4_000),
+  })
+
+  const trace = Array.isArray(parsed.workTrace) ? [...parsed.workTrace] : []
+  if (dry.ok) {
+    trace.push(
+      lang === 'fr'
+        ? `Répétition OK (${dry.stepsOk} étapes)`
+        : `Dry-run OK (${dry.stepsOk} steps)`,
+    )
+  } else {
+    trace.push(
+      lang === 'fr'
+        ? `Répétition partielle — étape ${
+            dry.failedIndex != null ? dry.failedIndex + 1 : '?'
+          } fragile${dry.error ? ` (${dry.error})` : ''}`
+        : `Partial dry-run — step ${
+            dry.failedIndex != null ? dry.failedIndex + 1 : '?'
+          } fragile${dry.error ? ` (${dry.error})` : ''}`,
+    )
+    // Keep readyForPlan true — user can still run; honesty lives in workTrace.
+  }
+  parsed.workTrace = trace.slice(0, 8)
+  return parsed
 }
 
 function buildResultPayload(
   parsed: Record<string, unknown>,
   analysis: SiteAnalysisResult | null,
   target: ResolvedSiteTarget | null,
+  explore: SiteExploreResult | null,
   body: DiscoveryAiRequest,
   modelName: string,
   streamedStatuses: string[],
@@ -241,7 +406,7 @@ function buildResultPayload(
   return {
     type: 'result' as const,
     message: typeof parsed.message === 'string' ? parsed.message : 'Here is what I suggest.',
-    workTrace: normalizeWorkTrace(parsed.workTrace, analysis, target, streamedStatuses),
+    workTrace: normalizeWorkTrace(parsed.workTrace, analysis, target, explore, streamedStatuses),
     questions: Array.isArray(parsed.questions) ? parsed.questions : null,
     proposals: Array.isArray(parsed.proposals) ? parsed.proposals : null,
     plan: parsed.plan && typeof parsed.plan === 'object' ? parsed.plan : null,
@@ -255,6 +420,8 @@ function buildResultPayload(
           reason: analysis.reason,
           title: analysis.title,
           status: analysis.status,
+          exploreMethod: explore?.method ?? null,
+          pagesVisited: explore?.pagesVisited ?? null,
         }
       : null,
     model: modelName,
@@ -285,12 +452,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     writeNdjson(res, { type: 'status', text })
   }
 
+  let analysis: SiteAnalysisResult | null = null
+  let target: ResolvedSiteTarget | null = null
+  let explore: SiteExploreResult | null = null
+  const requestStartedAt = Date.now()
+
   try {
-    // Background site evidence only — never emit scripted status to the UI.
-    const { analysis, target } = await resolveAndAnalyzeWithStatus(
+    target = await resolveTargetOnly(
       body,
       apiKeyEntries.map((entry) => entry.key),
     )
+
+    ;({ analysis, explore } = await gatherSiteEvidence(body, target, sendStatus))
 
     const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
     const isQuotaError = (error: unknown) => {
@@ -329,7 +502,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             const streamedStatuses: string[] = []
             let buffer = ''
             const streamResult = await model.generateContentStream(
-              buildUserPrompt(body, analysis, target),
+              buildUserPrompt(body, analysis, target, explore),
             )
 
             for await (const chunk of streamResult.stream) {
@@ -347,7 +520,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             const aggregatedResponse = await streamResult.response
             const fullText = aggregatedResponse.text()
 
-            const { statuses, parsed } = parseModelOutput(fullText || buffer)
+            const { statuses, parsed: rawParsed } = parseModelOutput(fullText || buffer)
             for (const status of statuses) {
               if (!streamedStatuses.includes(status)) {
                 streamedStatuses.push(status)
@@ -355,9 +528,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               }
             }
 
+            const parsed = await groundAndMaybeDryRunPlan({
+              parsed: rawParsed,
+              explore,
+              analysis,
+              target,
+              body,
+              requestStartedAt,
+              sendStatus,
+            })
+
             writeNdjson(
               res,
-              buildResultPayload(parsed, analysis, target, body, modelName, streamedStatuses),
+              buildResultPayload(
+                parsed,
+                analysis,
+                target,
+                explore,
+                body,
+                modelName,
+                streamedStatuses,
+              ),
             )
             return res.end()
           } catch (error) {
