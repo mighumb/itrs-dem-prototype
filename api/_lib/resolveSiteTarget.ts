@@ -113,7 +113,7 @@ async function resolveBrandWithGemini(
   preferredLanguage?: 'en' | 'fr' | null,
 ): Promise<{ url: string | null; label: string | null; note: string | null }> {
   const genAI = new GoogleGenerativeAI(apiKey)
-  const modelCandidates = geminiModelCandidates()
+  const modelCandidates = geminiModelCandidates('free')
 
   const localeHint =
     preferredLanguage === 'fr'

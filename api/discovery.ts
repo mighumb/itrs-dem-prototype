@@ -267,8 +267,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(405).json({ error: 'Method not allowed' })
   }
 
-  const apiKeys = geminiApiKeys()
-  if (apiKeys.length === 0) {
+  const apiKeyEntries = geminiApiKeys()
+  if (apiKeyEntries.length === 0) {
     return res.status(500).json({ error: 'GEMINI_API_KEY is not configured' })
   }
 
@@ -287,9 +287,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     // Background site evidence only — never emit scripted status to the UI.
-    const { analysis, target } = await resolveAndAnalyzeWithStatus(body, apiKeys)
-
-    const modelCandidates = geminiModelCandidates()
+    const { analysis, target } = await resolveAndAnalyzeWithStatus(
+      body,
+      apiKeyEntries.map((entry) => entry.key),
+    )
 
     const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
     const isQuotaError = (error: unknown) => {
@@ -309,10 +310,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     let lastError: unknown
-    let keyIndex = 0
-    for (const apiKey of apiKeys) {
-      keyIndex += 1
-      const genAI = new GoogleGenerativeAI(apiKey)
+    for (const entry of apiKeyEntries) {
+      const genAI = new GoogleGenerativeAI(entry.key)
+      const modelCandidates = geminiModelCandidates(entry.tier)
       let quotaHitsOnThisKey = 0
 
       for (const modelName of modelCandidates) {
@@ -363,7 +363,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           } catch (error) {
             lastError = error
             console.error(
-              `[api/discovery] key#${keyIndex} model ${modelName} attempt ${attempt + 1} failed`,
+              `[api/discovery] ${entry.label} (${entry.tier}) model ${modelName} attempt ${attempt + 1} failed`,
               error,
             )
             if (isQuotaError(error)) {
@@ -382,10 +382,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         }
       }
 
-      // If this key is thrashing on quota, move to the next project key quickly.
-      if (quotaHitsOnThisKey > 0 && keyIndex < apiKeys.length) {
+      if (quotaHitsOnThisKey > 0) {
         console.error(
-          `[api/discovery] key#${keyIndex} exhausted quota across models — trying next key`,
+          `[api/discovery] ${entry.label} exhausted quota across models — trying next key`,
         )
       }
     }
