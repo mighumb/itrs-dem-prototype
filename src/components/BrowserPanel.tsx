@@ -1,4 +1,5 @@
 import { Hand } from 'lucide-react'
+import { useLocale } from '../context/LocaleContext'
 import type { BrowserFrame } from '../types'
 
 interface BrowserPanelProps {
@@ -8,6 +9,7 @@ interface BrowserPanelProps {
 }
 
 export default function BrowserPanel({ frame, isRunning, embedded }: BrowserPanelProps) {
+  const { t } = useLocale()
   const hasScreenshot = Boolean(frame?.screenshotDataUrl)
 
   return (
@@ -16,7 +18,6 @@ export default function BrowserPanel({ frame, isRunning, embedded }: BrowserPane
         embedded ? '' : 'rounded-2xl border border-zinc-200/80 bg-white dark:border-zinc-700/80 dark:bg-zinc-900'
       }`}
     >
-      {/* Chrome */}
       <div className="flex items-center gap-2 border-b border-zinc-100 bg-zinc-50/80 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-800/50">
         <div className="flex gap-1.5">
           <span className="h-2.5 w-2.5 rounded-full bg-zinc-300" />
@@ -29,7 +30,7 @@ export default function BrowserPanel({ frame, isRunning, embedded }: BrowserPane
         {isRunning && (
           <span className="flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
             <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
-            Live
+            {t('live')}
           </span>
         )}
         {frame?.title && hasScreenshot && (
@@ -39,24 +40,20 @@ export default function BrowserPanel({ frame, isRunning, embedded }: BrowserPane
         )}
       </div>
 
-      {/* Viewport */}
       <div className="relative flex-1 overflow-hidden bg-zinc-200/70 dark:bg-zinc-900/80">
         {!frame ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
-            <p className="text-sm font-medium text-zinc-500">Browser preview</p>
-            <p className="max-w-xs text-xs text-zinc-400">
-              Run a journey to watch real Playwright screenshots step by step
-            </p>
+            <p className="text-sm font-medium text-zinc-500">{t('browserPreview')}</p>
+            <p className="max-w-xs text-xs text-zinc-400">{t('browserPreviewHint')}</p>
           </div>
         ) : hasScreenshot ? (
           <img
             src={frame.screenshotDataUrl}
-            alt={frame.title || frame.url || 'Browser screenshot'}
+            alt={frame.title || frame.url || t('browserScreenshotAlt')}
             className="h-full w-full object-contain object-top bg-white"
           />
         ) : (
           <>
-            {/* Fallback wireframe when no live screenshot */}
             <div className="absolute inset-4 overflow-hidden rounded-lg bg-white">
               <div className="flex h-10 items-center border-b border-zinc-100 px-4">
                 <div className="h-4 w-16 rounded bg-zinc-900" />
@@ -98,7 +95,6 @@ export default function BrowserPanel({ frame, isRunning, embedded }: BrowserPane
         )}
       </div>
 
-      {/* Controls */}
       {frame && (
         <div className="flex items-center gap-2 border-t border-zinc-100 px-3 py-2 dark:border-zinc-800">
           <button
@@ -106,10 +102,10 @@ export default function BrowserPanel({ frame, isRunning, embedded }: BrowserPane
             className="flex items-center gap-1.5 rounded-lg border border-zinc-200 px-2.5 py-1.5 text-xs font-medium text-zinc-600 transition hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
           >
             <Hand size={12} />
-            Take control
+            {t('takeControl')}
           </button>
           {hasScreenshot && (
-            <span className="text-[10px] text-zinc-400">Playwright capture</span>
+            <span className="text-[10px] text-zinc-400">{t('playwrightCapture')}</span>
           )}
         </div>
       )}

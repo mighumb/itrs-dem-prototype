@@ -1,13 +1,9 @@
 import { Maximize2, Minimize2, PanelRightClose } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
+import { useLocale } from '../context/LocaleContext'
 
 export type DetachablePanelId = 'browser' | 'monitoring'
-
-const PANEL_TITLES: Record<DetachablePanelId, string> = {
-  browser: 'Browser',
-  monitoring: 'Monitoring',
-}
 
 interface DetachedPanelWindowProps {
   id: DetachablePanelId
@@ -24,6 +20,7 @@ function DetachedPanelWindow({
   onDock,
   children,
 }: DetachedPanelWindowProps) {
+  const { t } = useLocale()
   const shellRef = useRef<HTMLDivElement>(null)
   const [isFullscreen, setIsFullscreen] = useState(false)
 
@@ -67,14 +64,14 @@ function DetachedPanelWindow({
               {title}
             </span>
             <span className="hidden rounded-full bg-[#0071e3]/10 px-2 py-0.5 text-[10px] font-medium text-[#0071e3] sm:inline">
-              Detached
+              {t('detached')}
             </span>
           </div>
           <div className="flex shrink-0 items-center gap-0.5">
             <button
               type="button"
               onClick={() => void toggleFullscreen()}
-              title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+              title={isFullscreen ? t('exitFullscreen') : t('fullscreen')}
               className="cursor-pointer rounded-lg p-1.5 text-zinc-500 transition hover:bg-zinc-200/80 hover:text-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
             >
               {isFullscreen ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
@@ -82,7 +79,7 @@ function DetachedPanelWindow({
             <button
               type="button"
               onClick={onDock}
-              title="Dock back to workspace"
+              title={t('dockBack')}
               className="cursor-pointer rounded-lg p-1.5 text-zinc-500 transition hover:bg-zinc-200/80 hover:text-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
             >
               <PanelRightClose size={15} />
@@ -106,10 +103,13 @@ export function DetachedPanelsLayer({
   renderPanel,
   onDock,
 }: DetachedPanelsLayerProps) {
+  const { t } = useLocale()
   const root = document.getElementById('detached-panels-root')
   if (detachedIds.length === 0 || !root) return null
 
   const layout = detachedIds.length === 1 ? 'solo' : 'split'
+  const titleFor = (id: DetachablePanelId) =>
+    id === 'browser' ? t('panelBrowser') : t('panelMonitoring')
 
   return createPortal(
     <div className="fixed inset-0 z-[70] flex flex-col bg-[var(--color-surface)]">
@@ -118,7 +118,7 @@ export function DetachedPanelsLayer({
           <DetachedPanelWindow
             key={id}
             id={id}
-            title={PANEL_TITLES[id]}
+            title={titleFor(id)}
             layout={layout}
             onDock={() => onDock(id)}
           >

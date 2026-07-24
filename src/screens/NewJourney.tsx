@@ -10,7 +10,6 @@ import WorkspacePanel from '../components/WorkspacePanel'
 import {
   DEFAULT_OPEN_PANELS,
   getPanelFlexClass,
-  PANEL_LABELS,
   shouldCenterWorkspace,
   usePanelOrder,
   type WorkspacePanelId,
@@ -18,6 +17,9 @@ import {
 import {
   applyAgentStepFix,
   applyPostRunMessages,
+  buildJourneyReadyMessage,
+  buildRunOutcomeMessage,
+  buildScheduleMessage,
   DEMO_PROMPT,
   ensureFullJourneySteps,
   getBrowserFrameForStep,
@@ -97,7 +99,20 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
   },
   ref,
 ) {
-  const { t, locale } = useLocale()
+  const { t, tf, locale } = useLocale()
+
+  const panelLabel = (id: WorkspacePanelId) => {
+    switch (id) {
+      case 'agent':
+        return t('panelAgent')
+      case 'steps':
+        return t('panelSteps')
+      case 'browser':
+        return t('panelBrowser')
+      case 'monitoring':
+        return t('panelMonitoring')
+    }
+  }
   const initialPrompt = session.prompt
   const journey = useMemo(() => {
     if (session.plan) {
@@ -150,13 +165,12 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
         {
           id: 'user-schedule',
           role: 'user',
-          content: 'Every 15 min, Paris + Frankfurt',
+          content: t('scheduleAcceptedUser'),
         },
         {
           id: 'agent-schedule',
           role: 'agent',
-          content:
-            'Perfect. Create an account to start monitoring on this schedule.',
+          content: t('scheduleAcceptedAgent'),
         },
       ])
     },
@@ -171,7 +185,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
         {
           id: 'agent-custom',
           role: 'agent',
-          content: `Perfect — **${summary}**. Create an account to activate monitoring.`,
+          content: tf('scheduleCustomAgent', { summary }),
         },
       ])
     },
@@ -185,12 +199,33 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
     scrollChat()
   }, [messages, steps, agentTyping, scrollChat])
 
+  // Keep workspace system messages in sync with the UI language toggle.
+  useEffect(() => {
+    setMessages((prev) =>
+      prev.map((message) => {
+        if (message.id === 'done-1') return buildJourneyReadyMessage(journey, locale)
+        if (message.id === 'done-2') return buildScheduleMessage(locale)
+        if (message.id === RUN_OUTCOME_MESSAGE_ID) {
+          const failedIndex = steps.findIndex((s) => s.status === 'failed')
+          const failed = failedIndex >= 0 ? steps[failedIndex] : null
+          return buildRunOutcomeMessage(
+            failed ? { stepIndex: failedIndex, stepLabel: failed.label } : null,
+            journey.steps.length,
+            locale,
+          )
+        }
+        if (message.id === 'intro') return agentIntroForLocale(locale)
+        return message
+      }),
+    )
+  }, [locale, journey, steps])
+
   useEffect(() => {
     onHeaderChange?.({
-      title: isComplete ? journey.name : 'New journey',
-      subtitle: isComplete ? undefined : isRunning ? 'Running…' : 'Starting…',
+      title: isComplete ? journey.name : t('newJourney'),
+      subtitle: isComplete ? undefined : isRunning ? t('running') : t('starting'),
     })
-  }, [isComplete, isRunning, journey.name, onHeaderChange])
+  }, [isComplete, isRunning, journey.name, onHeaderChange, t])
 
   const {
     order: panelOrder,
@@ -469,8 +504,8 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
               id: failed ? `agent-fail-${i}` : 'agent-progress',
               role: 'agent',
               content: failed
-                ? `Step ${i + 1} failed — **${template.label}**. Stopping here.`
-                : `Step ${i + 1} done — ${template.label}`,
+                ? tf('stepFailedStopping', { n: i + 1, label: template.label })
+                : tf('stepDone', { n: i + 1, label: template.label }),
             },
           ])
         }
@@ -540,7 +575,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
         {
           id: `agent-fail-${failedStep!.stepIndex}`,
           role: 'agent',
-          content: `Step ${failedStep!.stepIndex + 1} failed — **${failedStep!.stepLabel}**. Stopping here.`,
+          content: tf('stepFailedStopping', { n: failedStep!.stepIndex + 1, label: failedStep!.stepLabel }),
         },
       ])
     } else {
@@ -561,7 +596,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
     setEditMode(false)
     setFixActionsResolved(false)
     openPanel('monitoring')
-    setMessages((prev) => applyPostRunMessages(prev, journey, failedStep, { addJourneyReady: true }))
+    setMessages((prev) => applyPostRunMessages(prev, journey, failedStep, { addJourneyReady: true, locale }))
   }, [
     initialPrompt,
     journey,
@@ -610,7 +645,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
       setIsRunning(false)
       setEditMode(false)
       openPanel('monitoring')
-      setMessages((prev) => applyPostRunMessages(prev, journey, live.failedStep))
+      setMessages((prev) => applyPostRunMessages(prev, journey, live.failedStep, { locale }))
     },
     [isRunning, journey, openPanel, hidePanel, runStepsWithPlaywright],
   )
@@ -632,7 +667,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
       {
         id: `agent-run-${runId}`,
         role: 'agent',
-        content: `Replaying **${stepsToRun.length} steps** in Playwright — watch real screenshots sync with each action.`,
+        content: tf('replayingSteps', { count: stepsToRun.length }),
       },
     ])
 
@@ -669,7 +704,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
     setIsRunning(false)
     setEditMode(false)
     openPanel('monitoring')
-    setMessages((prev) => applyPostRunMessages(prev, journey, failedStep))
+    setMessages((prev) => applyPostRunMessages(prev, journey, failedStep, { locale }))
   }, [isRunning, steps, journey, openPanel, hidePanel, runStepsWithPlaywright])
 
   const handleRunStop = useCallback(() => {
@@ -695,7 +730,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
           if (failIndex < 0) return
 
           setFixActionsResolved(true)
-          const { step: fixedStep, changeSummary } = applyAgentStepFix(fullSteps[failIndex])
+          const { step: fixedStep, changeSummary } = applyAgentStepFix(fullSteps[failIndex], locale)
           const nextSteps = fullSteps.map((step, index) =>
             index === failIndex ? fixedStep : step,
           )
@@ -703,7 +738,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
           setSteps(nextSteps)
           setMessages((prev) => [
             ...withoutTransientRunMessages(prev),
-            { id: 'user-fix-auto', role: 'user', content: 'Fix and continue' },
+            { id: 'user-fix-auto', role: 'user', content: t('fixAndContinue') },
             { id: 'agent-fix-auto', role: 'agent', content: changeSummary },
           ])
           void runContinueAfterFix(failIndex, nextSteps)
@@ -725,12 +760,11 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
           setScheduleResolved(true)
           setMessages((prev) => [
             ...prev,
-            { id: 'user-skip', role: 'user', content: 'Skip for now' },
+            { id: 'user-skip', role: 'user', content: t('scheduleSkip') },
             {
               id: 'agent-skip',
               role: 'agent',
-              content:
-                'No problem. Open **Monitoring** from the panel bar anytime to see a preview.',
+              content: t('skipMonitoringHint'),
             },
           ])
           window.setTimeout(() => openPanel('monitoring'), 500)
@@ -787,10 +821,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
           {
             id: `agent-busy-${Date.now()}`,
             role: 'agent',
-            content:
-              locale === 'fr'
-                ? 'Je suis encore en train d’exécuter le parcours — on pourra l’affiner dès que le run est terminé.'
-                : "I'm still running this journey — we can refine it once the current pass finishes.",
+            content: t('stillRunningBusy'),
           },
         ])
         setInput('')
@@ -922,7 +953,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
           <WorkspacePanel
             key={id}
             id={id}
-            title="Agent"
+            title={t('panelAgent')}
             flexClass={panelFlex(id)}
             onClose={panelClose('agent')}
             {...dragProps}
@@ -982,7 +1013,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
           <WorkspacePanel
             key={id}
             id={id}
-            title={`Steps (${steps.length})`}
+            title={tf('panelStepsCount', { count: steps.length })}
             flexClass={panelFlex(id)}
             hiddenBelowMd
             onClose={panelClose('steps')}
@@ -993,7 +1024,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
                     type="button"
                     onClick={handleRunStop}
                     disabled={!isRunning && steps.length === 0}
-                    title={isRunning ? 'Stop run' : 'Run journey in browser'}
+                    title={isRunning ? t('stopRun') : t('runJourneyInBrowser')}
                     className={`flex cursor-pointer items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-medium transition disabled:cursor-not-allowed disabled:opacity-40 ${
                       isRunning
                         ? 'bg-red-600 text-white hover:bg-red-700'
@@ -1003,12 +1034,12 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
                     {isRunning ? (
                       <>
                         <Square size={12} fill="currentColor" />
-                        Stop
+                        {t('stop')}
                       </>
                     ) : (
                       <>
                         <Play size={12} />
-                        Run
+                        {t('run')}
                       </>
                     )}
                   </button>
@@ -1017,7 +1048,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
                       type="button"
                       onClick={toggleEdit}
                       disabled={isRunning}
-                      title={editMode ? 'Done editing' : 'Edit steps'}
+                      title={editMode ? t('doneEditing') : t('editSteps')}
                       className={`flex cursor-pointer items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-medium transition disabled:cursor-not-allowed disabled:opacity-40 ${
                         editMode
                           ? 'bg-[#0071e3] text-white'
@@ -1025,7 +1056,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
                       }`}
                     >
                       <Pencil size={12} />
-                      {editMode ? 'Done' : 'Edit'}
+                      {editMode ? t('done') : t('edit')}
                     </button>
                   )}
                 </div>
@@ -1047,7 +1078,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
           <WorkspacePanel
             key={id}
             id={id}
-            title="Browser"
+            title={t('panelBrowser')}
             flexClass={panelFlex(id)}
             onClose={panelClose('browser')}
             onDetach={() => detachPanel('browser')}
@@ -1062,7 +1093,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
           <WorkspacePanel
             key={id}
             id={id}
-            title="Monitoring"
+            title={t('panelMonitoring')}
             flexClass={panelFlex(id)}
             onClose={panelClose('monitoring')}
             onDetach={() => detachPanel('monitoring')}
@@ -1082,7 +1113,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
             <CollapsedWorkspacePanel
               key={id}
               id={id}
-              title={id === 'steps' ? `Steps (${steps.length})` : PANEL_LABELS[id]}
+              title={id === 'steps' ? tf('panelStepsCount', { count: steps.length }) : panelLabel(id)}
               onRestore={() => openPanel(id)}
               {...panelDragProps(id)}
             />
