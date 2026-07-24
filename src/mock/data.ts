@@ -9,7 +9,7 @@ import { tf, type Locale } from '../i18n/messages'
 
 /** Homepage sample cards — company + short journey title (not full step-by-step prompts). */
 export type HomeJourneyExample = {
-  id: 'salesforce' | 'axa' | 'totalenergies'
+  id: 'salesforce' | 'axa' | 'totalenergies' | 'airbnb'
   company: string
   logoSrc: string
   url: string
@@ -25,12 +25,12 @@ export const HOME_JOURNEY_EXAMPLES: readonly HomeJourneyExample[] = [
     logoSrc: '/logos/salesforce.svg',
     url: 'https://www.salesforce.com',
     journeyTitle: {
-      en: 'Sign in to Sales Cloud',
-      fr: 'Se connecter à Sales Cloud',
+      en: 'Start a free trial',
+      fr: 'Démarrer un essai gratuit',
     },
     seed: {
-      en: 'Monitor https://www.salesforce.com — journey: Sign in to Sales Cloud (login).',
-      fr: 'Monitorer https://www.salesforce.com — parcours : Se connecter à Sales Cloud (connexion).',
+      en: 'Monitor https://www.salesforce.com — journey: Start a free trial. Public path: open homepage → click "Start for free" → reach Starter Suite free-trial page → verify trial signup content is visible (no login to Sales Cloud).',
+      fr: 'Monitorer https://www.salesforce.com — parcours : Démarrer un essai gratuit. Chemin public : ouvrir l’accueil → cliquer « Start for free » → arriver sur la page essai Starter Suite → vérifier que le contenu d’inscription essai est visible (pas de login Sales Cloud).',
     },
   },
   {
@@ -59,6 +59,20 @@ export const HOME_JOURNEY_EXAMPLES: readonly HomeJourneyExample[] = [
     seed: {
       en: 'Monitor https://www.totalenergies.fr — journey: Find a nearby station.',
       fr: 'Monitorer https://www.totalenergies.fr — parcours : Trouver une station proche.',
+    },
+  },
+  {
+    id: 'airbnb',
+    company: 'Airbnb',
+    logoSrc: '/logos/airbnb.svg',
+    url: 'https://www.airbnb.com',
+    journeyTitle: {
+      en: 'Search for a stay',
+      fr: 'Rechercher un séjour',
+    },
+    seed: {
+      en: 'Monitor https://www.airbnb.com — journey: Search for a stay. Public path: open homepage → use search (destination / dates / guests) → submit Search → verify homes results are shown.',
+      fr: 'Monitorer https://www.airbnb.com — parcours : Rechercher un séjour. Chemin public : ouvrir l’accueil → utiliser la recherche (destination / dates / voyageurs) → lancer Search → vérifier que des logements s’affichent.',
     },
   },
 ] as const
