@@ -296,6 +296,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const message = error instanceof Error ? error.message : String(error)
       return /\b429\b|Too Many Requests|quota|rate.?limit/i.test(message)
     }
+    const isHardQuotaExhausted = (error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error)
+      // Free-tier daily/minute caps reported as limit: 0 — retrying the same model wastes time.
+      return /limit:\s*0\b/i.test(message) || /GenerateRequestsPerDayPerProjectPerModel/i.test(message)
+    }
     const retryDelayMs = (error: unknown) => {
       const message = error instanceof Error ? error.message : String(error)
       const match = message.match(/retry in ([\d.]+)\s*s/i)
@@ -355,7 +360,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             `[api/discovery] model ${modelName} attempt ${attempt + 1} failed`,
             error,
           )
-          if (attempt === 0 && isQuotaError(error)) {
+          if (
+            attempt === 0 &&
+            isQuotaError(error) &&
+            !isHardQuotaExhausted(error)
+          ) {
             await sleep(retryDelayMs(error))
             continue
           }
