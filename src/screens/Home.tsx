@@ -6,7 +6,7 @@ import AgentWorkStatus from '../components/AgentWorkStatus'
 import { useLocale } from '../context/LocaleContext'
 import { requestDiscoveryAi, type DiscoveryAiResult } from '../lib/discoveryAi'
 import type { JourneyLaunchSession } from '../lib/journeyLaunch'
-import { getHomeExamples } from '../mock/data'
+import { getHomeExamples, isCuratedHomeExample } from '../mock/data'
 import {
   buildJourneyProposals,
   createDiscoveryContext,
@@ -268,11 +268,13 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
     setPhase('conversation')
 
     await withTyping(async (signal, onStatus) => {
+      // Curated homepage examples are already full journeys → ask Gemini for a plan directly.
+      const mode = isCuratedHomeExample(seed) ? 'plan' : 'bootstrap'
       const ai = await requestDiscoveryAi({
-        mode: 'bootstrap',
+        mode,
         userMessage: seed,
         messages: [userMsg],
-        phase: 'conversation',
+        phase: mode === 'plan' ? 'planning' : 'conversation',
         context: nextCtx,
         preferredLanguage: locale,
         signal,
@@ -281,6 +283,22 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
       if (ai.aborted) return
       rememberSnapshot(ai)
       noteAi(ai)
+
+      // Complete plan → show steps + Run (homepage examples and precise free-typed seeds).
+      if (ai.plan && (ai.readyForPlan || ai.plan.steps.length > 0)) {
+        const formatted = formatPlanMessage(ai.plan)
+        const content =
+          ai.message.includes('1.') || ai.message.includes('1)')
+            ? ai.message
+            : ai.message
+              ? `${ai.message}\n\n${formatted}`
+              : formatted
+        pushAgentReply(content)
+        setPlan(ai.plan)
+        setPhase('planning')
+        return
+      }
+
       if (ai.proposals && ai.proposals.length > 0) {
         setProposals(ai.proposals)
         setPhase('proposals')
