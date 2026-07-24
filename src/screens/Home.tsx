@@ -44,6 +44,8 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
   const chatEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const abortRef = useRef<AbortController | null>(null)
+  const messagesRef = useRef<ChatMessage[]>([])
+  messagesRef.current = messages
 
   const noteAi = (ai: { source: 'gemini' | 'unavailable'; model: string | null }) => {
     if (ai.source === 'gemini') {
@@ -76,7 +78,11 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
   }, [messages, agentTyping, workStatus, showStack, showRun])
 
   const pushMessages = (...next: ChatMessage[]) => {
-    setMessages((prev) => [...prev, ...next])
+    setMessages((prev) => {
+      const merged = [...prev, ...next]
+      messagesRef.current = merged
+      return merged
+    })
   }
 
   const beginRun = () => {
@@ -187,7 +193,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only react to locale changes
   }, [locale])
 
-  const historyPlus = (...extra: ChatMessage[]) => [...messages, ...extra]
+  const historyPlus = (...extra: ChatMessage[]) => [...messagesRef.current, ...extra]
 
   const pushAgentReply = (content: string) => {
     if (!content.trim()) return
@@ -209,7 +215,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
     setPlan(null)
     setPhase('conversation')
     await withTyping(async (signal, onStatus) => {
-      const history = userMsg ? historyPlus(userMsg) : messages
+      const history = userMsg ? historyPlus(userMsg) : messagesRef.current
       const ai = await requestDiscoveryAi({
         mode: 'plan',
         userMessage: planSeed.prompt,
@@ -327,15 +333,12 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
     setQuestions([])
     setPhase('conversation')
 
+    // Individual answers are already visible as user bubbles (pushed on each submit).
+    const history = messagesRef.current
+
     if (configuring && nextCtx.selectedProposal) {
       const blocks = answered.map((q) => `${q.prompt} → ${nextCtx.answers[q.id]}`)
       const summary = blocks.join('\n')
-      const userMsg: ChatMessage = {
-        id: uid('user'),
-        role: 'user',
-        content: summary || nextCtx.selectedProposal.title,
-      }
-      pushMessages(userMsg)
       setConfiguring(false)
       const promptWithParams = [
         nextCtx.selectedProposal.prompt,
@@ -356,28 +359,26 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
       return
     }
 
-    const blocks = answered.map((q) => `Q : ${q.prompt}\nR : ${nextCtx.answers[q.id]}`)
-
-    const extra: ChatMessage[] = []
-    if (blocks.length > 0) {
-      const userMsg: ChatMessage = {
-        id: uid('user'),
-        role: 'user',
-        content: blocks.join('\n\n'),
-      }
-      extra.push(userMsg)
-      pushMessages(userMsg)
-    }
-    await openProposals(nextCtx, historyPlus(...extra))
+    await openProposals(nextCtx, history)
   }
 
   const saveQuestionnaireAnswer = async (questionId: string, option: string) => {
     if (!ctx) return
+    const trimmed = option.trim()
+    if (!trimmed) return
+
     const nextCtx = {
       ...ctx,
-      answers: { ...ctx.answers, [questionId]: option },
+      answers: { ...ctx.answers, [questionId]: trimmed },
     }
     setCtx(nextCtx)
+
+    // Mirror the form answer into the chat so the thread stays readable.
+    pushMessages({
+      id: uid('user'),
+      role: 'user',
+      content: trimmed,
+    })
 
     if (allQuestionsAnswered(nextCtx)) {
       await commitQuestionnaireAndPropose(nextCtx)
@@ -583,7 +584,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
       return
     }
 
-    // Questionnaire: save locally via main input — don't post to chat yet
+    // Questionnaire: mirror the answer into chat, then advance / commit.
     if (phase === 'questionnaire' && questions[questionIndex]) {
       await saveQuestionnaireAnswer(questions[questionIndex].id, text)
       return
