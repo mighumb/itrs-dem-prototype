@@ -134,6 +134,13 @@ If userMessage includes action "relocalize_ui" (or clearly asks to translate the
 - Return proposals when translating proposals; questions when translating questions.
 - readyForPlan false. plan null.
 
+### Dismiss floating form
+If userMessage includes action "dismiss_floating_ui" (user closed the floating questionnaire/proposals):
+- Acknowledge briefly in preferredLanguage and continue in chat.
+- Do not reopen the same floating form immediately (questions/proposals null) unless the user clearly still needs a choice.
+- Invite them to answer in chat (site, goal, or next step) when useful.
+- readyForPlan false. plan null unless they already gave enough to build one.
+
 ## Hard rules
 - No journeys described as "observed on the site" unless evidence is in context.
 - No encyclopedic scenario lists.
