@@ -1,4 +1,3 @@
-
 export type DiscoveryPhase = 'idle' | 'questionnaire' | 'proposals' | 'planning' | 'conversation'
 
 export interface DiscoveryQuestion {
