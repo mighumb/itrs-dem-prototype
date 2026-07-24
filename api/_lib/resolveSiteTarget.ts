@@ -23,18 +23,25 @@ function shouldTryBrandResolve(text: string): boolean {
     return false
   }
 
-  // Strip common intent/filler words; only resolve when a brand/site-ish token remains.
-  const leftover = t
+  // Only resolve when something brandish remains after stripping product intent
+  // vocabulary ("parcours" / "journey" alone must never become parcours.cc).
+  return extractBrandishTokens(t).length > 0
+}
+
+function extractBrandishTokens(text: string): string[] {
+  const leftover = text
     .replace(
-      /\b(je|tu|il|nous|vous|ils|veux|voudrais|aimerais|faire|créer|cree|surveiller|monitor(?:er)?|parcours|journey|site|website|web|app|application|pour|avec|de|du|des|le|la|les|un|une|the|a|an|to|for|please|svp|merci|aide[- ]?moi|help\s+me|i\s+want|i'd\s+like|can\s+you)\b/gi,
+      /\b(je|j|tu|il|nous|vous|ils|me|moi|mon|ma|mes|ton|ta|tes|son|sa|ses|veux|voudrais|aimerais|aimerai|souhaite|souhaiterais|besoin|faire|fais|fait|créer|cree|creer|build|create|make|start|commencer|surveiller|monitor(?:er|ing)?|parcours|journey|journeys|flow|flows|scenario|scénario|tunnel|checkout|cart|panier|site|website|web|app|application|pour|avec|de|du|des|le|la|les|un|une|the|a|an|to|for|of|on|in|dans|please|svp|merci|aide[- ]?moi|help\s+me|i\s+want|i'd\s+like|i\s+would\s+like|can\s+you|could\s+you|quel(?:le)?s?|what|which|how|comment|aujourd['’]?hui|today)\b/gi,
       ' ',
     )
-    .replace(/[^\p{L}\p{N}.'-]+/gu, ' ')
+    .replace(/[^\p{L}\p{N}.-]+/gu, ' ')
     .trim()
 
-  if (!leftover) return false
-  const tokens = leftover.split(/\s+/).filter((w) => w.length >= 2)
-  return tokens.length > 0
+  if (!leftover) return []
+  return leftover
+    .split(/\s+/)
+    .map((w) => w.replace(/^['’]+|['’]+$/g, ''))
+    .filter((w) => w.length >= 3)
 }
 
 function firstUrlFromText(text: string): string | null {
@@ -159,7 +166,12 @@ export async function resolveSiteTarget(
     return { url: null, source: 'none', label: null, note: null }
   }
 
-  const resolved = await resolveBrandWithGemini(userText, options.apiKey)
+  const brandTokens = extractBrandishTokens(userText)
+  if (brandTokens.length === 0) {
+    return { url: null, source: 'none', label: null, note: null }
+  }
+
+  const resolved = await resolveBrandWithGemini(brandTokens.join(' '), options.apiKey)
   if (!resolved.url) {
     return {
       url: null,

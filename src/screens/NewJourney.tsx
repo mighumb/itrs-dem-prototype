@@ -920,14 +920,9 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
               ))}
               {(isRunning || agentTyping) && (
                 <div className="space-y-1 px-2">
-                  {workStatus && (
-                    <p className="text-[11px] text-zinc-400 dark:text-zinc-500">{workStatus}</p>
-                  )}
-                  <div className="flex gap-1">
-                    <span className="h-2 w-2 animate-pulse rounded-full bg-zinc-300" />
-                    <span className="h-2 w-2 animate-pulse rounded-full bg-zinc-300 [animation-delay:150ms]" />
-                    <span className="h-2 w-2 animate-pulse rounded-full bg-zinc-300 [animation-delay:300ms]" />
-                  </div>
+                  <p className="text-[11px] text-zinc-400 dark:text-zinc-500">
+                    {workStatus ?? t('agentThinking')}
+                  </p>
                 </div>
               )}
               <div ref={chatEndRef} />
