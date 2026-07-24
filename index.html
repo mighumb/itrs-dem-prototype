@@ -2,16 +2,21 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
-    <link rel="apple-touch-icon" href="/favicon-96x96.png" />
+    <link id="app-favicon-svg" rel="icon" type="image/svg+xml" href="/favicon-light.svg" />
+    <link id="app-favicon-png" rel="icon" type="image/png" sizes="32x32" href="/favicon-light-32x32.png" />
+    <link rel="apple-touch-icon" href="/favicon-dark-96x96.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>ITRS DEM</title>
     <script>
       try {
-        if (localStorage.getItem('itrs-dem-theme') === 'dark') {
+        var theme = localStorage.getItem('itrs-dem-theme') === 'dark' ? 'dark' : 'light'
+        if (theme === 'dark') {
           document.documentElement.classList.add('dark')
         }
+        var svg = document.getElementById('app-favicon-svg')
+        var png = document.getElementById('app-favicon-png')
+        if (svg) svg.href = theme === 'dark' ? '/favicon-dark.svg' : '/favicon-light.svg'
+        if (png) png.href = theme === 'dark' ? '/favicon-dark-32x32.png' : '/favicon-light-32x32.png'
       } catch (_) {}
     </script>
   </head>

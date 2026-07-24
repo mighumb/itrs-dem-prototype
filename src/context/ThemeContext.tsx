@@ -23,6 +23,18 @@ function readStoredTheme(): Theme {
   return stored === 'dark' ? 'dark' : 'light'
 }
 
+function applyFavicon(theme: Theme) {
+  const svg = document.getElementById('app-favicon-svg') as HTMLLinkElement | null
+  const png = document.getElementById('app-favicon-png') as HTMLLinkElement | null
+  if (svg) {
+    svg.href = theme === 'dark' ? '/favicon-dark.svg' : '/favicon-light.svg'
+  }
+  if (png) {
+    png.href =
+      theme === 'dark' ? '/favicon-dark-32x32.png' : '/favicon-light-32x32.png'
+  }
+}
+
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setTheme] = useState<Theme>(readStoredTheme)
 
@@ -30,6 +42,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     const root = document.documentElement
     root.classList.toggle('dark', theme === 'dark')
     localStorage.setItem(STORAGE_KEY, theme)
+    applyFavicon(theme)
   }, [theme])
 
   const toggleTheme = () => {
