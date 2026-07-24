@@ -26,8 +26,6 @@ export default function RotatingWord({
 
   const current = words[index] ?? words[0] ?? ''
 
-  // Fit the slot to the *current* word so the whole headline stays optically centered
-  // (no fake wide box that left-aligns short terms).
   useLayoutEffect(() => {
     const el = sizerRef.current
     if (!el) return
@@ -36,23 +34,23 @@ export default function RotatingWord({
 
   return (
     <span
-      className={`relative inline-block overflow-hidden align-baseline ${className}`}
+      className={`relative inline-grid overflow-hidden align-baseline ${className}`}
       style={{
-        height: '1.15em',
         width: width ?? undefined,
         transition: width == null ? undefined : 'width 0.35s cubic-bezier(0.22, 1, 0.36, 1)',
       }}
     >
+      {/* In-flow sizer: same metrics as “Which” — no taller 1.15em / flex-center box */}
       <span
         ref={sizerRef}
-        className="invisible absolute left-0 top-0 whitespace-nowrap font-semibold"
+        className="invisible col-start-1 row-start-1 whitespace-nowrap"
         aria-hidden
       >
         {current}
       </span>
       <span
         key={`${index}-${current}`}
-        className="home-word-swap absolute inset-0 flex items-center justify-center whitespace-nowrap font-semibold text-[#0071e3]"
+        className="home-word-swap col-start-1 row-start-1 whitespace-nowrap text-[#0071e3]"
         aria-live="polite"
       >
         {current}
