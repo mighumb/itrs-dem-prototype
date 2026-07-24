@@ -124,24 +124,6 @@ function normalizeWorkTrace(
   return deduped.length > 0 ? deduped.slice(0, 8) : null
 }
 
-function preferredLang(body: DiscoveryAiRequest): 'en' | 'fr' {
-  return body.preferredLanguage ?? body.context?.preferredLanguage ?? 'en'
-}
-
-function serverStatus(lang: 'en' | 'fr', key: 'resolve' | 'inspect'): string {
-  const copy = {
-    en: {
-      resolve: 'Finding the official site…',
-      inspect: 'Looking at the public page…',
-    },
-    fr: {
-      resolve: 'Je cherche le site officiel…',
-      inspect: 'Je regarde la page publique…',
-    },
-  }
-  return copy[lang][key]
-}
-
 function writeNdjson(res: VercelResponse, event: Record<string, unknown>) {
   res.write(`${JSON.stringify(event)}\n`)
 }
@@ -207,7 +189,6 @@ function parseModelOutput(fullText: string): {
 async function resolveAndAnalyzeWithStatus(
   body: DiscoveryAiRequest,
   apiKey: string,
-  onStatus: (text: string) => void,
 ): Promise<{ analysis: SiteAnalysisResult | null; target: ResolvedSiteTarget | null }> {
   if (body.context?.pageSnapshot) {
     return { analysis: null, target: null }
@@ -228,18 +209,7 @@ async function resolveAndAnalyzeWithStatus(
     return { analysis: null, target: null }
   }
 
-  const lang = preferredLang(body)
   const seedText = [body.userMessage, body.context?.seed].filter(Boolean).join(' — ')
-
-  const existingUrl = body.context?.url
-  const hasUrl =
-    Boolean(existingUrl && /^https?:\/\//i.test(existingUrl)) ||
-    /https?:\/\/[^\s]+/i.test(seedText) ||
-    /\b(?:www\.)?[a-z0-9-]+\.[a-z]{2,}\b/i.test(seedText)
-
-  if (!hasUrl) {
-    onStatus(serverStatus(lang, 'resolve'))
-  }
 
   const target = await resolveSiteTarget(seedText, {
     apiKey,
@@ -250,7 +220,7 @@ async function resolveAndAnalyzeWithStatus(
     return { target, analysis: null }
   }
 
-  onStatus(serverStatus(lang, 'inspect'))
+  // Silent evidence fetch for Gemini context — never emit scripted UI status lines.
   const analysis = await analyzePublicSite(target.url)
   return { target, analysis }
 }
@@ -311,7 +281,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const { analysis, target } = await resolveAndAnalyzeWithStatus(body, apiKey, sendStatus)
+    // Background site evidence only — never emit scripted status to the UI.
+    const { analysis, target } = await resolveAndAnalyzeWithStatus(body, apiKey)
 
     const genAI = new GoogleGenerativeAI(apiKey)
     const modelCandidates = [
