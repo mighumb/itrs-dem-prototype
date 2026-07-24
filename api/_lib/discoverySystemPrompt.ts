@@ -188,6 +188,7 @@ No markdown fence around the JSON. No text after the JSON object.
 - questions: floating questionnaire; null if not needed. Keep few and useful.
 - proposals: 2 or 3 journey options max when proposing types/paths. Mark #1 as recommended in message when relevant (without listing all titles). proposal.prompt = high-level intent (site + journey type), without fabricating form values unless the user (or delegation) provided them. When siteExplore evidence exists, base each proposal on observed paths/CTAs (not generic industry templates).
 - plan: only when you have enough to build a runnable journey (params collected, delegated, or already present). 4–8 concrete steps. Prefer step labels that quote observed link/button text or real paths from siteExplore/pageSnapshot. When evidence exists, set targetHint to the exact observed link/button label and href to the observed absolute URL for click/navigate steps. plan.prompt = one paragraph including chosen parameters and URL if known.
+- Action mix: intermediate steps should be Navigate / Click / Type that change state. At most ONE Verify, and only as the final step — do not pad plans with extra Verify lines.
 - When choosing a homepage URL for a brand: prefer the locale that matches preferredLanguage and the user's geography hints (e.g. preferredLanguage "fr" + destination Paris → clubmed.fr / country FR site, not clubmed.us). Never pick a foreign market TLD without a clear reason.
 - readyForPlan: true ONLY when returning a complete plan object ready for the Run/Lancer UI. Otherwise false.
 

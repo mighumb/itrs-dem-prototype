@@ -9,7 +9,7 @@ import { tf, type Locale } from '../i18n/messages'
 
 /** Homepage sample cards — company + short journey title (not full step-by-step prompts). */
 export type HomeJourneyExample = {
-  id: 'salesforce' | 'axa' | 'totalenergies' | 'airbnb'
+  id: 'salesforce' | 'axa' | 'amazon' | 'airbnb'
   company: string
   logoSrc: string
   url: string
@@ -17,6 +17,12 @@ export type HomeJourneyExample = {
   /** Seed passed to Gemini (site + journey intent; params collected only if needed). */
   seed: { en: string; fr: string }
 }
+
+const SAMPLE_ACTION_RULES_EN =
+  'Hard rules for the plan: intermediate steps only Navigate, Click, or Type. At most ONE Verify, and only as the final step. Do not invent extra Verify steps to pad the journey.'
+
+const SAMPLE_ACTION_RULES_FR =
+  'Règles dures pour le plan : étapes intermédiaires uniquement Navigate, Click ou Type. Au plus UN Verify, uniquement en dernière étape. Ne pas inventer de Verify pour gonfler le parcours.'
 
 export const HOME_JOURNEY_EXAMPLES: readonly HomeJourneyExample[] = [
   {
@@ -29,8 +35,8 @@ export const HOME_JOURNEY_EXAMPLES: readonly HomeJourneyExample[] = [
       fr: 'Produits → tarifs → essai gratuit',
     },
     seed: {
-      en: 'Monitor https://www.salesforce.com — journey: prove a real multi-step free-trial funnel works. Path: (1) open homepage (2) click "See all products" or "Agentforce" (3) verify product content (4) click "See full pricing" (5) verify pricing plans (6) click "Start for free" (7) on the trial form, TYPE a work email the user provides (8) verify the form accepts it / next state is visible. Ask the user for a work email before building the plan — do not invent one. Stop before password / Sales Cloud login / submitting a real account if a password gate appears.',
-      fr: 'Monitorer https://www.salesforce.com — parcours : prouver qu’un vrai funnel multi-étapes d’essai gratuit fonctionne. Chemin : (1) ouvrir l’accueil (2) cliquer « See all products » ou « Agentforce » (3) vérifier le contenu produit (4) cliquer « See full pricing » (5) vérifier les offres tarifaires (6) cliquer « Start for free » (7) sur le formulaire d’essai, SAISIR un e-mail pro fourni par l’utilisateur (8) vérifier que le formulaire l’accepte / que l’état suivant est visible. Demander l’e-mail pro à l’utilisateur avant de construire le plan — ne pas l’inventer. S’arrêter avant mot de passe / login Sales Cloud / création de compte réelle si une étape password apparaît.',
+      en: `Monitor https://www.salesforce.com — journey: prove a real free-trial funnel. Required actions: Navigate homepage → Click "See all products" or "Agentforce" → Click "See full pricing" → Click "Start for free" → Type the user-provided work email on the trial form → final Verify the email field/next state reflects the input. Ask for a work email before building the plan — do not invent one. Stop before password / Sales Cloud login. ${SAMPLE_ACTION_RULES_EN}`,
+      fr: `Monitorer https://www.salesforce.com — parcours : prouver un vrai funnel d’essai gratuit. Actions requises : Navigate accueil → Click « See all products » ou « Agentforce » → Click « See full pricing » → Click « Start for free » → Type l’e-mail pro fourni par l’utilisateur sur le formulaire d’essai → Verify final que le champ/état suivant reflète la saisie. Demander l’e-mail pro avant le plan — ne pas l’inventer. S’arrêter avant mot de passe / login Sales Cloud. ${SAMPLE_ACTION_RULES_FR}`,
     },
   },
   {
@@ -43,22 +49,22 @@ export const HOME_JOURNEY_EXAMPLES: readonly HomeJourneyExample[] = [
       fr: 'Obtenir un devis assurance auto',
     },
     seed: {
-      en: 'Monitor https://www.axa.fr — journey: Get a car insurance quote.',
-      fr: 'Monitorer https://www.axa.fr — parcours : Obtenir un devis assurance auto.',
+      en: `Monitor https://www.axa.fr — journey: car insurance quote with real form actions. Required actions: Navigate homepage → Click auto / vehicle insurance → Click to start a quote → Type user-provided values the quote needs (e.g. postal code / vehicle info — ask only for what steps need) → Click continue/next as far as the public flow allows → final Verify a quote step or summary is shown. ${SAMPLE_ACTION_RULES_EN}`,
+      fr: `Monitorer https://www.axa.fr — parcours : devis assurance auto avec de vraies actions formulaire. Actions requises : Navigate accueil → Click assurance auto / véhicules → Click pour démarrer un devis → Type les valeurs fournies par l’utilisateur nécessaires au devis (ex. code postal / infos véhicule — demander seulement ce dont les steps ont besoin) → Click continuer/suivant aussi loin que le parcours public le permet → Verify final qu’une étape de devis ou un récap s’affiche. ${SAMPLE_ACTION_RULES_FR}`,
     },
   },
   {
-    id: 'totalenergies',
-    company: 'TotalEnergies',
-    logoSrc: '/logos/totalenergies.svg',
-    url: 'https://www.totalenergies.fr',
+    id: 'amazon',
+    company: 'Amazon',
+    logoSrc: '/logos/amazon.svg',
+    url: 'https://www.amazon.com',
     journeyTitle: {
-      en: 'Find a nearby station',
-      fr: 'Trouver une station proche',
+      en: 'Search and add to cart',
+      fr: 'Rechercher et ajouter au panier',
     },
     seed: {
-      en: 'Monitor https://www.totalenergies.fr — journey: Find a nearby station.',
-      fr: 'Monitorer https://www.totalenergies.fr — parcours : Trouver une station proche.',
+      en: `Monitor https://www.amazon.com — journey: ecommerce add-to-cart with real actions. Required actions: Navigate homepage → Type a user-provided search query → Click/submit search → Click a product result → Click "Add to cart" → final Verify the cart reflects the added item (cart count or cart page). Ask for the search query before building the plan — do not invent a SKU. Stop before checkout/payment/login. ${SAMPLE_ACTION_RULES_EN}`,
+      fr: `Monitorer https://www.amazon.com — parcours : e-commerce ajout panier avec de vraies actions. Actions requises : Navigate accueil → Type une requête de recherche fournie par l’utilisateur → Click/submit recherche → Click un produit dans les résultats → Click « Add to cart » → Verify final que le panier reflète l’ajout (compteur ou page panier). Demander la requête de recherche avant le plan — ne pas inventer de SKU. S’arrêter avant checkout/paiement/login. ${SAMPLE_ACTION_RULES_FR}`,
     },
   },
   {
@@ -71,8 +77,8 @@ export const HOME_JOURNEY_EXAMPLES: readonly HomeJourneyExample[] = [
       fr: 'Rechercher un séjour',
     },
     seed: {
-      en: 'Monitor https://www.airbnb.com — journey: Search for a stay. Public path: open homepage → use search (destination / dates / guests) → submit Search → verify homes results are shown.',
-      fr: 'Monitorer https://www.airbnb.com — parcours : Rechercher un séjour. Chemin public : ouvrir l’accueil → utiliser la recherche (destination / dates / voyageurs) → lancer Search → vérifier que des logements s’affichent.',
+      en: `Monitor https://www.airbnb.com — journey: stay search with real search actions. Required actions: Navigate homepage → Type a user-provided destination → Click/set dates if the UI requires it (suggested defaults only if user delegates) → Click guests if needed → Click "Search" → final Verify homes/results are listed. Ask for the destination before building the plan. ${SAMPLE_ACTION_RULES_EN}`,
+      fr: `Monitorer https://www.airbnb.com — parcours : recherche de séjour avec de vraies actions. Actions requises : Navigate accueil → Type une destination fournie par l’utilisateur → Click/renseigner les dates si l’UI l’exige (defaults suggérés seulement si délégation) → Click voyageurs si besoin → Click « Search » → Verify final que des logements/résultats s’affichent. Demander la destination avant le plan. ${SAMPLE_ACTION_RULES_FR}`,
     },
   },
 ] as const
