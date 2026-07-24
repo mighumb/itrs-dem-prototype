@@ -64,22 +64,143 @@ function normalizeProposals(raw: unknown): JourneyProposal[] | null {
     .map((item, index) => {
       if (!item || typeof item !== 'object') return null
       const p = item as Record<string, unknown>
-      if (
-        typeof p.title !== 'string' ||
-        typeof p.description !== 'string' ||
-        typeof p.prompt !== 'string'
-      ) {
-        return null
-      }
+      if (typeof p.title !== 'string' || !p.title.trim()) return null
+      const title = p.title.trim()
+      const description =
+        typeof p.description === 'string' && p.description.trim()
+          ? p.description.trim()
+          : title
+      const prompt =
+        typeof p.prompt === 'string' && p.prompt.trim() ? p.prompt.trim() : title
       return {
-        id: typeof p.id === 'string' ? p.id : `proposal-${index + 1}`,
-        title: p.title,
-        description: p.description,
-        prompt: p.prompt,
+        id: typeof p.id === 'string' && p.id.trim() ? p.id : `proposal-${index + 1}`,
+        title,
+        description,
+        prompt,
       }
     })
     .filter((p): p is JourneyProposal => Boolean(p))
   return next.length > 0 ? next.slice(0, 3) : null
+}
+
+function stripMarkdownInline(text: string): string {
+  return text.replace(/\*\*/g, '').replace(/^#+\s*/, '').trim()
+}
+
+/** When Gemini lists journeys in message but leaves proposals null/invalid. */
+export function recoverProposalsFromMessage(
+  message: string,
+  seed = '',
+): JourneyProposal[] | null {
+  if (!message.trim()) return null
+
+  const proposals: JourneyProposal[] = []
+  const lines = message.split(/\n/)
+
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i]!.trim()
+    if (!raw) continue
+
+    const match = raw.match(/^\*{0,2}\s*(\d{1,2})[.)]\s*\*{0,2}\s*(.+?)\s*\*{0,2}\s*$/)
+    if (!match) continue
+
+    let title = stripMarkdownInline(match[2]!)
+    let description = ''
+
+    const split = title.split(/\s*[—–]\s+|\s+-\s+/)
+    if (split.length >= 2) {
+      title = split[0]!.trim()
+      description = split.slice(1).join(' — ').trim()
+    } else {
+      const colon = title.match(/^(.+?)\s*:\s+(.+)$/)
+      if (colon) {
+        title = colon[1]!.trim()
+        description = colon[2]!.trim()
+      }
+    }
+
+    if (!description && i + 1 < lines.length) {
+      const nextLine = lines[i + 1]!.trim()
+      if (
+        nextLine &&
+        !/^\*{0,2}\s*\d{1,2}[.)]/.test(nextLine) &&
+        nextLine.length < 220 &&
+        !/^(lequel|which|choisis|pick|voici|here are)\b/i.test(nextLine)
+      ) {
+        description = stripMarkdownInline(nextLine)
+      }
+    }
+
+    title = title.replace(/\s*\((?:suggéré|suggested|recommandé|recommended)\)\s*$/i, '').trim()
+    if (title.length < 2) continue
+
+    proposals.push({
+      id: `recovered-${match[1]}`,
+      title,
+      description: description || title,
+      prompt: seed.trim() ? `${seed.trim()} — ${title}` : title,
+    })
+  }
+
+  return proposals.length >= 2 ? proposals.slice(0, 3) : null
+}
+
+function stripEnumeratedListFromMessage(message: string): string {
+  return message
+    .split('\n')
+    .filter((line) => !/^\s*\*{0,2}\s*\d{1,2}[.)]\s+\S/.test(line.trim()))
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+function frameMessageForProposals(locale: 'en' | 'fr', existing: string): string {
+  const cleaned = stripEnumeratedListFromMessage(existing)
+  if (cleaned && cleaned.length <= 280) return cleaned
+  return locale === 'fr'
+    ? 'Voici les parcours que je te propose — choisis dans le formulaire ci-dessous.'
+    : 'Here are the journeys I suggest — pick one in the form below.'
+}
+
+/** Normalize + recover proposals/questions so the floating clickable UI can open. */
+function finalizeDiscoveryResult(options: {
+  message: string
+  workTrace: unknown
+  questions: unknown
+  proposals: unknown
+  plan: unknown
+  readyForPlan: unknown
+  siteAnalysis: unknown
+  pageSnapshot: unknown
+  model: unknown
+  fallbackPrompt: string
+  preferredLanguage: 'en' | 'fr'
+  source: 'gemini' | 'unavailable'
+}): DiscoveryAiResult {
+  const questions = normalizeQuestions(options.questions)
+  let proposals = normalizeProposals(options.proposals)
+  let message = options.message.trim()
+
+  if (!proposals && !questions) {
+    proposals = recoverProposalsFromMessage(message, options.fallbackPrompt)
+  }
+
+  if (proposals && proposals.length > 0) {
+    message = frameMessageForProposals(options.preferredLanguage, message)
+  }
+
+  return {
+    message: message || geminiUnavailable(options.preferredLanguage).message,
+    workTrace: normalizeWorkTrace(options.workTrace),
+    questions,
+    proposals,
+    plan: normalizePlan(options.plan, options.fallbackPrompt),
+    readyForPlan: Boolean(options.readyForPlan),
+    siteAnalysis: normalizeSiteAnalysis(options.siteAnalysis),
+    pageSnapshot: typeof options.pageSnapshot === 'string' ? options.pageSnapshot : null,
+    source: options.source,
+    model: typeof options.model === 'string' ? options.model : null,
+  }
 }
 
 function normalizePlan(raw: unknown, fallbackPrompt: string): DiscoveryPlan | null {
@@ -294,18 +415,20 @@ export async function requestDiscoveryAi(options: {
           ? resultData.message
           : ''
 
-      return {
-        message: message || geminiUnavailable(preferredLanguage).message,
-        workTrace: normalizeWorkTrace(resultData.workTrace),
-        questions: normalizeQuestions(resultData.questions),
-        proposals: normalizeProposals(resultData.proposals),
-        plan: normalizePlan(resultData.plan, fallbackPrompt),
-        readyForPlan: Boolean(resultData.readyForPlan),
-        siteAnalysis: normalizeSiteAnalysis(resultData.siteAnalysis),
-        pageSnapshot: typeof resultData.pageSnapshot === 'string' ? resultData.pageSnapshot : null,
+      return finalizeDiscoveryResult({
+        message,
+        workTrace: resultData.workTrace,
+        questions: resultData.questions,
+        proposals: resultData.proposals,
+        plan: resultData.plan,
+        readyForPlan: resultData.readyForPlan,
+        siteAnalysis: resultData.siteAnalysis,
+        pageSnapshot: resultData.pageSnapshot,
+        model: resultData.model ?? 'gemini',
+        fallbackPrompt,
+        preferredLanguage,
         source: message ? 'gemini' : 'unavailable',
-        model: typeof resultData.model === 'string' ? resultData.model : 'gemini',
-      }
+      })
     }
 
     // Legacy JSON response fallback
@@ -319,18 +442,20 @@ export async function requestDiscoveryAi(options: {
     const message =
       typeof data.message === 'string' && data.message.trim() ? data.message : ''
 
-    return {
-      message: message || geminiUnavailable(preferredLanguage).message,
-      workTrace: normalizeWorkTrace(data.workTrace),
-      questions: normalizeQuestions(data.questions),
-      proposals: normalizeProposals(data.proposals),
-      plan: normalizePlan(data.plan, fallbackPrompt),
-      readyForPlan: Boolean(data.readyForPlan),
-      siteAnalysis: normalizeSiteAnalysis(data.siteAnalysis),
-      pageSnapshot: typeof data.pageSnapshot === 'string' ? data.pageSnapshot : null,
+    return finalizeDiscoveryResult({
+      message,
+      workTrace: data.workTrace,
+      questions: data.questions,
+      proposals: data.proposals,
+      plan: data.plan,
+      readyForPlan: data.readyForPlan,
+      siteAnalysis: data.siteAnalysis,
+      pageSnapshot: data.pageSnapshot,
+      model: data.model ?? 'gemini',
+      fallbackPrompt,
+      preferredLanguage,
       source: message ? 'gemini' : 'unavailable',
-      model: typeof data.model === 'string' ? data.model : 'gemini',
-    }
+    })
   } catch (error) {
     if (
       signal?.aborted ||
