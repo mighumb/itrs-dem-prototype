@@ -22,7 +22,19 @@ function shouldTryBrandResolve(text: string): boolean {
   ) {
     return false
   }
-  return true
+
+  // Strip common intent/filler words; only resolve when a brand/site-ish token remains.
+  const leftover = t
+    .replace(
+      /\b(je|tu|il|nous|vous|ils|veux|voudrais|aimerais|faire|créer|cree|surveiller|monitor(?:er)?|parcours|journey|site|website|web|app|application|pour|avec|de|du|des|le|la|les|un|une|the|a|an|to|for|please|svp|merci|aide[- ]?moi|help\s+me|i\s+want|i'd\s+like|can\s+you)\b/gi,
+      ' ',
+    )
+    .replace(/[^\p{L}\p{N}.'-]+/gu, ' ')
+    .trim()
+
+  if (!leftover) return false
+  const tokens = leftover.split(/\s+/).filter((w) => w.length >= 2)
+  return tokens.length > 0
 }
 
 function firstUrlFromText(text: string): string | null {
@@ -52,10 +64,10 @@ async function resolveBrandWithGemini(
   apiKey: string,
 ): Promise<{ url: string | null; label: string | null; note: string | null }> {
   const genAI = new GoogleGenerativeAI(apiKey)
+  // Prefer current Flash models. Avoid flash-lite (404 for many new keys).
   const modelCandidates = [
     process.env.GEMINI_MODEL,
     'gemini-2.5-flash',
-    'gemini-2.5-flash-lite',
     'gemini-flash-latest',
     'gemini-2.0-flash',
   ].filter((name, index, all): name is string => Boolean(name) && all.indexOf(name) === index)
@@ -63,9 +75,11 @@ async function resolveBrandWithGemini(
   let lastError: unknown
   for (const modelName of modelCandidates) {
     try {
+      // Gemini 2.x requires googleSearch (not deprecated googleSearchRetrieval).
+      // Cast: @google/generative-ai typings may still only list the old tool.
       const model = genAI.getGenerativeModel({
         model: modelName,
-        tools: [{ googleSearchRetrieval: {} }],
+        tools: [{ googleSearch: {} }] as never,
         systemInstruction: `You resolve a brand, company, product, or website name to its official consumer homepage URL.
 Rules:
 - Prefer the official brand website (not social networks, app stores, Wikipedia, news, or booking aggregators unless that IS the product).
