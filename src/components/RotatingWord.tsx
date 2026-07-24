@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 interface RotatingWordProps {
   words: readonly string[]
@@ -13,6 +13,8 @@ export default function RotatingWord({
   className = '',
 }: RotatingWordProps) {
   const [index, setIndex] = useState(0)
+  const [width, setWidth] = useState<number | null>(null)
+  const measureRef = useRef<HTMLSpanElement>(null)
 
   useEffect(() => {
     if (words.length <= 1) return
@@ -24,15 +26,33 @@ export default function RotatingWord({
 
   const current = words[index] ?? words[0] ?? ''
 
+  // Measure off-flow (fixed) so parent width never stretches the sizer —
+  // that was what locked the slot to “application” before.
+  useLayoutEffect(() => {
+    const el = measureRef.current
+    if (!el) return
+    setWidth(Math.ceil(el.getBoundingClientRect().width))
+  }, [current])
+
   return (
-    // w-max + text-left: slot is always the *current* word width.
-    // (JS width on a stretched grid cell got stuck on “application” and
-    // h1 text-center then left a huge gap before short blue terms.)
     <span
-      className={`relative inline-grid w-max max-w-full justify-items-start overflow-hidden align-baseline text-left ${className}`}
+      className={`home-word-slot relative inline-grid max-w-full justify-items-start overflow-hidden align-baseline text-left leading-[1.15] ${className}`}
+      style={width != null ? { width } : undefined}
     >
-      <span className="invisible col-start-1 row-start-1 whitespace-nowrap" aria-hidden>
+      <span
+        ref={measureRef}
+        className="pointer-events-none fixed left-0 top-0 -z-50 whitespace-nowrap opacity-0"
+        style={{ font: 'inherit' }}
+        aria-hidden
+      >
         {current}
+      </span>
+      {/* Height/baseline strut only — not used for width (avoids min-content fight) */}
+      <span
+        className="invisible col-start-1 row-start-1 inline-block w-0 overflow-hidden whitespace-nowrap"
+        aria-hidden
+      >
+        A
       </span>
       <span
         key={`${index}-${current}`}
