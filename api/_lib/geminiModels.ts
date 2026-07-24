@@ -4,11 +4,13 @@
  */
 export function geminiModelCandidates(): string[] {
   return [
-    process.env.GEMINI_MODEL,
-    // Still often has free-tier headroom when 1.5/2.x Flash RPD is spent.
+    // Prefer 8B first on free tier — heavier Flash models often hit RPD first.
     'gemini-1.5-flash-8b',
+    'gemini-1.5-flash-8b-latest',
+    process.env.GEMINI_MODEL,
     'gemini-2.5-flash',
     'gemini-1.5-flash',
+    'gemini-1.5-flash-latest',
     'gemini-flash-latest',
     'gemini-2.0-flash',
   ].filter((name, index, all): name is string => Boolean(name) && all.indexOf(name) === index)
