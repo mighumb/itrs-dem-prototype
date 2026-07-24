@@ -394,7 +394,7 @@ export const AGENT_INTRO: ChatMessage = {
   id: 'intro',
   role: 'agent',
   content:
-    "Hello! I'm your journey assistant. Tell me what to monitor, or paste a URL to get started.",
+    "Hello! I'm the ITRS DEM assistant. Tell me what to monitor, or paste a URL to get started.",
 }
 
 export const SCHEDULE_SUGGESTION = {
@@ -487,13 +487,20 @@ export function applyAgentStepFix(
 ): { step: JourneyStep; changeSummary: string } {
   const previousTarget = step.target ?? step.label
   let newTarget = step.target
+  const label = step.label.toLowerCase()
 
-  if (step.label.toLowerCase().includes('select product')) {
+  if (label.includes('select product')) {
     newTarget = 'a.product-card__link[href*="france-jersey"]'
+  } else if (/cookie|bandeau|consent|rgpd|gdpr/i.test(label)) {
+    newTarget =
+      '#onetrust-accept-btn-handler, button:has-text("Accept"), button:has-text("Tout accepter"), [aria-label*="accept" i]'
   } else if (step.action === 'Click') {
     newTarget = `[data-testid="${step.id}-target"]`
   } else if (step.action === 'Type') {
-    newTarget = step.target?.includes(',') ? step.target : `${step.target}, input[autocomplete="off"]`
+    // Destination / search fields often sit under a leftover consent overlay.
+    newTarget = step.target?.includes(',')
+      ? step.target
+      : `${step.target ?? 'input[type="search"], input[name*="destination" i]'}, input[autocomplete="off"]`
   } else if (step.action === 'Verify') {
     newTarget = `${step.target ?? 'button'}, [data-qa="add-to-bag"]`
   }

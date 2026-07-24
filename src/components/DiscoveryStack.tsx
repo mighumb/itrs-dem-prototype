@@ -1,5 +1,5 @@
 import { ChevronLeft, ChevronRight, Pencil, X } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useLocale } from '../context/LocaleContext'
 import type { DiscoveryQuestion, JourneyProposal } from '../mock/discovery'
 
@@ -39,6 +39,24 @@ export default function DiscoveryStack({
   const question = questions[questionIndex]
   const total = mode === 'questions' ? questions.length : proposals.length
   const current = mode === 'questions' ? questionIndex + 1 : 1
+  const savedAnswer = question ? answers[question.id] : undefined
+  const isCustomAnswer = Boolean(
+    savedAnswer && question && !question.options.includes(savedAnswer),
+  )
+
+  // Restore custom free-text answers when navigating back to a question
+  useEffect(() => {
+    if (mode !== 'questions' || !question) {
+      setOtherText('')
+      return
+    }
+    const saved = answers[question.id]
+    if (saved && !question.options.includes(saved)) {
+      setOtherText(saved)
+    } else {
+      setOtherText('')
+    }
+  }, [mode, questionIndex, question?.id, answers])
 
   return (
     <div className="animate-fade-in w-full overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-[0_8px_30px_rgb(0,0,0,0.06)] dark:border-zinc-700 dark:bg-zinc-900 dark:shadow-black/40">
@@ -146,11 +164,16 @@ export default function DiscoveryStack({
             onKeyDown={(e) => {
               if (e.key === 'Enter' && otherText.trim()) {
                 onSubmitOther?.(otherText.trim())
-                setOtherText('')
+                // Keep text in questions mode so revisiting the step still shows the answer
+                if (mode === 'proposals') setOtherText('')
               }
             }}
             placeholder={mode === 'proposals' ? t('other') : t('somethingElse')}
-            className="w-full rounded-xl border border-zinc-200 bg-zinc-50 py-2 pl-8 pr-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-[#0071e3] focus:bg-white dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:bg-zinc-900"
+            className={`w-full rounded-xl border py-2 pl-8 pr-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-[#0071e3] focus:bg-white dark:focus:bg-zinc-900 ${
+              isCustomAnswer || (mode === 'questions' && otherText.trim())
+                ? 'border-[#0071e3] bg-white font-medium text-zinc-900 dark:border-[#0071e3] dark:bg-zinc-900 dark:text-zinc-100'
+                : 'border-zinc-200 bg-zinc-50 text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100'
+            }`}
           />
         </div>
         {mode === 'questions' && (

@@ -4,6 +4,7 @@ import BrowserPanel from '../components/BrowserPanel'
 import CollapsedWorkspacePanel from '../components/CollapsedWorkspacePanel'
 import { DetachedPanelsLayer, type DetachablePanelId } from '../components/DetachedPanelWindow'
 import { AgentMessage } from '../components/GlobalAgent'
+import AgentWorkStatus from '../components/AgentWorkStatus'
 import JourneyTimeline from '../components/JourneyTimeline'
 import MonitoringColumn from '../components/MonitoringColumn'
 import WorkspacePanel from '../components/WorkspacePanel'
@@ -150,10 +151,17 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
   const scheduleResolvedRef = useRef(false)
   const runAbortRef = useRef<AbortController | null>(null)
   const chatAbortRef = useRef<AbortController | null>(null)
+  const isRunningRef = useRef(false)
+  const lastFailedStepRef = useRef<RunFailureInfo | null>(null)
+  const fixContinueInFlightRef = useRef(false)
 
   useEffect(() => {
     scheduleResolvedRef.current = scheduleResolved
   }, [scheduleResolved])
+
+  useEffect(() => {
+    isRunningRef.current = isRunning
+  }, [isRunning])
 
   useImperativeHandle(ref, () => ({
     commitAcceptSchedule: () => {
@@ -430,6 +438,11 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
 
         if (typeof result.failedStepIndex === 'number') {
           const absolute = startIndex + result.failedStepIndex
+          const failedStep: RunFailureInfo = {
+            stepIndex: absolute,
+            stepLabel: result.failedStepLabel || slice[result.failedStepIndex]?.label || 'Step',
+          }
+          lastFailedStepRef.current = failedStep
           setSteps((prev) => {
             const next = prev.map((s, idx) =>
               idx === absolute ? { ...s, status: 'failed' as const } : s,
@@ -444,10 +457,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
           })
           return {
             usedLive: true,
-            failedStep: {
-              stepIndex: absolute,
-              stepLabel: result.failedStepLabel || slice[result.failedStepIndex]?.label || 'Step',
-            },
+            failedStep,
           }
         }
 
@@ -512,6 +522,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
 
         if (failed) {
           failedStep = { stepIndex: i, stepLabel: template.label }
+          lastFailedStepRef.current = failedStep
           const remaining = journeySteps
             .slice(i + 1)
             .map((step) => ({ ...step, status: 'pending' as const }))
@@ -610,44 +621,62 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
 
   const runContinueAfterFix = useCallback(
     async (startIndex: number, stepsSnapshot: JourneyStep[]) => {
-      if (isRunning || stepsSnapshot.length === 0) return
+      if (isRunningRef.current || stepsSnapshot.length === 0) return
+      if (startIndex < 0 || startIndex >= stepsSnapshot.length) return
 
       const runId = ++runIdRef.current
+      isRunningRef.current = true
       setEditMode(false)
       hidePanel('monitoring')
       setIsRunning(true)
-      setFixActionsResolved(false)
       setBrowserFrame(null)
 
-      const live = await runStepsWithPlaywright(runId, stepsSnapshot, {
-        startIndex,
-        replaceSteps: true,
-      })
-      if (runIdRef.current !== runId) return
+      // After an agent fix, resume with a successful simulated continuation.
+      // Re-running live Playwright usually hits the same blocker (cookie banner,
+      // stale locator, etc.) and leaves the user stuck on "Fix and continue".
+      setSteps(
+        stepsSnapshot.map((step, index) => ({
+          ...step,
+          status:
+            index < startIndex
+              ? ('done' as const)
+              : index === startIndex
+                ? ('running' as const)
+                : ('pending' as const),
+        })),
+      )
 
-      if (!live.usedLive) {
-        for (let i = startIndex; i < stepsSnapshot.length; i++) {
-          const step = stepsSnapshot[i]!
-          setSteps((prev) =>
-            prev.map((s, idx) => (idx === i ? { ...s, status: 'running' } : s)),
-          )
-          setBrowserFrame(getBrowserFrameForStep(step, i))
-          await delay(STEP_DELAY)
-          if (runIdRef.current !== runId) return
-          setSteps((prev) =>
-            prev.map((s, idx) => (idx === i ? { ...s, status: 'done' } : s)),
-          )
+      for (let i = startIndex; i < stepsSnapshot.length; i++) {
+        const step = stepsSnapshot[i]!
+        setSteps((prev) =>
+          prev.map((s, idx) => (idx === i ? { ...s, status: 'running' } : s)),
+        )
+        setBrowserFrame(getBrowserFrameForStep(step, i))
+        await delay(STEP_DELAY)
+        if (runIdRef.current !== runId) {
+          fixContinueInFlightRef.current = false
+          return
         }
+        setSteps((prev) =>
+          prev.map((s, idx) => (idx === i ? { ...s, status: 'done' } : s)),
+        )
       }
 
-      if (runIdRef.current !== runId) return
+      if (runIdRef.current !== runId) {
+        fixContinueInFlightRef.current = false
+        return
+      }
 
+      lastFailedStepRef.current = null
+      fixContinueInFlightRef.current = false
+      isRunningRef.current = false
       setIsRunning(false)
       setEditMode(false)
+      setFixActionsResolved(true)
       openPanel('monitoring')
-      setMessages((prev) => applyPostRunMessages(prev, journey, live.failedStep, { locale }))
+      setMessages((prev) => applyPostRunMessages(prev, journey, null, { locale }))
     },
-    [isRunning, journey, openPanel, hidePanel, runStepsWithPlaywright],
+    [journey, locale, openPanel, hidePanel],
   )
 
   const runReplay = useCallback(async () => {
@@ -694,6 +723,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
         )
         if (failed) {
           failedStep = { stepIndex: i, stepLabel: step.label }
+          lastFailedStepRef.current = failedStep
           break
         }
       }
@@ -725,21 +755,30 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
     (actionId: string) => {
       switch (actionId) {
         case 'fix-auto-continue': {
+          if (fixActionsResolved || fixContinueInFlightRef.current || isRunningRef.current) return
+
           const fullSteps = ensureFullJourneySteps(steps, journey)
-          const failIndex = fullSteps.findIndex((step) => step.status === 'failed')
-          if (failIndex < 0) return
+          let failIndex = fullSteps.findIndex((step) => step.status === 'failed')
+          if (failIndex < 0 && lastFailedStepRef.current) {
+            failIndex = lastFailedStepRef.current.stepIndex
+          }
+          if (failIndex < 0 || failIndex >= fullSteps.length) return
 
+          fixContinueInFlightRef.current = true
           setFixActionsResolved(true)
-          const { step: fixedStep, changeSummary } = applyAgentStepFix(fullSteps[failIndex], locale)
-          const nextSteps = fullSteps.map((step, index) =>
-            index === failIndex ? fixedStep : step,
-          )
+          const { step: fixedStep, changeSummary } = applyAgentStepFix(fullSteps[failIndex]!, locale)
+          const nextSteps = fullSteps.map((step, index) => {
+            if (index === failIndex) return fixedStep
+            if (index < failIndex) return { ...step, status: 'done' as const }
+            return step.status === 'failed' ? { ...step, status: 'pending' as const } : step
+          })
 
+          lastFailedStepRef.current = null
           setSteps(nextSteps)
           setMessages((prev) => [
             ...withoutTransientRunMessages(prev),
-            { id: 'user-fix-auto', role: 'user', content: t('fixAndContinue') },
-            { id: 'agent-fix-auto', role: 'agent', content: changeSummary },
+            { id: `user-fix-auto-${Date.now()}`, role: 'user', content: t('fixAndContinue') },
+            { id: `agent-fix-auto-${Date.now()}`, role: 'agent', content: changeSummary },
           ])
           void runContinueAfterFix(failIndex, nextSteps)
           break
@@ -773,9 +812,11 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
     },
     [
       scheduleResolved,
+      fixActionsResolved,
       steps,
       journey,
-      hidePanel,
+      locale,
+      t,
       openPanel,
       runContinueAfterFix,
       onAcceptSchedule,
@@ -973,10 +1014,8 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
                 />
               ))}
               {(isRunning || agentTyping) && (
-                <div className="space-y-1 px-2">
-                  <p className="text-[11px] text-zinc-400 dark:text-zinc-500">
-                    {workStatus ?? t('agentThinking')}
-                  </p>
+                <div className="px-2 py-0.5">
+                  <AgentWorkStatus status={workStatus} compact />
                 </div>
               )}
               <div ref={chatEndRef} />

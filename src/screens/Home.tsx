@@ -2,6 +2,7 @@ import { ArrowUp, Play } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import DiscoveryStack from '../components/DiscoveryStack'
 import { AgentMessage } from '../components/GlobalAgent'
+import AgentWorkStatus from '../components/AgentWorkStatus'
 import { useLocale } from '../context/LocaleContext'
 import { requestDiscoveryAi, type DiscoveryAiResult } from '../lib/discoveryAi'
 import type { JourneyLaunchSession } from '../lib/journeyLaunch'
@@ -774,12 +775,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
             ))}
             {agentTyping && (
               <div className="px-1 pt-1">
-                <p
-                  key={workStatus ?? 'thinking'}
-                  className="animate-fade-in text-sm text-zinc-500 dark:text-zinc-400"
-                >
-                  {workStatus ?? t('agentThinking')}
-                </p>
+                <AgentWorkStatus status={workStatus} />
               </div>
             )}
             <div ref={chatEndRef} />
