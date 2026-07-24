@@ -127,6 +127,12 @@ No markdown fence around the JSON. No text after the JSON object.
 - configure: user picked a journey type (see selectedProposal). Ask 2–5 short parameter questions (options may include a suggested default labeled Suggested/Suggéré). Do NOT invent final cities/dates/SKUs as facts — options are suggestions. plan null. readyForPlan false.
 - plan: build the plan from context.answers / userMessage / selectedProposal. questions/proposals null. readyForPlan true with plan.
 - chat: continue the method flexibly. May return questions, proposals, or a revised plan. If the user is iterating away from a settled plan without a new complete plan, readyForPlan false and plan null. If they want an updated complete plan, return plan + readyForPlan true.
+- iterate: user is on the journey workspace (Steps + Browser already exist). context.currentSteps lists the current runnable steps; context.journeyName is the journey title; context.seed / context.url are the original target when known.
+  - Refine the journey when asked (add / remove / change / reorder steps). Return readyForPlan true with a full updated plan (4–8 concrete steps). Prefer preserving unchanged steps' intent.
+  - If the user only asks a question (no step change), reply in message; questions/proposals/plan null; readyForPlan false.
+  - If they clearly want a different site/journey, return a new plan for that target (readyForPlan true) — do not reopen Discovery questionnaires.
+  - Keep message short (1–3 sentences). Do not re-list every step in message when plan is returned — Steps panel shows them.
+  - STATUS lines OK. No floating questionnaire unless truly blocked.
 
 ### UI language switch (relocalize)
 If userMessage includes action "relocalize_ui" (or clearly asks to translate the floating UI):

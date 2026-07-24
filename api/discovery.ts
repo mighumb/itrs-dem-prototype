@@ -10,7 +10,7 @@ import {
 type ChatTurn = { role: 'user' | 'agent'; content: string }
 
 type DiscoveryAiRequest = {
-  mode: 'bootstrap' | 'chat' | 'propose' | 'configure' | 'plan'
+  mode: 'bootstrap' | 'chat' | 'propose' | 'configure' | 'plan' | 'iterate'
   userMessage: string
   history?: ChatTurn[]
   phase?: string
@@ -28,6 +28,8 @@ type DiscoveryAiRequest = {
     selectedProposalId?: string | null
     pageSnapshot?: string | null
     preferredLanguage?: 'en' | 'fr'
+    journeyName?: string | null
+    currentSteps?: Array<{ id?: string; label: string; action: string }> | null
   }
 }
 
@@ -205,7 +207,7 @@ async function resolveAndAnalyzeWithStatus(
     }
   }
 
-  if (!['bootstrap', 'chat', 'propose', 'configure', 'plan'].includes(body.mode)) {
+  if (!['bootstrap', 'chat', 'propose', 'configure', 'plan', 'iterate'].includes(body.mode)) {
     return { analysis: null, target: null }
   }
 
