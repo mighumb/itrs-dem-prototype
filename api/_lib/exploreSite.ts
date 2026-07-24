@@ -327,8 +327,8 @@ export async function explorePublicSite(
           const abs = sameOrigin(start, link.href)
           if (!abs || visited.has(abs)) continue
           if (queue.some((q) => q.url === abs)) continue
-          const score = linkScore(link.label, abs)
-          if (score < 2) continue
+          // Same-origin links are worth visiting even with a modest score.
+          const score = Math.max(1, linkScore(link.label, abs))
           queue.push({ url: abs, score })
         }
       } catch (error) {
