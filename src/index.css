@@ -110,6 +110,26 @@ button:disabled,
   animation: home-word-swap 2.6s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
+/* Smooth horizontal glide for "Which" / "Quel" when the blue term changes length. */
+.home-word-slot {
+  transition: width 0.65s cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: width;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home-word-swap {
+    animation: none;
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+
+  .home-word-slot {
+    transition: none;
+    will-change: auto;
+  }
+}
+
 /* Cursor-like shimmer on agent working status (“Thinking…” / live STATUS) */
 @keyframes status-shimmer {
   0% {
