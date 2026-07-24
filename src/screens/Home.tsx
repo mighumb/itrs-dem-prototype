@@ -827,10 +827,13 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
               {t('goodMorning')} {userName}
             </p>
           ) : null}
-          <h1 className="mb-10 text-balance text-center text-3xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-100 md:text-4xl md:leading-snug">
-            {t('homeTitleBefore')}{' '}
-            <RotatingWord words={HOME_ROTATING_TARGETS[locale]} />{' '}
-            {t('homeTitleAfter')}
+          <h1 className="mb-10 text-center text-3xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-100 md:text-4xl md:leading-snug">
+            {/* Line 1: Which/Quel + blue word only — rest of the sentence on the next line */}
+            <span className="flex flex-wrap items-baseline justify-center gap-x-1.5">
+              <span>{t('homeTitleBefore')}</span>
+              <RotatingWord words={HOME_ROTATING_TARGETS[locale]} />
+            </span>
+            <span className="mt-1 block text-pretty">{t('homeTitleAfter')}</span>
           </h1>
 
           {composer}
