@@ -1,6 +1,11 @@
 import { GoogleGenerativeAI } from '@google/generative-ai'
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { analyzePublicSite, type SiteAnalysisResult } from './_lib/analyzeSite.js'
+import {
+  explorePublicSite,
+  siteExplorePromptView,
+  type SiteExploreResult,
+} from './_lib/exploreSite.js'
 import { DISCOVERY_SYSTEM_PROMPT } from './_lib/discoverySystemPrompt.js'
 import {
   resolveSiteTarget,
@@ -39,6 +44,7 @@ function buildUserPrompt(
   body: DiscoveryAiRequest,
   analysis: SiteAnalysisResult | null,
   target: ResolvedSiteTarget | null,
+  explore: SiteExploreResult | null,
 ): string {
   const preferredLanguage =
     body.preferredLanguage ?? body.context?.preferredLanguage ?? 'en'
@@ -65,6 +71,7 @@ function buildUserPrompt(
           status: analysis.status,
         }
       : null,
+    siteExplore: siteExplorePromptView(explore),
   }
 
   return JSON.stringify(
@@ -100,6 +107,7 @@ function normalizeWorkTrace(
   raw: unknown,
   analysis: SiteAnalysisResult | null,
   target: ResolvedSiteTarget | null,
+  explore: SiteExploreResult | null,
   streamedStatuses: string[],
 ): string[] | null {
   const fromModel = Array.isArray(raw)
@@ -110,9 +118,17 @@ function normalizeWorkTrace(
 
   const prefix: string[] = []
   if (target?.note) prefix.push(target.note)
-  if (analysis) {
+  if (explore?.ok && explore.method === 'playwright') {
+    prefix.push(
+      `Explored ${explore.pagesVisited} page${explore.pagesVisited === 1 ? '' : 's'} on ${explore.url}`,
+    )
+  } else if (analysis) {
     if (analysis.ok) {
-      prefix.push(`Inspected ${analysis.url}${analysis.title ? ` — ${analysis.title}` : ''}`)
+      prefix.push(
+        `Inspected ${analysis.url}${analysis.title ? ` — ${analysis.title}` : ''}${
+          explore?.method === 'http-fallback' ? ' (HTTP fallback)' : ''
+        }`,
+      )
     } else {
       prefix.push(
         `Could not fully access ${analysis.url}${analysis.reason ? ` (${analysis.reason})` : ''}`,
@@ -190,50 +206,88 @@ function parseModelOutput(fullText: string): {
   }
 }
 
-async function resolveAndAnalyzeWithStatus(
+async function resolveTargetOnly(
   body: DiscoveryAiRequest,
   apiKeys: string[],
-): Promise<{ analysis: SiteAnalysisResult | null; target: ResolvedSiteTarget | null }> {
+): Promise<ResolvedSiteTarget | null> {
   if (body.context?.pageSnapshot) {
-    return { analysis: null, target: null }
+    const existing = body.context?.url ?? null
+    return existing
+      ? { url: existing, source: 'explicit_url', label: null, note: null }
+      : null
   }
 
-  // Language switch — reuse existing context, do not re-resolve/fetch the site.
   if (/\brelocalize_ui\b/.test(body.userMessage)) {
     const existing = body.context?.url ?? null
-    return {
-      analysis: null,
-      target: existing
-        ? { url: existing, source: 'explicit_url', label: null, note: null }
-        : null,
-    }
+    return existing
+      ? { url: existing, source: 'explicit_url', label: null, note: null }
+      : null
   }
 
   if (!['bootstrap', 'chat', 'propose', 'configure', 'plan', 'iterate'].includes(body.mode)) {
-    return { analysis: null, target: null }
+    return null
   }
 
   const seedText = [body.userMessage, body.context?.seed].filter(Boolean).join(' — ')
 
-  const target = await resolveSiteTarget(seedText, {
+  return resolveSiteTarget(seedText, {
     apiKeys,
     existingUrl: body.context?.url,
     preferredLanguage: body.preferredLanguage ?? body.context?.preferredLanguage ?? null,
   })
+}
 
-  if (!target.url) {
-    return { target, analysis: null }
+async function gatherSiteEvidence(
+  body: DiscoveryAiRequest,
+  target: ResolvedSiteTarget | null,
+  onStatus: (text: string) => void,
+): Promise<{ analysis: SiteAnalysisResult | null; explore: SiteExploreResult | null }> {
+  // Cached evidence from a prior turn — do not re-crawl.
+  if (body.context?.pageSnapshot) {
+    return {
+      analysis: {
+        ok: true,
+        url: body.context.url ?? target?.url ?? '',
+        reason: null,
+        snapshot: body.context.pageSnapshot,
+        title: null,
+        status: 200,
+      },
+      explore: null,
+    }
   }
 
-  // Silent evidence fetch for Gemini context — never emit scripted UI status lines.
-  const analysis = await analyzePublicSite(target.url)
-  return { target, analysis }
+  if (/\brelocalize_ui\b/.test(body.userMessage)) {
+    return { analysis: null, explore: null }
+  }
+
+  if (!target?.url) {
+    return { analysis: null, explore: null }
+  }
+
+  // Fresh browser explore (Playwright) with HTTP fallback inside explorePublicSite.
+  const { explore, analysis } = await explorePublicSite(target.url, {
+    preferredLanguage: body.preferredLanguage ?? body.context?.preferredLanguage ?? null,
+    onStatus,
+    maxPages: 6,
+    deadlineMs: 28_000,
+  })
+
+  // If both failed hard, still try a last HTTP pass (explore already does this,
+  // but keep analyzePublicSite available if explore returned method none without snapshot).
+  if (!analysis.ok && !analysis.snapshot) {
+    const fallback = await analyzePublicSite(target.url)
+    return { analysis: fallback, explore }
+  }
+
+  return { analysis, explore }
 }
 
 function buildResultPayload(
   parsed: Record<string, unknown>,
   analysis: SiteAnalysisResult | null,
   target: ResolvedSiteTarget | null,
+  explore: SiteExploreResult | null,
   body: DiscoveryAiRequest,
   modelName: string,
   streamedStatuses: string[],
@@ -241,7 +295,7 @@ function buildResultPayload(
   return {
     type: 'result' as const,
     message: typeof parsed.message === 'string' ? parsed.message : 'Here is what I suggest.',
-    workTrace: normalizeWorkTrace(parsed.workTrace, analysis, target, streamedStatuses),
+    workTrace: normalizeWorkTrace(parsed.workTrace, analysis, target, explore, streamedStatuses),
     questions: Array.isArray(parsed.questions) ? parsed.questions : null,
     proposals: Array.isArray(parsed.proposals) ? parsed.proposals : null,
     plan: parsed.plan && typeof parsed.plan === 'object' ? parsed.plan : null,
@@ -255,6 +309,8 @@ function buildResultPayload(
           reason: analysis.reason,
           title: analysis.title,
           status: analysis.status,
+          exploreMethod: explore?.method ?? null,
+          pagesVisited: explore?.pagesVisited ?? null,
         }
       : null,
     model: modelName,
@@ -285,12 +341,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     writeNdjson(res, { type: 'status', text })
   }
 
+  let analysis: SiteAnalysisResult | null = null
+  let target: ResolvedSiteTarget | null = null
+  let explore: SiteExploreResult | null = null
+
   try {
-    // Background site evidence only — never emit scripted status to the UI.
-    const { analysis, target } = await resolveAndAnalyzeWithStatus(
+    target = await resolveTargetOnly(
       body,
       apiKeyEntries.map((entry) => entry.key),
     )
+
+    ;({ analysis, explore } = await gatherSiteEvidence(body, target, sendStatus))
 
     const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
     const isQuotaError = (error: unknown) => {
@@ -329,7 +390,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             const streamedStatuses: string[] = []
             let buffer = ''
             const streamResult = await model.generateContentStream(
-              buildUserPrompt(body, analysis, target),
+              buildUserPrompt(body, analysis, target, explore),
             )
 
             for await (const chunk of streamResult.stream) {
@@ -357,7 +418,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
             writeNdjson(
               res,
-              buildResultPayload(parsed, analysis, target, body, modelName, streamedStatuses),
+              buildResultPayload(
+                parsed,
+                analysis,
+                target,
+                explore,
+                body,
+                modelName,
+                streamedStatuses,
+              ),
             )
             return res.end()
           } catch (error) {

@@ -70,7 +70,7 @@ async function captureFrame(page: Page): Promise<RunnerFrame> {
   }
 }
 
-async function dismissNoise(page: Page) {
+export async function dismissNoise(page: Page) {
   const candidates = [
     'button:has-text("Accept")',
     'button:has-text("Accept all")',
@@ -244,7 +244,7 @@ async function executeStep(page: Page, step: RunnableStep, seedUrl: string | nul
   }
 }
 
-async function launchBrowser(): Promise<Browser> {
+export async function launchBrowser(): Promise<Browser> {
   const onServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME)
 
   // Vercel / Lambda: use the lightweight Chromium build that fits serverless.

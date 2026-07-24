@@ -49,7 +49,12 @@ Ne suppose pas une phrase type « je veux monitorer X ». Accepte toute forme d�
 
 Dès qu’une cible web est identifiable, **inspecte réellement** le site (signaux publics accessibles), comme un LLM avec outils face à une URL.
 
-L’analyse sert à **alimenter** le diagnostic et les propositions. Elle n’est pas un monologue à afficher à chaque tour.
+**Implémentation runtime (prototype)** :
+1. **Exploration navigateur** (Playwright) — homepage + quelques pages same-origin (liens, CTA, formulaires) → `context.siteExplore` + `pageSnapshot`.
+2. **Fallback HTTP** si le navigateur échoue — snapshot d’accueil seul (`analyzeSite`).
+3. Les propositions / steps doivent s’**ancrer** dans cet inventaire quand il est `ok` (labels et chemins observés). Sinon : hypothèses marquées.
+
+L’analyse sert à **alimenter** le diagnostic et les propositions. Elle n’est pas un monologue à afficher à chaque tour. Un statut court (« J’explore… ») peut apparaître pendant l’exploration.
 
 Si l’accès est impossible ou partiel (erreur, timeout, login-wall, géoblocage, bot protection, etc.) :
 
