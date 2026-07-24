@@ -60,6 +60,20 @@ Point the frontend with `VITE_JOURNEY_RUNNER_URL=https://your-runner.example/api
 
 If the runner is down, the UI falls back to simulated frames and says so in chat.
 
+## Discovery (Gemini)
+
+Set on Vercel → Project → Settings → Environment Variables (Production + Preview):
+
+| Variable | Required | Notes |
+| --- | --- | --- |
+| `GEMINI_API_KEY` | yes | Primary Google AI Studio key |
+| `GEMINI_API_KEY_2` | no | Failover key (ideally another **project**) when key #1 hits free-tier 429 |
+| `GEMINI_API_KEY_3`…`_5` | no | Extra failovers |
+| `GEMINI_API_KEYS` | no | Optional comma-separated list instead of `_2`…`_5` |
+| `GEMINI_MODEL` | no | Preferred model id (still fails over to other Flash models) |
+
+On quota errors the API tries the next model, then the next key. Quotas are usually **per project**, so two free-tier keys on the **same** project often share the same limit — prefer keys from different projects (e.g. DEM + Noda).
+
 ## What's still mocked
 
 - Monitoring KPIs / random failure injection (simulation fallback only)

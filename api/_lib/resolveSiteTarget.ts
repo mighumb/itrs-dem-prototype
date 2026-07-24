@@ -198,6 +198,8 @@ export async function resolveSiteTarget(
   userText: string,
   options: {
     apiKey?: string | null
+    /** Try these keys in order for brand resolve (quotas are often per project). */
+    apiKeys?: string[] | null
     existingUrl?: string | null
     preferredLanguage?: 'en' | 'fr' | null
   } = {},
@@ -215,7 +217,12 @@ export async function resolveSiteTarget(
     }
   }
 
-  if (!options.apiKey || !shouldTryBrandResolve(userText)) {
+  const keys = [
+    ...(options.apiKeys ?? []),
+    ...(options.apiKey ? [options.apiKey] : []),
+  ].filter((key, index, all) => Boolean(key) && all.indexOf(key) === index)
+
+  if (keys.length === 0 || !shouldTryBrandResolve(userText)) {
     return { url: null, source: 'none', label: null, note: null }
   }
 
@@ -224,29 +231,35 @@ export async function resolveSiteTarget(
     return { url: null, source: 'none', label: null, note: null }
   }
 
-  const resolved = await withTimeout(
-    resolveBrandWithGemini(brandTokens.join(' '), options.apiKey, options.preferredLanguage),
-    BRAND_RESOLVE_TIMEOUT_MS,
-    {
-      url: null,
-      label: null,
-      note: 'Brand resolve timed out — continuing without a resolved URL',
-    },
-  )
-  if (!resolved.url) {
-    return {
-      url: null,
-      source: 'none',
-      label: resolved.label,
-      note: resolved.note,
+  let lastNote: string | null = null
+  let lastLabel: string | null = null
+  for (const apiKey of keys) {
+    const resolved = await withTimeout(
+      resolveBrandWithGemini(brandTokens.join(' '), apiKey, options.preferredLanguage),
+      BRAND_RESOLVE_TIMEOUT_MS,
+      {
+        url: null,
+        label: null,
+        note: 'Brand resolve timed out — continuing without a resolved URL',
+      },
+    )
+    if (resolved.url) {
+      return {
+        url: resolved.url,
+        source: 'brand_resolve',
+        label: resolved.label,
+        note: resolved.note,
+      }
     }
+    lastNote = resolved.note
+    lastLabel = resolved.label
   }
 
   return {
-    url: resolved.url,
-    source: 'brand_resolve',
-    label: resolved.label,
-    note: resolved.note,
+    url: null,
+    source: 'none',
+    label: lastLabel,
+    note: lastNote,
   }
 }
 

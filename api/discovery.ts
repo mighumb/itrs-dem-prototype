@@ -7,6 +7,7 @@ import {
   type ResolvedSiteTarget,
 } from './_lib/resolveSiteTarget.js'
 import { geminiModelCandidates } from './_lib/geminiModels.js'
+import { geminiApiKeys } from './_lib/geminiKeys.js'
 
 type ChatTurn = { role: 'user' | 'agent'; content: string }
 
@@ -191,7 +192,7 @@ function parseModelOutput(fullText: string): {
 
 async function resolveAndAnalyzeWithStatus(
   body: DiscoveryAiRequest,
-  apiKey: string,
+  apiKeys: string[],
 ): Promise<{ analysis: SiteAnalysisResult | null; target: ResolvedSiteTarget | null }> {
   if (body.context?.pageSnapshot) {
     return { analysis: null, target: null }
@@ -215,7 +216,7 @@ async function resolveAndAnalyzeWithStatus(
   const seedText = [body.userMessage, body.context?.seed].filter(Boolean).join(' — ')
 
   const target = await resolveSiteTarget(seedText, {
-    apiKey,
+    apiKeys,
     existingUrl: body.context?.url,
     preferredLanguage: body.preferredLanguage ?? body.context?.preferredLanguage ?? null,
   })
@@ -266,8 +267,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(405).json({ error: 'Method not allowed' })
   }
 
-  const apiKey = process.env.GEMINI_API_KEY
-  if (!apiKey) {
+  const apiKeys = geminiApiKeys()
+  if (apiKeys.length === 0) {
     return res.status(500).json({ error: 'GEMINI_API_KEY is not configured' })
   }
 
@@ -286,9 +287,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     // Background site evidence only — never emit scripted status to the UI.
-    const { analysis, target } = await resolveAndAnalyzeWithStatus(body, apiKey)
+    const { analysis, target } = await resolveAndAnalyzeWithStatus(body, apiKeys)
 
-    const genAI = new GoogleGenerativeAI(apiKey)
     const modelCandidates = geminiModelCandidates()
 
     const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -309,67 +309,84 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     let lastError: unknown
-    for (const modelName of modelCandidates) {
-      for (let attempt = 0; attempt < 2; attempt++) {
-        try {
-          const model = genAI.getGenerativeModel({
-            model: modelName,
-            systemInstruction: DISCOVERY_SYSTEM_PROMPT,
-            generationConfig: {
-              temperature: 0.7,
-            },
-          })
+    let keyIndex = 0
+    for (const apiKey of apiKeys) {
+      keyIndex += 1
+      const genAI = new GoogleGenerativeAI(apiKey)
+      let quotaHitsOnThisKey = 0
 
-          const streamedStatuses: string[] = []
-          let buffer = ''
-          const streamResult = await model.generateContentStream(
-            buildUserPrompt(body, analysis, target),
-          )
+      for (const modelName of modelCandidates) {
+        for (let attempt = 0; attempt < 2; attempt++) {
+          try {
+            const model = genAI.getGenerativeModel({
+              model: modelName,
+              systemInstruction: DISCOVERY_SYSTEM_PROMPT,
+              generationConfig: {
+                temperature: 0.7,
+              },
+            })
 
-          for await (const chunk of streamResult.stream) {
-            const piece = chunk.text()
-            if (!piece) continue
-            buffer += piece
-            const pulled = pullStatusLines(buffer)
-            buffer = pulled.rest
-            for (const status of pulled.statuses) {
-              streamedStatuses.push(status)
-              sendStatus(status)
+            const streamedStatuses: string[] = []
+            let buffer = ''
+            const streamResult = await model.generateContentStream(
+              buildUserPrompt(body, analysis, target),
+            )
+
+            for await (const chunk of streamResult.stream) {
+              const piece = chunk.text()
+              if (!piece) continue
+              buffer += piece
+              const pulled = pullStatusLines(buffer)
+              buffer = pulled.rest
+              for (const status of pulled.statuses) {
+                streamedStatuses.push(status)
+                sendStatus(status)
+              }
             }
-          }
 
-          const aggregatedResponse = await streamResult.response
-          const fullText = aggregatedResponse.text()
+            const aggregatedResponse = await streamResult.response
+            const fullText = aggregatedResponse.text()
 
-          const { statuses, parsed } = parseModelOutput(fullText || buffer)
-          for (const status of statuses) {
-            if (!streamedStatuses.includes(status)) {
-              streamedStatuses.push(status)
-              sendStatus(status)
+            const { statuses, parsed } = parseModelOutput(fullText || buffer)
+            for (const status of statuses) {
+              if (!streamedStatuses.includes(status)) {
+                streamedStatuses.push(status)
+                sendStatus(status)
+              }
             }
-          }
 
-          writeNdjson(
-            res,
-            buildResultPayload(parsed, analysis, target, body, modelName, streamedStatuses),
-          )
-          return res.end()
-        } catch (error) {
-          lastError = error
-          console.error(
-            `[api/discovery] model ${modelName} attempt ${attempt + 1} failed`,
-            error,
-          )
-          if (
-            attempt === 0 &&
-            isQuotaError(error) &&
-            !isHardQuotaExhausted(error)
-          ) {
-            await sleep(retryDelayMs(error))
-            continue
+            writeNdjson(
+              res,
+              buildResultPayload(parsed, analysis, target, body, modelName, streamedStatuses),
+            )
+            return res.end()
+          } catch (error) {
+            lastError = error
+            console.error(
+              `[api/discovery] key#${keyIndex} model ${modelName} attempt ${attempt + 1} failed`,
+              error,
+            )
+            if (isQuotaError(error)) {
+              quotaHitsOnThisKey += 1
+            }
+            if (
+              attempt === 0 &&
+              isQuotaError(error) &&
+              !isHardQuotaExhausted(error)
+            ) {
+              await sleep(retryDelayMs(error))
+              continue
+            }
+            break
           }
-          break
         }
+      }
+
+      // If this key is thrashing on quota, move to the next project key quickly.
+      if (quotaHitsOnThisKey > 0 && keyIndex < apiKeys.length) {
+        console.error(
+          `[api/discovery] key#${keyIndex} exhausted quota across models — trying next key`,
+        )
       }
     }
 
