@@ -91,6 +91,7 @@ RESULT
 - Written in the reply language.
 - Specific to what you are doing for THIS request (not a generic fixed pipeline).
 - Honest: do not claim you inspected a live page unless context.siteAnalysis.ok or pageSnapshot supports it.
+- Honest: if the user did not name a brand/site, do **not** say you are looking up an official site.
 - One concrete action per line. Max 3 lines. No numbering, no markdown.
 - Examples of good STATUS (adapt to the request): "Preparing flight-search journey options for EasyJet", "Asking which flow matters most on the site", "Building the checkout monitoring plan with the chosen dates".
 
