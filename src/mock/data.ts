@@ -25,12 +25,12 @@ export const HOME_JOURNEY_EXAMPLES: readonly HomeJourneyExample[] = [
     logoSrc: '/logos/salesforce.svg',
     url: 'https://www.salesforce.com',
     journeyTitle: {
-      en: 'Start a free trial',
-      fr: 'Démarrer un essai gratuit',
+      en: 'Products → pricing → free trial',
+      fr: 'Produits → tarifs → essai gratuit',
     },
     seed: {
-      en: 'Monitor https://www.salesforce.com — journey: Start a free trial. Public path: open homepage → click "Start for free" → reach Starter Suite free-trial page → verify trial signup content is visible (no login to Sales Cloud).',
-      fr: 'Monitorer https://www.salesforce.com — parcours : Démarrer un essai gratuit. Chemin public : ouvrir l’accueil → cliquer « Start for free » → arriver sur la page essai Starter Suite → vérifier que le contenu d’inscription essai est visible (pas de login Sales Cloud).',
+      en: 'Monitor https://www.salesforce.com — journey: prove a real multi-step free-trial funnel works. Path: (1) open homepage (2) click "See all products" or "Agentforce" (3) verify product content (4) click "See full pricing" (5) verify pricing plans (6) click "Start for free" (7) on the trial form, TYPE a work email the user provides (8) verify the form accepts it / next state is visible. Ask the user for a work email before building the plan — do not invent one. Stop before password / Sales Cloud login / submitting a real account if a password gate appears.',
+      fr: 'Monitorer https://www.salesforce.com — parcours : prouver qu’un vrai funnel multi-étapes d’essai gratuit fonctionne. Chemin : (1) ouvrir l’accueil (2) cliquer « See all products » ou « Agentforce » (3) vérifier le contenu produit (4) cliquer « See full pricing » (5) vérifier les offres tarifaires (6) cliquer « Start for free » (7) sur le formulaire d’essai, SAISIR un e-mail pro fourni par l’utilisateur (8) vérifier que le formulaire l’accepte / que l’état suivant est visible. Demander l’e-mail pro à l’utilisateur avant de construire le plan — ne pas l’inventer. S’arrêter avant mot de passe / login Sales Cloud / création de compte réelle si une étape password apparaît.',
     },
   },
   {
