@@ -31,8 +31,8 @@ export const HOME_JOURNEY_EXAMPLES: readonly HomeJourneyExample[] = [
     logoSrc: '/logos/salesforce.svg',
     url: 'https://www.salesforce.com',
     journeyTitle: {
-      en: 'Products → pricing → free trial',
-      fr: 'Produits → tarifs → essai gratuit',
+      en: 'Start a free trial',
+      fr: 'Démarrer un essai gratuit',
     },
     seed: {
       en: `Monitor https://www.salesforce.com — journey: prove a real free-trial funnel. Required actions: Navigate homepage → Click "See all products" or "Agentforce" → Click "See full pricing" → Click "Start for free" → Type the user-provided work email on the trial form → final Verify the email field/next state reflects the input. Ask for a work email before building the plan — do not invent one. Stop before password / Sales Cloud login. ${SAMPLE_ACTION_RULES_EN}`,
@@ -59,8 +59,8 @@ export const HOME_JOURNEY_EXAMPLES: readonly HomeJourneyExample[] = [
     logoSrc: '/logos/amazon.svg',
     url: 'https://www.amazon.com',
     journeyTitle: {
-      en: 'Search and add to cart',
-      fr: 'Rechercher et ajouter au panier',
+      en: 'Add a product to cart',
+      fr: 'Ajouter un produit au panier',
     },
     seed: {
       en: `Monitor https://www.amazon.com — journey: ecommerce add-to-cart with real actions. Required actions: Navigate homepage → Type a user-provided search query → Click/submit search → Click a product result → Click "Add to cart" → final Verify the cart reflects the added item (cart count or cart page). Ask for the search query before building the plan — do not invent a SKU. Stop before checkout/payment/login. ${SAMPLE_ACTION_RULES_EN}`,
