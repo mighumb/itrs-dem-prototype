@@ -277,6 +277,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
         return
       }
 
+      // Only show floating form when Gemini returned questions — never inject mocks.
       if (ai.questions && ai.questions.length > 0) {
         setQuestions(ai.questions)
         setQuestionIndex(0)

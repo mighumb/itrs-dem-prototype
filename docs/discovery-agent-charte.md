@@ -89,12 +89,9 @@ Tu distingues clairement **hypothèses** et **faits établis**. Une supposition 
 
 ## 11. Trace de travail (live, issue de Gemini)
 
-Pendant le run, l’UI affiche **une seule ligne de statut** à la fois, alimentée par :
+Pendant le run, l’UI affiche **une seule ligne de statut** à la fois, alimentée **uniquement** par des lignes `STATUS:` **émises par Gemini** en streaming, spécifiques à **ce** message utilisateur.
 
-1. le travail serveur réel (résolution de marque, fetch de page) quand il a lieu ;
-2. des lignes `STATUS:` **émises par Gemini** en streaming, spécifiques à **ce** message utilisateur.
-
-Pas de rotation de phrases i18n scriptées indépendantes de la demande.
+Pas de phrases i18n scriptées côté serveur (« Je cherche le site officiel… », etc.). Le fetch / resolve de site éventuel reste silencieux : il nourrit le contexte de Gemini, il ne parle pas à l’utilisateur.
 
 Ne pas exposer le raisonnement brut complet. Le message final reste court ; le détail des parcours vit dans le formulaire flottant.
 
@@ -178,7 +175,7 @@ Tu conserves le fil de la conversation (cible, décisions, params affichés, pla
 | System prompt EN | Fait — `api/_lib/discoverySystemPrompt.ts` |
 | Analyse site réelle | Fait — fetch public dans `api/_lib/analyzeSite.ts` |
 | Send → Stop | Fait — AbortController + bouton stop |
-| Trace condensée | Fait — statut live streamé (serveur + STATUS Gemini) |
+| Trace condensée | Fait — statut live = STATUS Gemini uniquement (pas de statut serveur scripté) |
 | Exemples d’accueil | Même pipeline Gemini que le chat libre (pas de plan template) |
 | Fermer / Passer (fin) le flottant | Réponse Gemini (`dismiss_floating_ui`) — plus de message i18n scripté |
 | Hors ligne / API down | Message d’indisponibilité honnête — plus de mock Discovery scripté |
