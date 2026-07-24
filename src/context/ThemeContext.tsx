@@ -23,16 +23,6 @@ function readStoredTheme(): Theme {
   return stored === 'dark' ? 'dark' : 'light'
 }
 
-function applyFavicon(theme: Theme) {
-  const svg = document.getElementById('app-favicon-svg') as HTMLLinkElement | null
-  if (svg) {
-    svg.href =
-      theme === 'dark'
-        ? '/itrs-favicon-dark-mode.svg'
-        : '/itrs-favicon-light-mode.svg'
-  }
-}
-
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setTheme] = useState<Theme>(readStoredTheme)
 
@@ -40,7 +30,6 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     const root = document.documentElement
     root.classList.toggle('dark', theme === 'dark')
     localStorage.setItem(STORAGE_KEY, theme)
-    applyFavicon(theme)
   }, [theme])
 
   const toggleTheme = () => {

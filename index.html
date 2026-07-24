@@ -2,21 +2,26 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link id="app-favicon-svg" rel="icon" type="image/svg+xml" href="/itrs-favicon-light-mode.svg" />
+    <!-- Follow OS/browser chrome theme, not the in-app theme toggle -->
+    <link
+      rel="icon"
+      type="image/svg+xml"
+      href="/itrs-favicon-light-mode.svg"
+      media="(prefers-color-scheme: light)"
+    />
+    <link
+      rel="icon"
+      type="image/svg+xml"
+      href="/itrs-favicon-dark-mode.svg"
+      media="(prefers-color-scheme: dark)"
+    />
+    <link rel="icon" type="image/svg+xml" href="/itrs-favicon-light-mode.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>ITRS DEM</title>
     <script>
       try {
-        var theme = localStorage.getItem('itrs-dem-theme') === 'dark' ? 'dark' : 'light'
-        if (theme === 'dark') {
+        if (localStorage.getItem('itrs-dem-theme') === 'dark') {
           document.documentElement.classList.add('dark')
-        }
-        var svg = document.getElementById('app-favicon-svg')
-        if (svg) {
-          svg.href =
-            theme === 'dark'
-              ? '/itrs-favicon-dark-mode.svg'
-              : '/itrs-favicon-light-mode.svg'
         }
       } catch (_) {}
     </script>
