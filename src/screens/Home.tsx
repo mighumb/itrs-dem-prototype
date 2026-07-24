@@ -4,6 +4,7 @@ import DiscoveryStack from '../components/DiscoveryStack'
 import { AgentMessage } from '../components/GlobalAgent'
 import { useLocale } from '../context/LocaleContext'
 import { requestDiscoveryAi, type DiscoveryAiResult } from '../lib/discoveryAi'
+import type { JourneyLaunchSession } from '../lib/journeyLaunch'
 import { getHomeExamples } from '../mock/data'
 import {
   createDiscoveryContext,
@@ -19,7 +20,7 @@ import type { ChatMessage } from '../types'
 
 interface HomeProps {
   userName?: string
-  onStart: (prompt: string) => void
+  onStart: (session: JourneyLaunchSession) => void
 }
 
 const uid = (prefix: string) =>
@@ -667,7 +668,12 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
 
   const handleRun = () => {
     if (!plan) return
-    onStart(plan.prompt)
+    onStart({
+      prompt: plan.prompt,
+      messages,
+      plan,
+      siteUrl: ctx?.url ?? plan.prompt.match(/https?:\/\/[^\s<>"']+/i)?.[0]?.replace(/[.,);]+$/g, '') ?? null,
+    })
   }
 
   const inputPlaceholder =

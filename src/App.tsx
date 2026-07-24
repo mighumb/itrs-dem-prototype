@@ -7,6 +7,7 @@ import ScheduleDrawer from './components/ScheduleDrawer'
 import Shell from './components/Shell'
 import TopHeader from './components/TopHeader'
 import { DEFAULT_SCHEDULE } from './mock/schedule'
+import type { JourneyLaunchSession } from './lib/journeyLaunch'
 import Home from './screens/Home'
 import NewJourney, { type NewJourneyHandle } from './screens/NewJourney'
 import type { JourneySchedule, Screen } from './types'
@@ -18,7 +19,7 @@ interface JourneyHeaderState {
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>('home')
-  const [prompt, setPrompt] = useState('')
+  const [launchSession, setLaunchSession] = useState<JourneyLaunchSession | null>(null)
   const [agentOpen, setAgentOpen] = useState(false)
   const [saveOpen, setSaveOpen] = useState(false)
   const [scheduleDrawerOpen, setScheduleDrawerOpen] = useState(false)
@@ -33,15 +34,19 @@ export default function App() {
   const journeyRef = useRef<NewJourneyHandle>(null)
   const pendingScheduleSource = useRef<'accept' | 'customize' | null>(null)
 
-  const handleStart = (value: string) => {
-    setPrompt(value)
+  const handleStart = (session: JourneyLaunchSession | string) => {
+    const next: JourneyLaunchSession =
+      typeof session === 'string'
+        ? { prompt: session, messages: [], plan: null, siteUrl: null }
+        : session
+    setLaunchSession(next)
     setPendingSchedule(null)
-    setJourneySession((session) => session + 1)
+    setJourneySession((n) => n + 1)
     setScreen('new-journey')
   }
 
   const handleGoHome = () => {
-    setPrompt('')
+    setLaunchSession(null)
     setPendingSchedule(null)
     setJourneyHeader(null)
     setScheduleDrawerOpen(false)
@@ -103,17 +108,17 @@ export default function App() {
           />
         )}
 
-        {screen === 'new-journey' && (
+        {screen === 'new-journey' && launchSession && (
           <NewJourney
             ref={journeyRef}
-            key={`${journeySession}-${prompt || 'default'}`}
-            initialPrompt={prompt}
+            key={`${journeySession}-${launchSession.prompt || 'default'}`}
+            session={launchSession}
             isMonitored={accountCreated}
             onHeaderChange={setJourneyHeader}
             onSave={() => openSaveModal(pendingSchedule)}
             onAcceptSchedule={() => openSaveModal(DEFAULT_SCHEDULE, 'accept')}
             onCustomizeSchedule={() => setScheduleDrawerOpen(true)}
-            onRequestNewJourney={handleStart}
+            onRequestNewJourney={(prompt) => handleStart(prompt)}
           />
         )}
         </Shell>

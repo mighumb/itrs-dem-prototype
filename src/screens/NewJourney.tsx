@@ -16,7 +16,6 @@ import {
   type WorkspacePanelId,
 } from '../hooks/usePanelOrder'
 import {
-  AGENT_INTRO,
   applyAgentStepFix,
   applyPostRunMessages,
   DEMO_PROMPT,
@@ -29,6 +28,16 @@ import {
   type RunFailureInfo,
 } from '../mock/data'
 import { requestDiscoveryAi } from '../lib/discoveryAi'
+import {
+  agentIntroForLocale,
+  buildJourneyFromDiscovery,
+  extractUrlFromText,
+  runFallbackMessage,
+  runLiveOkMessage,
+  runStartMessage,
+  runStoppedMessage,
+  type JourneyLaunchSession,
+} from '../lib/journeyLaunch'
 import { useLocale } from '../context/LocaleContext'
 import { runLiveJourney } from '../lib/journeyRunAi'
 import type { BrowserFrame, ChatMessage, JourneySchedule, JourneyStep } from '../types'
@@ -41,7 +50,7 @@ export interface NewJourneyHandle {
 }
 
 interface NewJourneyProps {
-  initialPrompt: string
+  session: JourneyLaunchSession
   isMonitored: boolean
   onHeaderChange?: (header: { title: string; subtitle?: string }) => void
   onSave: () => void
@@ -53,25 +62,24 @@ interface NewJourneyProps {
 const STEP_DELAY = 1400
 const TYPING_DELAY = 600
 
-function extractUrlFromText(text: string): string | null {
-  const match = text.match(/https?:\/\/[^\s<>"']+/i)
-  return match?.[0]?.replace(/[.,);]+$/g, '') ?? null
-}
-
-function planToJourneySteps(plan: DiscoveryPlan, previous: JourneyStep[]): JourneyStep[] {
-  return plan.steps.map((step, index) => {
+function planToJourneySteps(plan: DiscoveryPlan, previous: JourneyStep[], siteUrl?: string | null): JourneyStep[] {
+  const built = buildJourneyFromDiscovery({
+    plan,
+    prompt: plan.prompt,
+    siteUrl: siteUrl ?? null,
+  }).steps
+  return built.map((step, index) => {
     const prev = previous[index]
     const sameIntent =
       prev &&
       prev.label.toLowerCase() === step.label.toLowerCase() &&
       prev.action.toLowerCase() === step.action.toLowerCase()
     return {
-      id: sameIntent ? prev.id : `gemini-${Date.now()}-${index}`,
-      label: step.label,
-      action: step.action,
-      duration: prev?.duration ?? (index === 0 ? '3.5s' : '800ms'),
-      target: prev?.target,
-      timeout: prev?.timeout ?? '30s',
+      ...step,
+      id: sameIntent ? prev.id : step.id,
+      duration: prev?.duration ?? step.duration,
+      timeout: prev?.timeout ?? step.timeout,
+      target: step.target ?? prev?.target,
       status: 'pending' as const,
     }
   })
@@ -79,7 +87,7 @@ function planToJourneySteps(plan: DiscoveryPlan, previous: JourneyStep[]): Journ
 
 const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJourney(
   {
-    initialPrompt,
+    session,
     isMonitored,
     onHeaderChange,
     onSave,
@@ -90,11 +98,20 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
   ref,
 ) {
   const { t, locale } = useLocale()
-  const journey = useMemo(
-    () => resolveJourneyTemplate(initialPrompt || DEMO_PROMPT),
-    [initialPrompt],
+  const initialPrompt = session.prompt
+  const journey = useMemo(() => {
+    if (session.plan) {
+      return buildJourneyFromDiscovery({
+        plan: session.plan,
+        prompt: session.prompt,
+        siteUrl: session.siteUrl,
+      })
+    }
+    return resolveJourneyTemplate(session.prompt || DEMO_PROMPT)
+  }, [session])
+  const [messages, setMessages] = useState<ChatMessage[]>(() =>
+    session.messages.length > 0 ? session.messages : [agentIntroForLocale(locale)],
   )
-  const [messages, setMessages] = useState<ChatMessage[]>([AGENT_INTRO])
   const [steps, setSteps] = useState<JourneyStep[]>([])
   const [browserFrame, setBrowserFrame] = useState<BrowserFrame | null>(null)
   const [isRunning, setIsRunning] = useState(false)
@@ -284,10 +301,10 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
       {
         id: `agent-stop-${Date.now()}`,
         role: 'agent',
-        content: 'Run stopped.',
+        content: runStoppedMessage(locale),
       },
     ])
-  }, [])
+  }, [locale])
 
   const runStepsWithPlaywright = useCallback(
     async (
@@ -423,8 +440,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
           {
             id: `agent-fallback-${runId}`,
             role: 'agent',
-            content:
-              'Playwright runner unavailable — falling back to simulated browser frames for this run.',
+            content: runFallbackMessage(locale),
           },
         ])
       }
@@ -473,7 +489,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
 
       return failedStep
     },
-    [journey.browserFrames],
+    [journey.browserFrames, locale],
   )
 
   const runSimulation = useCallback(async () => {
@@ -484,12 +500,16 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
     setSteps([])
     setBrowserFrame(null)
 
-    const userMsg: ChatMessage = {
-      id: 'user-1',
-      role: 'user',
-      content: initialPrompt || DEMO_PROMPT,
+    // Discovery already carried the conversation — don't re-inject the prompt as a new user turn.
+    const hasDiscoveryHistory = session.messages.length > 0
+    if (!hasDiscoveryHistory) {
+      const userMsg: ChatMessage = {
+        id: 'user-1',
+        role: 'user',
+        content: initialPrompt || DEMO_PROMPT,
+      }
+      setMessages((prev) => [...prev, userMsg])
     }
-    setMessages((prev) => [...prev, userMsg])
 
     await delay(TYPING_DELAY)
     if (runIdRef.current !== runId) return
@@ -497,10 +517,9 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
     setMessages((prev) => [
       ...prev,
       {
-        id: 'agent-1',
+        id: `agent-run-start-${runId}`,
         role: 'agent',
-        content:
-          "Got it. I'll run this journey in a real Playwright browser — watch the screenshots on the right.",
+        content: runStartMessage(locale),
       },
     ])
 
@@ -530,7 +549,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
         {
           id: `agent-live-ok-${runId}`,
           role: 'agent',
-          content: 'Playwright run finished — screenshots above are real page captures.',
+          content: runLiveOkMessage(locale),
         },
       ])
     }
@@ -546,10 +565,12 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
   }, [
     initialPrompt,
     journey,
+    locale,
     openPanel,
     hidePanel,
     runStepsWithPlaywright,
     runSimulatedSteps,
+    session.messages.length,
   ])
 
   const runContinueAfterFix = useCallback(
@@ -788,6 +809,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
 
       const history = [...messages, userMsg]
       const seedUrl =
+        session.siteUrl ||
         extractUrlFromText(initialPrompt) ||
         steps.map((s) => extractUrlFromText(`${s.label} ${s.action} ${s.target ?? ''}`)).find(Boolean) ||
         null
@@ -822,7 +844,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
         }
 
         if (ai.plan && (ai.readyForPlan || ai.plan.steps.length > 0)) {
-          const nextSteps = planToJourneySteps(ai.plan, steps)
+          const nextSteps = planToJourneySteps(ai.plan, steps, seedUrl)
           setSteps(nextSteps)
           setFixActionsResolved(false)
           setScheduleResolved(false)
@@ -864,6 +886,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
       steps,
       journey.name,
       initialPrompt,
+      session.siteUrl,
       onHeaderChange,
       onRequestNewJourney,
     ],

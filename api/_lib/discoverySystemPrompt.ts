@@ -119,6 +119,7 @@ No markdown fence around the JSON. No text after the JSON object.
 - questions: floating questionnaire; null if not needed. Keep few and useful.
 - proposals: 2 or 3 journey options max when proposing types/paths. Mark #1 as recommended in message when relevant (without listing all titles). proposal.prompt = high-level intent (site + journey type), without fabricating form values unless the user (or delegation) provided them.
 - plan: only when you have enough to build a runnable journey (params collected, delegated, or already present). 4–8 concrete steps. plan.prompt = one paragraph including chosen parameters and URL if known.
+- When choosing a homepage URL for a brand: prefer the locale that matches preferredLanguage and the user's geography hints (e.g. preferredLanguage "fr" + destination Paris → clubmed.fr / country FR site, not clubmed.us). Never pick a foreign market TLD without a clear reason.
 - readyForPlan: true ONLY when returning a complete plan object ready for the Run/Lancer UI. Otherwise false.
 
 ## Mode hints (client may send mode)

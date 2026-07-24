@@ -62,6 +62,28 @@ function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T
   })
 }
 
+/** Prefer market-matching TLDs when ranking brand-resolve candidates. */
+function localeUrlScore(url: string, preferredLanguage?: 'en' | 'fr' | null): number {
+  try {
+    const host = new URL(url).hostname.toLowerCase()
+    if (preferredLanguage === 'fr') {
+      if (host.endsWith('.fr')) return 100
+      if (host.endsWith('.be') || host.endsWith('.ch') || host.endsWith('.ca')) return 70
+      if (host.endsWith('.us') || /(^|\.)us\./.test(host)) return 5
+      if (host.endsWith('.com')) return 40
+      return 20
+    }
+    if (preferredLanguage === 'en') {
+      if (host.endsWith('.com') || host.endsWith('.co.uk') || host.endsWith('.com.au')) return 80
+      if (host.endsWith('.us')) return 60
+      return 40
+    }
+    return 50
+  } catch {
+    return 0
+  }
+}
+
 function firstUrlFromText(text: string): string | null {
   return extractHttpUrl(text)
 }
@@ -87,6 +109,7 @@ function urlsFromGrounding(response: {
 async function resolveBrandWithGemini(
   query: string,
   apiKey: string,
+  preferredLanguage?: 'en' | 'fr' | null,
 ): Promise<{ url: string | null; label: string | null; note: string | null }> {
   const genAI = new GoogleGenerativeAI(apiKey)
   // Prefer current Flash models. Avoid flash-lite (404 for many new keys).
@@ -96,6 +119,13 @@ async function resolveBrandWithGemini(
     'gemini-flash-latest',
     'gemini-2.0-flash',
   ].filter((name, index, all): name is string => Boolean(name) && all.indexOf(name) === index)
+
+  const localeHint =
+    preferredLanguage === 'fr'
+      ? 'User language/market is French — strongly prefer the official .fr (or local FR/BE/CH) consumer site over .us / .com global/US sites when both exist (e.g. clubmed.fr not clubmed.us).'
+      : preferredLanguage === 'en'
+        ? 'User language is English — prefer the primary consumer site for that brand in English-speaking markets when ambiguous.'
+        : 'Prefer the primary official consumer homepage for the brand.'
 
   let lastError: unknown
   for (const modelName of modelCandidates) {
@@ -108,6 +138,7 @@ async function resolveBrandWithGemini(
         systemInstruction: `You resolve a brand, company, product, or website name to its official consumer homepage URL.
 Rules:
 - Prefer the official brand website (not social networks, app stores, Wikipedia, news, or booking aggregators unless that IS the product).
+- ${localeHint}
 - Reply with ONLY one line: either a single https URL, or the word NONE.
 - No markdown, no commentary.`,
       })
@@ -122,7 +153,12 @@ Rules:
       const candidates = [
         ...(fromText ? [{ url: fromText, title: null as string | null }] : []),
         ...grounded,
-      ].slice(0, 2)
+      ]
+        .sort(
+          (a, b) =>
+            localeUrlScore(b.url, preferredLanguage) - localeUrlScore(a.url, preferredLanguage),
+        )
+        .slice(0, 3)
 
       for (const candidate of candidates) {
         // Quick reachability check — prefer a URL that actually responds
@@ -165,7 +201,11 @@ Rules:
  */
 export async function resolveSiteTarget(
   userText: string,
-  options: { apiKey?: string | null; existingUrl?: string | null } = {},
+  options: {
+    apiKey?: string | null
+    existingUrl?: string | null
+    preferredLanguage?: 'en' | 'fr' | null
+  } = {},
 ): Promise<ResolvedSiteTarget> {
   const explicit =
     (options.existingUrl && extractHttpUrl(options.existingUrl)) || extractHttpUrl(userText)
@@ -190,7 +230,7 @@ export async function resolveSiteTarget(
   }
 
   const resolved = await withTimeout(
-    resolveBrandWithGemini(brandTokens.join(' '), options.apiKey),
+    resolveBrandWithGemini(brandTokens.join(' '), options.apiKey, options.preferredLanguage),
     BRAND_RESOLVE_TIMEOUT_MS,
     {
       url: null,
