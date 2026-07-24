@@ -4,10 +4,8 @@ import DiscoveryStack from '../components/DiscoveryStack'
 import { AgentMessage } from '../components/GlobalAgent'
 import { useLocale } from '../context/LocaleContext'
 import { requestDiscoveryAi, type DiscoveryAiResult } from '../lib/discoveryAi'
-import { getHomeExamples, isCuratedHomeExample } from '../mock/data'
+import { getHomeExamples } from '../mock/data'
 import {
-  buildPlanFromPrompt,
-  buildPlanFromProposal,
   createDiscoveryContext,
   formatPlanMessage,
   hasExploitableContext,
@@ -45,11 +43,11 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
   const inputRef = useRef<HTMLInputElement>(null)
   const abortRef = useRef<AbortController | null>(null)
 
-  const noteAi = (ai: { source: 'gemini' | 'mock'; model: string | null }) => {
+  const noteAi = (ai: { source: 'gemini' | 'unavailable'; model: string | null }) => {
     if (ai.source === 'gemini') {
       setAiProviderLabel(ai.model ? `Gemini · ${ai.model}` : 'Gemini')
     } else {
-      setAiProviderLabel('mock')
+      setAiProviderLabel('unavailable')
     }
   }
 
@@ -196,21 +194,21 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
     })
   }
 
-  const enterPlanning = async (nextPlan: DiscoveryPlan, userLine?: string) => {
+  const enterPlanning = async (planSeed: DiscoveryPlan, userLine?: string) => {
     const userMsg = userLine
       ? ({ id: uid('user'), role: 'user', content: userLine } as ChatMessage)
       : null
     if (userMsg) {
       pushMessages(userMsg)
     }
-    // Keep Run/Lancer hidden until the plan message is fully ready to display.
+    // Keep Run/Lancer hidden until Gemini returns a complete plan.
     setPlan(null)
     setPhase('conversation')
     await withTyping(async (signal, onStatus) => {
       const history = userMsg ? historyPlus(userMsg) : messages
       const ai = await requestDiscoveryAi({
         mode: 'plan',
-        userMessage: nextPlan.prompt,
+        userMessage: planSeed.prompt,
         messages: history,
         phase: 'planning',
         context: ctx,
@@ -221,18 +219,25 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
       })
       if (ai.aborted) return
       rememberSnapshot(ai)
-      const planToShow = ai.plan ?? nextPlan
-      const formatted = formatPlanMessage(planToShow)
-      const content =
-        ai.plan && (ai.message.includes('1.') || ai.message.includes('1)'))
-          ? ai.message
-          : ai.message
-            ? `${ai.message}\n\n${formatted}`
-            : formatted
-      pushAgentReply(content)
       noteAi(ai)
-      setPlan(planToShow)
-      setPhase('planning')
+
+      // Nominal path: only show Run when Gemini produced a plan — never a local template.
+      if (ai.plan) {
+        const formatted = formatPlanMessage(ai.plan)
+        const content =
+          ai.message.includes('1.') || ai.message.includes('1)')
+            ? ai.message
+            : ai.message
+              ? `${ai.message}\n\n${formatted}`
+              : formatted
+        pushAgentReply(content)
+        setPlan(ai.plan)
+        setPhase('planning')
+        return
+      }
+
+      setPhase('conversation')
+      pushAgentReply(ai.message)
     })
   }
 
@@ -272,8 +277,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
         return
       }
 
-      // Only show the floating form when Gemini (or localized mock) returned
-      // questions — never inject English hardcoded fallbacks over a FR reply.
+      // Only show floating form when Gemini returned questions — never inject mocks.
       if (ai.questions && ai.questions.length > 0) {
         setQuestions(ai.questions)
         setQuestionIndex(0)
@@ -335,7 +339,9 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
         .join(' — ')
       await enterPlanning(
         {
-          ...buildPlanFromProposal(nextCtx.selectedProposal),
+          title: nextCtx.selectedProposal.title,
+          summary: nextCtx.selectedProposal.description,
+          steps: [{ label: nextCtx.selectedProposal.title, action: 'Prepare journey' }],
           prompt: promptWithParams,
         },
         undefined,
@@ -391,16 +397,56 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
   const handleSkipQuestion = () => {
     if (questionIndex < questions.length - 1) {
       setQuestionIndex(questionIndex + 1)
+      return
     }
+    // Last question: Passer = dismiss floating form → Gemini continues in chat.
+    void handleCloseStack()
   }
 
-  const handleCloseStack = () => {
+  const handleCloseStack = async () => {
     setConfiguring(false)
+    setQuestions([])
+    setProposals([])
     setPhase('conversation')
-    pushMessages({
-      id: uid('agent'),
-      role: 'agent',
-      content: t('closeStack'),
+    await withTyping(async (signal, onStatus) => {
+      const ai = await requestDiscoveryAi({
+        mode: 'chat',
+        userMessage: JSON.stringify({
+          action: 'dismiss_floating_ui',
+          reason: 'user_closed_floating_form',
+        }),
+        messages,
+        phase: 'conversation',
+        context: ctx,
+        preferredLanguage: locale,
+        signal,
+        onStatus,
+      })
+      if (ai.aborted) return
+      rememberSnapshot(ai)
+      noteAi(ai)
+      if (ai.proposals && ai.proposals.length > 0) {
+        setProposals(ai.proposals)
+        setPhase('proposals')
+      } else if (ai.questions && ai.questions.length > 0) {
+        setQuestions(ai.questions)
+        setQuestionIndex(0)
+        setPhase('questionnaire')
+      }
+      if (ai.readyForPlan && ai.plan) {
+        const formatted = formatPlanMessage(ai.plan)
+        const content =
+          ai.message.includes('1.') || ai.message.includes('1)')
+            ? ai.message
+            : ai.message
+              ? `${ai.message}\n\n${formatted}`
+              : formatted
+        pushAgentReply(content)
+        setPlan(ai.plan)
+        setPhase('planning')
+        return
+      }
+      pushAgentReply(ai.message)
     })
   }
 
@@ -446,7 +492,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
         pushAgentReply(ai.message)
         return
       }
-
+      setConfiguring(false)
       setPhase('conversation')
       pushAgentReply(ai.message)
     })
@@ -517,7 +563,8 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
 
   const handleExample = async (example: string) => {
     setInput('')
-    await enterPlanning(buildPlanFromPrompt(example), example)
+    // Same Gemini Discovery pipeline as free-typed chat — no template shortcut.
+    await startQuestionnaire(example)
   }
 
   const handleSubmit = async (raw: string) => {
@@ -526,13 +573,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
     setInput('')
 
     if (phase === 'idle') {
-      // Curated examples are the only shortcut to a ready plan.
-      // Any free-typed message starts discovery (questions → proposals → plan).
-      if (isCuratedHomeExample(text)) {
-        await enterPlanning(buildPlanFromPrompt(text), text)
-      } else {
-        await startQuestionnaire(text)
-      }
+      await startQuestionnaire(text)
       return
     }
 
@@ -788,7 +829,9 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
             {composer}
             {aiProviderLabel && (
               <p className="px-1 text-center text-[11px] text-zinc-400 dark:text-zinc-500">
-                {aiProviderLabel === 'mock' ? t('fallbackMock') : t('geminiDisclaimer')}
+                {aiProviderLabel === 'unavailable'
+                  ? t('geminiUnavailable')
+                  : t('geminiDisclaimer')}
               </p>
             )}
           </div>

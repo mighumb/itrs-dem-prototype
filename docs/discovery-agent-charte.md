@@ -176,3 +176,6 @@ Tu conserves le fil de la conversation (cible, décisions, params affichés, pla
 | Analyse site réelle | Fait — fetch public dans `api/_lib/analyzeSite.ts` |
 | Send → Stop | Fait — AbortController + bouton stop |
 | Trace condensée | Fait — statut live = STATUS Gemini uniquement (pas de statut serveur scripté) |
+| Exemples d’accueil | Même pipeline Gemini que le chat libre (pas de plan template) |
+| Fermer / Passer (fin) le flottant | Réponse Gemini (`dismiss_floating_ui`) — plus de message i18n scripté |
+| Hors ligne / API down | Message d’indisponibilité honnête — plus de mock Discovery scripté |

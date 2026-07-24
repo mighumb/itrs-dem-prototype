@@ -1,15 +1,8 @@
-import {
-  agentNeedsMoreContextMessage,
-  buildConfigureQuestions,
-  buildDiscoveryQuestions,
-  buildJourneyProposals,
-  buildPlanFromPrompt,
-  createDiscoveryContext,
-  formatPlanMessage,
-  type DiscoveryContext,
-  type DiscoveryPlan,
-  type DiscoveryQuestion,
-  type JourneyProposal,
+import type {
+  DiscoveryContext,
+  DiscoveryPlan,
+  DiscoveryQuestion,
+  JourneyProposal,
 } from '../mock/discovery'
 import type { ChatMessage } from '../types'
 
@@ -32,7 +25,8 @@ export interface DiscoveryAiResult {
   readyForPlan: boolean
   siteAnalysis: SiteAnalysisInfo | null
   pageSnapshot: string | null
-  source: 'gemini' | 'mock'
+  /** Nominal path is always gemini. unavailable = API/key/network failure (no scripted discovery). */
+  source: 'gemini' | 'unavailable'
   model: string | null
   aborted?: boolean
 }
@@ -52,7 +46,7 @@ function normalizeQuestions(raw: unknown): DiscoveryQuestion[] | null {
       const q = item as Record<string, unknown>
       const options = Array.isArray(q.options)
         ? q.options.filter((o): o is string => typeof o === 'string').slice(0, 3)
-      : []
+        : []
       if (typeof q.prompt !== 'string' || options.length < 2) return null
       return {
         id: typeof q.id === 'string' ? q.id : `q-${index + 1}`,
@@ -134,136 +128,13 @@ function normalizeSiteAnalysis(raw: unknown): SiteAnalysisInfo | null {
   }
 }
 
-function mockFallback(
-  mode: DiscoveryAiMode,
-  userMessage: string,
-  ctx: DiscoveryContext | null,
-  preferredLanguage: 'en' | 'fr' = 'en',
-): DiscoveryAiResult {
-  const lang = preferredLanguage
-  if (mode === 'bootstrap') {
-    const nextCtx = ctx ?? createDiscoveryContext(userMessage)
-    const hasTarget = Boolean(nextCtx.url) || /[a-z0-9-]+\.[a-z]{2,}/i.test(nextCtx.seed)
-    if (hasTarget) {
-      return {
-        message:
-          lang === 'fr'
-            ? 'Mode hors ligne — voici **3 options de parcours** pour cette cible. **#1 est recommandé**. Choisis dans le panneau, ou dis-moi quoi changer.'
-            : "Offline fallback — here are **3 journey options** for that target. **#1 is recommended**. Pick one in the panel, or tell me what to change.",
-        workTrace:
-          lang === 'fr'
-            ? [
-                'API indisponible — repli hors ligne',
-                'Pas de snapshot live dans ce repli',
-                'Rédaction de 3 options de parcours',
-              ]
-            : [
-                'API unavailable — offline fallback',
-                'No live snapshot in this fallback',
-                'Drafting 3 journey options',
-              ],
-        questions: null,
-        proposals: buildJourneyProposals(nextCtx, lang),
-        plan: null,
-        readyForPlan: false,
-        siteAnalysis: null,
-        pageSnapshot: null,
-        source: 'mock',
-        model: null,
-      }
-    }
-    return {
-      message:
-        lang === 'fr'
-          ? 'Je peux t’aider à concevoir un parcours de monitoring — sans connaissance préalable. Quelques choix rapides et je te propose des options solides.'
-          : "I can help design a monitoring journey — no prior knowledge needed. A few quick choices and I'll recommend solid options.",
-      workTrace:
-        lang === 'fr'
-          ? ['Entrée ouverte', 'Besoin d’un peu plus de signal']
-          : ['Entry is open-ended', 'Need a bit more signal'],
-      questions: buildDiscoveryQuestions(nextCtx, lang),
-      proposals: null,
-      plan: null,
-      readyForPlan: false,
-      siteAnalysis: null,
-      pageSnapshot: null,
-      source: 'mock',
-      model: null,
-    }
-  }
-
-  if (mode === 'propose' && ctx) {
-    return {
-      message:
-        lang === 'fr'
-          ? 'Voici **3 options de parcours** — **#1 est recommandé**. Choisis dans le panneau, utilise **Autre**, ou précise dans le chat.'
-          : 'Here are **3 journey options** — **#1 is recommended**. Pick one in the panel, use **Other**, or refine in chat.',
-      workTrace:
-        lang === 'fr'
-          ? ['Synthèse des réponses', 'Proposition de 3 parcours prioritaires']
-          : ['Synthesizing answers', 'Proposing 3 prioritized journeys'],
-      questions: null,
-      proposals: buildJourneyProposals(ctx, lang),
-      plan: null,
-      readyForPlan: false,
-      siteAnalysis: null,
-      pageSnapshot: null,
-      source: 'mock',
-      model: null,
-    }
-  }
-
-  if (mode === 'configure' && ctx?.selectedProposal) {
-    return {
-      message:
-        lang === 'fr'
-          ? 'Avant de figer les étapes, réglons ensemble les paramètres du parcours. Tu peux aussi préciser dans le chat.'
-          : "Before locking the steps, let's set the journey parameters together. You can also clarify in chat.",
-      workTrace:
-        lang === 'fr'
-          ? ['Type de parcours sélectionné', 'Collecte des paramètres']
-          : ['Journey type selected', 'Collecting parameters'],
-      questions: buildConfigureQuestions(ctx, ctx.selectedProposal, lang),
-      proposals: null,
-      plan: null,
-      readyForPlan: false,
-      siteAnalysis: null,
-      pageSnapshot: null,
-      source: 'mock',
-      model: null,
-    }
-  }
-
-  if (mode === 'plan') {
-    const detail = ctx
-      ? Object.entries(ctx.answers)
-          .map(([k, v]) => `${k}: ${v}`)
-          .join('; ')
-      : ''
-    const plan = buildPlanFromPrompt(
-      [ctx?.selectedProposal?.prompt, detail, userMessage, ctx?.seed]
-        .filter(Boolean)
-        .join(' — ') || userMessage,
-    )
-    return {
-      message: formatPlanMessage(plan),
-      workTrace:
-        lang === 'fr'
-          ? ['Paramètres rassemblés', 'Construction du plan exécutable']
-          : ['Parameters gathered', 'Building runnable plan'],
-      questions: null,
-      proposals: null,
-      plan,
-      readyForPlan: true,
-      siteAnalysis: null,
-      pageSnapshot: null,
-      source: 'mock',
-      model: null,
-    }
-  }
-
+/** Honest outage notice — no scripted questionnaire / proposals / plans. */
+function geminiUnavailable(preferredLanguage: 'en' | 'fr'): DiscoveryAiResult {
   return {
-    message: agentNeedsMoreContextMessage(userMessage, lang),
+    message:
+      preferredLanguage === 'fr'
+        ? 'Gemini est indisponible pour le moment. Réessaie dans un instant — je ne peux pas inventer un parcours hors ligne.'
+        : 'Gemini is unavailable right now. Try again in a moment — I won’t invent an offline journey.',
     workTrace: null,
     questions: null,
     proposals: null,
@@ -271,7 +142,7 @@ function mockFallback(
     readyForPlan: false,
     siteAnalysis: null,
     pageSnapshot: null,
-    source: 'mock',
+    source: 'unavailable',
     model: null,
   }
 }
@@ -312,7 +183,7 @@ export async function requestDiscoveryAi(options: {
     readyForPlan: false,
     siteAnalysis: null,
     pageSnapshot: null,
-    source: 'mock',
+    source: 'unavailable',
     model: null,
     aborted: true,
   })
@@ -412,11 +283,13 @@ export async function requestDiscoveryAi(options: {
         throw new Error(streamError || 'No result in stream')
       }
 
+      const message =
+        typeof resultData.message === 'string' && resultData.message.trim()
+          ? resultData.message
+          : ''
+
       return {
-        message:
-          typeof resultData.message === 'string' && resultData.message.trim()
-            ? resultData.message
-            : mockFallback(mode, userMessage, context ?? null, preferredLanguage).message,
+        message: message || geminiUnavailable(preferredLanguage).message,
         workTrace: normalizeWorkTrace(resultData.workTrace),
         questions: normalizeQuestions(resultData.questions),
         proposals: normalizeProposals(resultData.proposals),
@@ -424,7 +297,7 @@ export async function requestDiscoveryAi(options: {
         readyForPlan: Boolean(resultData.readyForPlan),
         siteAnalysis: normalizeSiteAnalysis(resultData.siteAnalysis),
         pageSnapshot: typeof resultData.pageSnapshot === 'string' ? resultData.pageSnapshot : null,
-        source: 'gemini',
+        source: message ? 'gemini' : 'unavailable',
         model: typeof resultData.model === 'string' ? resultData.model : 'gemini',
       }
     }
@@ -437,11 +310,11 @@ export async function requestDiscoveryAi(options: {
       }
     }
 
+    const message =
+      typeof data.message === 'string' && data.message.trim() ? data.message : ''
+
     return {
-      message:
-        typeof data.message === 'string' && data.message.trim()
-          ? data.message
-          : mockFallback(mode, userMessage, context ?? null, preferredLanguage).message,
+      message: message || geminiUnavailable(preferredLanguage).message,
       workTrace: normalizeWorkTrace(data.workTrace),
       questions: normalizeQuestions(data.questions),
       proposals: normalizeProposals(data.proposals),
@@ -449,7 +322,7 @@ export async function requestDiscoveryAi(options: {
       readyForPlan: Boolean(data.readyForPlan),
       siteAnalysis: normalizeSiteAnalysis(data.siteAnalysis),
       pageSnapshot: typeof data.pageSnapshot === 'string' ? data.pageSnapshot : null,
-      source: 'gemini',
+      source: message ? 'gemini' : 'unavailable',
       model: typeof data.model === 'string' ? data.model : 'gemini',
     }
   } catch (error) {
@@ -460,6 +333,6 @@ export async function requestDiscoveryAi(options: {
     ) {
       return abortedResult()
     }
-    return mockFallback(mode, userMessage, context ?? null, preferredLanguage)
+    return geminiUnavailable(preferredLanguage)
   }
 }
