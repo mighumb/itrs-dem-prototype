@@ -44,19 +44,21 @@ export default function DiscoveryStack({
     savedAnswer && question && !question.options.includes(savedAnswer),
   )
 
-  // Restore custom free-text answers when navigating back to a question
+  // Restore custom free-text when navigating between questions.
+  // Depend on the saved string for this question — never on the answers object
+  // identity (default `answers = {}` / `?? {}` would wipe keystrokes every render).
+  const savedForQuestion = question ? answers[question.id] : undefined
+  const optionKey = question?.options.join('\0') ?? ''
   useEffect(() => {
-    if (mode !== 'questions' || !question) {
-      setOtherText('')
-      return
-    }
-    const saved = answers[question.id]
-    if (saved && !question.options.includes(saved)) {
-      setOtherText(saved)
+    if (mode !== 'questions' || !question) return
+    if (savedForQuestion && !question.options.includes(savedForQuestion)) {
+      setOtherText(savedForQuestion)
     } else {
       setOtherText('')
     }
-  }, [mode, questionIndex, question?.id, answers])
+    // question read from render where these primitive deps last changed
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- avoid object-identity resets while typing
+  }, [mode, questionIndex, question?.id, savedForQuestion, optionKey])
 
   return (
     <div className="animate-fade-in w-full overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-[0_8px_30px_rgb(0,0,0,0.06)] dark:border-zinc-700 dark:bg-zinc-900 dark:shadow-black/40">
@@ -180,6 +182,15 @@ export default function DiscoveryStack({
           <button
             type="button"
             onClick={onSkipQuestion}
+            className="shrink-0 cursor-pointer rounded-xl px-3 py-2 text-sm font-medium text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-800 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+          >
+            {t('skip')}
+          </button>
+        )}
+        {mode === 'proposals' && !otherText.trim() && (
+          <button
+            type="button"
+            onClick={onClose}
             className="shrink-0 cursor-pointer rounded-xl px-3 py-2 text-sm font-medium text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-800 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
           >
             {t('skip')}

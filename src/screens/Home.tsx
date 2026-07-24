@@ -893,7 +893,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
                 title={configuring ? t('configureJourney') : t('refineJourney')}
                 questions={questions}
                 questionIndex={questionIndex}
-                answers={ctx?.answers ?? {}}
+                answers={ctx?.answers}
                 onQuestionIndexChange={setQuestionIndex}
                 onSelectOption={(id, option) => void handleSelectOption(id, option)}
                 onSkipQuestion={() => void handleSkipQuestion()}
