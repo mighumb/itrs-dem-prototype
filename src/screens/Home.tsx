@@ -346,16 +346,19 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
     setQuestions([])
     setPhase('conversation')
 
-    // Individual answers are already visible as user bubbles (pushed on each submit).
-    const history = messagesRef.current
-
     if (configuring && nextCtx.selectedProposal) {
-      const blocks = answered.map((q) => `${q.prompt} → ${nextCtx.answers[q.id]}`)
-      const summary = blocks.join('\n')
+      const blocks = answered.map((q) => `Q : ${q.prompt}\nR : ${nextCtx.answers[q.id]}`)
+      const summary = blocks.join('\n\n')
+      const userMsg: ChatMessage = {
+        id: uid('user'),
+        role: 'user',
+        content: summary || nextCtx.selectedProposal.title,
+      }
+      pushMessages(userMsg)
       setConfiguring(false)
       const promptWithParams = [
         nextCtx.selectedProposal.prompt,
-        summary,
+        answered.map((q) => `${q.prompt} → ${nextCtx.answers[q.id]}`).join('\n'),
         nextCtx.seed,
       ]
         .filter(Boolean)
@@ -372,7 +375,19 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
       return
     }
 
-    await openProposals(nextCtx, history)
+    // Only post answers to the chat once the whole form is complete.
+    const blocks = answered.map((q) => `Q : ${q.prompt}\nR : ${nextCtx.answers[q.id]}`)
+    const extra: ChatMessage[] = []
+    if (blocks.length > 0) {
+      const userMsg: ChatMessage = {
+        id: uid('user'),
+        role: 'user',
+        content: blocks.join('\n\n'),
+      }
+      extra.push(userMsg)
+      pushMessages(userMsg)
+    }
+    await openProposals(nextCtx, historyPlus(...extra))
   }
 
   const saveQuestionnaireAnswer = async (questionId: string, option: string) => {
@@ -386,13 +401,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
     }
     setCtx(nextCtx)
 
-    // Mirror the form answer into the chat so the thread stays readable.
-    pushMessages({
-      id: uid('user'),
-      role: 'user',
-      content: trimmed,
-    })
-
+    // Keep answers local while the floating form is still open — chat updates on commit only.
     if (allQuestionsAnswered(nextCtx)) {
       await commitQuestionnaireAndPropose(nextCtx)
       return
@@ -597,7 +606,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
       return
     }
 
-    // Questionnaire: mirror the answer into chat, then advance / commit.
+    // Questionnaire: save in the form only; chat gets Q/R when the form is complete.
     if (phase === 'questionnaire' && questions[questionIndex]) {
       await saveQuestionnaireAnswer(questions[questionIndex].id, text)
       return
