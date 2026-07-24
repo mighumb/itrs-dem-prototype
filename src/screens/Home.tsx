@@ -774,12 +774,20 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
             ))}
             {agentTyping && (
               <div className="px-1 pt-1">
-                <p
-                  key={workStatus ?? 'thinking'}
-                  className="animate-fade-in text-sm text-zinc-500 dark:text-zinc-400"
-                >
-                  {workStatus ?? t('agentThinking')}
-                </p>
+                {workStatus ? (
+                  <p
+                    key={workStatus}
+                    className="animate-fade-in text-sm text-zinc-500 dark:text-zinc-400"
+                  >
+                    {workStatus}
+                  </p>
+                ) : (
+                  <div className="flex items-center gap-1 px-0.5 py-1" aria-hidden>
+                    <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-zinc-400 dark:bg-zinc-500" />
+                    <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-zinc-400 [animation-delay:150ms] dark:bg-zinc-500" />
+                    <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-zinc-400 [animation-delay:300ms] dark:bg-zinc-500" />
+                  </div>
+                )}
               </div>
             )}
             <div ref={chatEndRef} />

@@ -394,7 +394,7 @@ export const AGENT_INTRO: ChatMessage = {
   id: 'intro',
   role: 'agent',
   content:
-    "Hello! I'm your journey assistant. Tell me what to monitor, or paste a URL to get started.",
+    "Hello! I'm the ITRS DEM assistant. Tell me what to monitor, or paste a URL to get started.",
 }
 
 export const SCHEDULE_SUGGESTION = {

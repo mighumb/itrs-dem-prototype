@@ -112,8 +112,8 @@ export function agentIntroForLocale(locale: 'en' | 'fr'): ChatMessage {
     role: 'agent',
     content:
       locale === 'fr'
-        ? 'Bonjour — je suis ton assistant de parcours. Dis-moi quoi surveiller, ou colle une URL pour commencer.'
-        : "Hello! I'm your journey assistant. Tell me what to monitor, or paste a URL to get started.",
+        ? 'Bonjour — je suis l’assistant ITRS DEM. Dis-moi quoi surveiller, ou colle une URL pour commencer.'
+        : "Hello! I'm the ITRS DEM assistant. Tell me what to monitor, or paste a URL to get started.",
   }
 }
 
