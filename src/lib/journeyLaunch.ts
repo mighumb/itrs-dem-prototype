@@ -45,9 +45,27 @@ function genericMonitoring(name: string): JourneyMonitoringPreview {
   }
 }
 
+function hostnameLabel(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '')
+  } catch {
+    return url
+  }
+}
+
+function framesForSteps(
+  steps: Omit<JourneyStep, 'status'>[],
+  seedUrl: string | null,
+): BrowserFrame[] {
+  return steps.map((step) => ({
+    url: step.target?.startsWith('http') ? step.target : (seedUrl ?? 'about:blank'),
+    title: step.label,
+    highlight: step.label,
+  }))
+}
+
 /**
- * Build a runnable workspace journey from the Discovery plan.
- * Prefer this over curated Nike/Trainline/Booking templates when a plan exists.
+ * Build a runnable workspace journey from the Discovery plan (source of truth for Playwright).
  */
 export function buildJourneyFromDiscovery(options: {
   plan: DiscoveryPlan
@@ -90,19 +108,51 @@ export function buildJourneyFromDiscovery(options: {
     }
   }
 
-  const browserFrames: BrowserFrame[] = steps.map((step) => ({
-    url: step.target?.startsWith('http') ? step.target : (seedUrl ?? 'about:blank'),
-    title: step.label,
-    highlight: step.label,
-  }))
+  const name = plan.title || (seedUrl ? hostnameLabel(seedUrl) : 'Journey')
 
   return {
     id: 'discovery-plan',
-    name: plan.title || 'Journey',
-    matchPrompts: [],
+    name,
     steps,
-    browserFrames,
-    monitoring: genericMonitoring(plan.title || 'Journey'),
+    browserFrames: framesForSteps(steps, seedUrl),
+    monitoring: genericMonitoring(name),
+  }
+}
+
+/**
+ * Minimal journey when only a prompt/URL is known (no Discovery plan yet).
+ * Playwright still targets that site — never a hard-coded demo brand.
+ */
+export function buildJourneyFromPrompt(prompt: string, siteUrl?: string | null): JourneyTemplate {
+  const url = siteUrl ?? extractUrlFromText(prompt)
+  const name = url ? hostnameLabel(url) : prompt.trim().slice(0, 48) || 'Journey'
+  const steps: Omit<JourneyStep, 'status'>[] = url
+    ? [
+        {
+          id: 'prompt-1',
+          label: `Open ${url}`,
+          action: 'Navigate',
+          duration: '3.5s',
+          target: url,
+          timeout: '30s',
+        },
+        {
+          id: 'prompt-2',
+          label: 'Verify page loaded',
+          action: 'Verify',
+          duration: '500ms',
+          target: 'body',
+          timeout: '30s',
+        },
+      ]
+    : []
+
+  return {
+    id: 'prompt-journey',
+    name,
+    steps,
+    browserFrames: framesForSteps(steps, url),
+    monitoring: genericMonitoring(name),
   }
 }
 

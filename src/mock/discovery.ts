@@ -1,5 +1,3 @@
-import { resolveJourneyTemplate } from './data'
-import type { JourneyTemplate } from '../types'
 
 export type DiscoveryPhase = 'idle' | 'questionnaire' | 'proposals' | 'planning' | 'conversation'
 
@@ -479,27 +477,6 @@ export function buildConfigureQuestions(
       ],
     },
   ]
-}
-
-export function buildPlanFromPrompt(prompt: string): DiscoveryPlan {
-  const template = resolveJourneyTemplate(prompt)
-  return planFromTemplate(template, prompt)
-}
-
-export function buildPlanFromProposal(proposal: JourneyProposal): DiscoveryPlan {
-  return buildPlanFromPrompt(proposal.prompt)
-}
-
-function planFromTemplate(template: JourneyTemplate, prompt: string): DiscoveryPlan {
-  return {
-    title: template.name,
-    summary: `Here's the journey I propose for **${template.name}**. Review the steps — we can refine in chat, or hit **Run** when you're ready.`,
-    steps: template.steps.map((step) => ({
-      label: step.label,
-      action: step.action,
-    })),
-    prompt,
-  }
 }
 
 export function formatPlanMessage(plan: DiscoveryPlan): string {

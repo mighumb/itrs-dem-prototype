@@ -21,11 +21,9 @@ import {
   buildJourneyReadyMessage,
   buildRunOutcomeMessage,
   buildScheduleMessage,
-  DEMO_PROMPT,
   ensureFullJourneySteps,
   getBrowserFrameForStep,
   pickRandomFailureIndex,
-  resolveJourneyTemplate,
   RUN_OUTCOME_MESSAGE_ID,
   withoutTransientRunMessages,
   type RunFailureInfo,
@@ -34,6 +32,7 @@ import { requestDiscoveryAi } from '../lib/discoveryAi'
 import {
   agentIntroForLocale,
   buildJourneyFromDiscovery,
+  buildJourneyFromPrompt,
   extractUrlFromText,
   runFallbackMessage,
   runLiveOkMessage,
@@ -123,7 +122,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
         siteUrl: session.siteUrl,
       })
     }
-    return resolveJourneyTemplate(session.prompt || DEMO_PROMPT)
+    return buildJourneyFromPrompt(session.prompt, session.siteUrl)
   }, [session])
   const [messages, setMessages] = useState<ChatMessage[]>(() =>
     session.messages.length > 0 ? session.messages : [agentIntroForLocale(locale)],
@@ -381,7 +380,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
       try {
         const result = await runLiveJourney({
           steps: slice,
-          prompt: initialPrompt || DEMO_PROMPT,
+          prompt: initialPrompt,
           signal: controller.signal,
           onFrame: (frame) => {
             if (runIdRef.current !== runId) return
@@ -552,7 +551,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
       const userMsg: ChatMessage = {
         id: 'user-1',
         role: 'user',
-        content: initialPrompt || DEMO_PROMPT,
+        content: initialPrompt,
       }
       setMessages((prev) => [...prev, userMsg])
     }
