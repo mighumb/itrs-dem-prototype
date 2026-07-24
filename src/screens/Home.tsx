@@ -827,12 +827,10 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
               {t('goodMorning')} {userName}
             </p>
           ) : null}
-          <h1 className="mb-10 text-center text-3xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-100 md:text-4xl md:leading-snug">
-            <span className="inline-flex flex-wrap items-baseline justify-center gap-x-1.5">
-              <span>{t('homeTitleBefore')}</span>
-              <RotatingWord words={HOME_ROTATING_TARGETS[locale]} />
-              <span>{t('homeTitleAfter')}</span>
-            </span>
+          <h1 className="mb-10 text-balance text-center text-3xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-100 md:text-4xl md:leading-snug">
+            {t('homeTitleBefore')}{' '}
+            <RotatingWord words={HOME_ROTATING_TARGETS[locale]} />{' '}
+            {t('homeTitleAfter')}
           </h1>
 
           {composer}
