@@ -7,32 +7,88 @@ import type {
 } from '../types'
 import { tf, type Locale } from '../i18n/messages'
 
-/** Ready-made demo prompts — not to be confused with agent-generated Suggestions (URL-only → analyzed paths). */
-export const HOME_EXAMPLES_EN = [
+/** Homepage sample cards — company + short journey title (not full step-by-step prompts). */
+export type HomeJourneyExample = {
+  id: 'salesforce' | 'axa' | 'totalenergies'
+  company: string
+  logoSrc: string
+  url: string
+  journeyTitle: { en: string; fr: string }
+  /** Seed passed to Gemini (site + journey intent; params collected only if needed). */
+  seed: { en: string; fr: string }
+}
+
+export const HOME_JOURNEY_EXAMPLES: readonly HomeJourneyExample[] = [
+  {
+    id: 'salesforce',
+    company: 'Salesforce',
+    logoSrc: '/logos/salesforce.svg',
+    url: 'https://www.salesforce.com',
+    journeyTitle: {
+      en: 'Sign in to Sales Cloud',
+      fr: 'Se connecter à Sales Cloud',
+    },
+    seed: {
+      en: 'Monitor https://www.salesforce.com — journey: Sign in to Sales Cloud (login).',
+      fr: 'Monitorer https://www.salesforce.com — parcours : Se connecter à Sales Cloud (connexion).',
+    },
+  },
+  {
+    id: 'axa',
+    company: 'AXA',
+    logoSrc: '/logos/axa.svg',
+    url: 'https://www.axa.fr',
+    journeyTitle: {
+      en: 'Get a car insurance quote',
+      fr: 'Obtenir un devis assurance auto',
+    },
+    seed: {
+      en: 'Monitor https://www.axa.fr — journey: Get a car insurance quote.',
+      fr: 'Monitorer https://www.axa.fr — parcours : Obtenir un devis assurance auto.',
+    },
+  },
+  {
+    id: 'totalenergies',
+    company: 'TotalEnergies',
+    logoSrc: '/logos/totalenergies.svg',
+    url: 'https://www.totalenergies.fr',
+    journeyTitle: {
+      en: 'Find a nearby station',
+      fr: 'Trouver une station proche',
+    },
+    seed: {
+      en: 'Monitor https://www.totalenergies.fr — journey: Find a nearby station.',
+      fr: 'Monitorer https://www.totalenergies.fr — parcours : Trouver une station proche.',
+    },
+  },
+] as const
+
+export function getHomeExamples(_locale: Locale | 'en' | 'fr'): readonly HomeJourneyExample[] {
+  return HOME_JOURNEY_EXAMPLES
+}
+
+export function isCuratedHomeExample(text: string): boolean {
+  const normalized = text.trim().toLowerCase()
+  return HOME_JOURNEY_EXAMPLES.some(
+    (example) =>
+      example.seed.en.toLowerCase() === normalized ||
+      example.seed.fr.toLowerCase() === normalized ||
+      example.journeyTitle.en.toLowerCase() === normalized ||
+      example.journeyTitle.fr.toLowerCase() === normalized ||
+      `${example.company} — ${example.journeyTitle.en}`.toLowerCase() === normalized ||
+      `${example.company} — ${example.journeyTitle.fr}`.toLowerCase() === normalized,
+  )
+}
+
+/** Legacy Nike/Trainline/Booking prompts — still used by Playwright mock template matchPrompts. */
+const LEGACY_MATCH_PROMPTS = [
   'Go to https://www.nike.com, search for France 2026 Stadium Home, select size L, personalize with Miguel / 6, and verify "Add to bag" is visible.',
   'Go to https://www.thetrainline.com, search for trains from Paris Gare de Lyon to Lyon Part-Dieu tomorrow morning, select a morning TGV, choose a Standard ticket, and verify you can enter passenger details.',
   'Go to https://www.booking.com, search for hotels in Barcelona next weekend, open the first result, and verify room options are shown.',
 ] as const
 
-export const HOME_EXAMPLES_FR = [
-  'Va sur https://www.nike.com, recherche France 2026 Stadium Home, sélectionne la taille L, personnalise avec Miguel / 6, et vérifie que « Ajouter au panier » est visible.',
-  'Va sur https://www.thetrainline.com, recherche des trains de Paris Gare de Lyon à Lyon Part-Dieu demain matin, sélectionne un TGV du matin, choisis un billet Standard, et vérifie que tu peux saisir les détails passager.',
-  'Va sur https://www.booking.com, recherche des hôtels à Barcelone le week-end prochain, ouvre le premier résultat, et vérifie que les options de chambres s’affichent.',
-] as const
-
-/** @deprecated Prefer getHomeExamples(locale) — kept for journey template matchPrompts. */
-export const HOME_EXAMPLES = [...HOME_EXAMPLES_EN]
-
-export function getHomeExamples(locale: 'en' | 'fr'): readonly string[] {
-  return locale === 'fr' ? HOME_EXAMPLES_FR : HOME_EXAMPLES_EN
-}
-
-export function isCuratedHomeExample(text: string): boolean {
-  const normalized = text.trim().toLowerCase()
-  return [...HOME_EXAMPLES_EN, ...HOME_EXAMPLES_FR].some(
-    (example) => example.toLowerCase() === normalized,
-  )
-}
+/** @deprecated Prefer getHomeExamples — kept for journey template matchPrompts. */
+export const HOME_EXAMPLES = [...LEGACY_MATCH_PROMPTS]
 
 export const DEMO_PROMPT =
   'Go to https://www.nike.com, search for France 2026 Stadium Home, select size L, personalize with name Miguel and number 6, then finish.'

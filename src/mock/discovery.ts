@@ -1,4 +1,4 @@
-import { isCuratedHomeExample, resolveJourneyTemplate } from './data'
+import { resolveJourneyTemplate } from './data'
 import type { JourneyTemplate } from '../types'
 
 export type DiscoveryPhase = 'idle' | 'questionnaire' | 'proposals' | 'planning' | 'conversation'
@@ -62,14 +62,10 @@ function siteLabelFromCtx(ctx: DiscoveryContext, locale: 'en' | 'fr' = 'en'): st
   return locale === 'fr' ? 'ce site' : 'this site'
 }
 
-/** Precise enough to skip brainstorm and go straight to planning (curated samples / multi-step prompts). */
+/** Precise enough to skip brainstorm and go straight to planning (multi-step prompts with concrete params). */
 export function isPrecisePrompt(text: string): boolean {
   const trimmed = text.trim()
   if (!trimmed) return false
-
-  if (isCuratedHomeExample(trimmed)) {
-    return true
-  }
 
   const lower = trimmed.toLowerCase()
 

@@ -75,14 +75,19 @@ Set on Vercel → Project → Settings → Environment Variables (Production + P
 
 On each Discovery request: all keys use Flash 2.5 (no Pro / no 3.6). If free keys fail on quota, paid key is last resort but still on Flash. After a free-tier reset, the next request starts again on `GEMINI_API_KEY`.
 
+## Homepage sample journeys
+
+Idle Home shows three company cards (Salesforce, AXA, TotalEnergies): logo + company name + short journey title. Click runs the real Gemini Discovery pipeline in `configure` mode (journey type already chosen). The agent asks for user params (login, plate, city, etc.) only when steps need them — never invents secrets.
+
 ## What's still mocked
 
 - Monitoring KPIs / random failure injection (simulation fallback only)
 - Auth / signup (no API)
 - Take control (button only)
+- Cookie/login vault (agent may ask for credentials when a journey needs them; session-only)
 
 ## Phase 2 (not included)
 
 - Dashboard, Journeys list, Schedule panel
 - Persistent journey storage, RBAC, MCP API
-- Cookie/login vault for authenticated journeys
+- Persistent cookie/login vault for authenticated journeys
