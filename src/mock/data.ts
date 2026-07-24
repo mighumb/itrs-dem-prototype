@@ -59,8 +59,8 @@ export const HOME_JOURNEY_EXAMPLES: readonly HomeJourneyExample[] = [
     logoSrc: '/logos/amazon.svg',
     url: 'https://www.amazon.com',
     journeyTitle: {
-      en: 'Add a product to cart',
-      fr: 'Ajouter un produit au panier',
+      en: 'Search and add a product to cart',
+      fr: 'Rechercher et ajouter un produit au panier',
     },
     seed: {
       en: `Monitor https://www.amazon.com — journey: ecommerce add-to-cart with real actions. Required actions: Navigate homepage → Type a user-provided search query → Click/submit search → Click a product result → Click "Add to cart" → final Verify the cart reflects the added item (cart count or cart page). Ask for the search query before building the plan — do not invent a SKU. Stop before checkout/payment/login. ${SAMPLE_ACTION_RULES_EN}`,
