@@ -6,6 +6,7 @@ import {
   resolveSiteTarget,
   type ResolvedSiteTarget,
 } from './_lib/resolveSiteTarget.js'
+import { geminiModelCandidates } from './_lib/geminiModels.js'
 
 type ChatTurn = { role: 'user' | 'agent'; content: string }
 
@@ -288,13 +289,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { analysis, target } = await resolveAndAnalyzeWithStatus(body, apiKey)
 
     const genAI = new GoogleGenerativeAI(apiKey)
-    // Prefer 2.5 Flash first — free-tier 2.0 often hits quota before other models.
-    const modelCandidates = [
-      'gemini-2.5-flash',
-      process.env.GEMINI_MODEL,
-      'gemini-flash-latest',
-      'gemini-2.0-flash',
-    ].filter((name, index, all): name is string => Boolean(name) && all.indexOf(name) === index)
+    const modelCandidates = geminiModelCandidates()
 
     const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
     const isQuotaError = (error: unknown) => {
