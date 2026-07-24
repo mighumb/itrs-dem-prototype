@@ -66,14 +66,14 @@ Set on Vercel → Project → Settings → Environment Variables (Production + P
 
 | Variable | Required | Notes |
 | --- | --- | --- |
-| `GEMINI_API_KEY` | yes | Primary Google AI Studio key |
-| `GEMINI_API_KEY_2` | no | Failover key (ideally another **project**) when key #1 hits free-tier 429 |
-| `GEMINI_API_KEY_3`…`_5` | no | Extra failovers |
-| `GEMINI_API_KEYS` | no | Optional comma-separated list instead of `_2`…`_5` |
+| `GEMINI_API_KEY` | yes | Primary free-tier Google AI Studio key |
+| `GEMINI_API_KEY_2` | no | Free-tier failover (ideally another **project**) when key #1 hits 429 |
+| `GEMINI_API_KEY_3`…`_5` | no | Extra free-tier failovers |
+| `GEMINI_API_KEYS` | no | Optional comma-separated free-tier list |
+| `GOOGLE_API_IP_LABEL` | no | **Last resort** billed key — used only after free keys fail on quota |
 | `GEMINI_MODEL` | no | Preferred model id (still fails over to other Flash models) |
 
-On quota errors the API tries the next model, then the next key. Quotas are usually **per project**, so two free-tier keys on the **same** project often share the same limit — prefer keys from different projects (e.g. DEM + Noda).
-
+On each Discovery request the API tries keys in that order (free first, billed last). After a free-tier reset, the next request starts again on `GEMINI_API_KEY` — it does not stick on the paid key.
 ## What's still mocked
 
 - Monitoring KPIs / random failure injection (simulation fallback only)
