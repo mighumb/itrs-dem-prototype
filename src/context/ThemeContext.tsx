@@ -10,6 +10,12 @@ type Theme = 'light' | 'dark'
 
 const STORAGE_KEY = 'itrs-dem-theme'
 
+/** Match `--color-surface` so Safari/Chrome toolbars tint with the UI. */
+const THEME_COLORS: Record<Theme, string> = {
+  light: '#f5f5f7',
+  dark: '#0a0a0b',
+}
+
 interface ThemeContextValue {
   theme: Theme
   toggleTheme: () => void
@@ -23,12 +29,25 @@ function readStoredTheme(): Theme {
   return stored === 'dark' ? 'dark' : 'light'
 }
 
+function applyBrowserChrome(theme: Theme) {
+  const root = document.documentElement
+  root.classList.toggle('dark', theme === 'dark')
+  root.style.colorScheme = theme
+
+  let meta = document.querySelector('meta[name="theme-color"]')
+  if (!meta) {
+    meta = document.createElement('meta')
+    meta.setAttribute('name', 'theme-color')
+    document.head.appendChild(meta)
+  }
+  meta.setAttribute('content', THEME_COLORS[theme])
+}
+
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setTheme] = useState<Theme>(readStoredTheme)
 
   useEffect(() => {
-    const root = document.documentElement
-    root.classList.toggle('dark', theme === 'dark')
+    applyBrowserChrome(theme)
     localStorage.setItem(STORAGE_KEY, theme)
   }, [theme])
 

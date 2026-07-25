@@ -17,12 +17,16 @@
     />
     <link rel="icon" type="image/svg+xml" href="/itrs-favicon-light-mode.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- Kept in sync with in-app theme (see ThemeContext) so browser chrome matches UI. -->
+    <meta name="theme-color" content="#f5f5f7" />
     <title>ITRS DEM</title>
     <script>
       try {
-        if (localStorage.getItem('itrs-dem-theme') === 'dark') {
-          document.documentElement.classList.add('dark')
-        }
+        var dark = localStorage.getItem('itrs-dem-theme') === 'dark'
+        if (dark) document.documentElement.classList.add('dark')
+        document.documentElement.style.colorScheme = dark ? 'dark' : 'light'
+        var meta = document.querySelector('meta[name="theme-color"]')
+        if (meta) meta.setAttribute('content', dark ? '#0a0a0b' : '#f5f5f7')
       } catch (_) {}
     </script>
   </head>
