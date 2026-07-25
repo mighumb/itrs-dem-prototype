@@ -90,7 +90,7 @@ export default function TopHeader({
     const fullWidth = opts?.fullWidth
     const large = opts?.large
     const btn = `${fullWidth ? 'flex-1' : ''} cursor-pointer rounded-md font-semibold tracking-wide transition ${
-      large ? 'min-h-11 px-3 py-2.5 text-[15px]' : 'px-2 py-1 text-xs'
+      large ? 'min-h-11 px-3 py-2.5 text-[16px]' : 'px-2 py-1 text-xs'
     }`
     return (
       <div
@@ -283,7 +283,7 @@ export default function TopHeader({
                   id={drawerTitleId}
                   onClick={() => setDrawerView('main')}
                   aria-label={t('back')}
-                  className="flex min-h-11 min-w-0 cursor-pointer items-center gap-1.5 text-[17px] font-semibold text-zinc-900 dark:text-zinc-100"
+                  className="flex min-h-11 min-w-0 cursor-pointer items-center gap-1.5 text-[18px] font-semibold text-zinc-900 dark:text-zinc-100"
                 >
                   <ChevronLeft size={22} className="shrink-0 text-zinc-500" aria-hidden />
                   <span className="truncate">{t('settings')}</span>
@@ -297,7 +297,7 @@ export default function TopHeader({
                   className="flex min-h-11 min-w-0 cursor-pointer items-center gap-2.5"
                 >
                   <BrandMark theme={theme} className="!h-7 !w-7" />
-                  <span className="truncate text-[17px] font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
+                  <span className="truncate text-[18px] font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
                     ITRS DEM
                   </span>
                 </button>
