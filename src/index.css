@@ -32,11 +32,16 @@ body,
   height: 100%;
 }
 
+/* Explicit paint so Safari chrome fallback matches the UI surface. */
+html {
+  background-color: var(--color-surface);
+}
+
 body {
   margin: 0;
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
-  background: var(--color-surface);
+  background-color: var(--color-surface);
   color: #1d1d1f;
 }
 
