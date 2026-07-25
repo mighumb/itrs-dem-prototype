@@ -1,4 +1,5 @@
 import { X } from 'lucide-react'
+import { useLocale } from '../context/LocaleContext'
 import type { JourneySchedule } from '../types'
 import { scheduleSummary } from '../types'
 
@@ -10,6 +11,7 @@ interface SaveModalProps {
 }
 
 export default function SaveModal({ open, schedule, onClose, onSave }: SaveModalProps) {
+  const { t, locale } = useLocale()
   if (!open) return null
 
   const withSchedule = schedule !== null
@@ -23,11 +25,12 @@ export default function SaveModal({ open, schedule, onClose, onSave }: SaveModal
       >
         <div className="mb-1 flex items-start justify-between">
           <h2 className="text-lg font-semibold tracking-tight dark:text-zinc-100">
-            {withSchedule ? 'Start monitoring' : 'Save your journey'}
+            {withSchedule ? t('startMonitoring') : t('saveYourJourney')}
           </h2>
           <button
             type="button"
             onClick={onClose}
+            aria-label={t('dismiss')}
             className="rounded-lg p-1 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-600"
           >
             <X size={18} />
@@ -37,21 +40,19 @@ export default function SaveModal({ open, schedule, onClose, onSave }: SaveModal
         {withSchedule ? (
           <>
             <p className="mb-3 text-sm leading-relaxed text-zinc-500">
-              Create a free account to activate monitoring on this schedule.
+              {t('saveActivateScheduleBody')}
             </p>
             <div className="mb-6 rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-3 dark:border-zinc-700 dark:bg-zinc-800">
               <p className="text-xs font-medium uppercase tracking-wider text-zinc-400">
-                Schedule
+                {t('scheduleLabel')}
               </p>
               <p className="mt-1 text-sm font-medium text-zinc-800 dark:text-zinc-200">
-                {scheduleSummary(schedule)}
+                {scheduleSummary(schedule, locale)}
               </p>
             </div>
           </>
         ) : (
-          <p className="mb-6 text-sm leading-relaxed text-zinc-500">
-            Create a free account to save and monitor this journey continuously.
-          </p>
+          <p className="mb-6 text-sm leading-relaxed text-zinc-500">{t('saveJourneyBody')}</p>
         )}
 
         <form
@@ -64,26 +65,24 @@ export default function SaveModal({ open, schedule, onClose, onSave }: SaveModal
           <input
             type="email"
             required
-            placeholder="Work email"
+            placeholder={t('workEmail')}
             className="w-full rounded-xl border border-zinc-200 px-3.5 py-2.5 text-sm outline-none transition focus:border-[#0071e3] focus:ring-2 focus:ring-[#0071e3]/20 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
           />
           <input
             type="password"
             required
-            placeholder="Password"
+            placeholder={t('password')}
             className="w-full rounded-xl border border-zinc-200 px-3.5 py-2.5 text-sm outline-none transition focus:border-[#0071e3] focus:ring-2 focus:ring-[#0071e3]/20 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
           />
           <button
             type="submit"
             className="w-full rounded-xl bg-[#0071e3] py-2.5 text-sm font-medium text-white transition hover:bg-[#0077ed]"
           >
-            {withSchedule ? 'Create account & start monitoring' : 'Create account & save'}
+            {withSchedule ? t('createAccountStartMonitoring') : t('createAccountAndSave')}
           </button>
         </form>
 
-        <p className="mt-4 text-center text-xs text-zinc-400">
-          No credit card required · 12 runs/day on free plan
-        </p>
+        <p className="mt-4 text-center text-xs text-zinc-400">{t('freePlanNote')}</p>
       </div>
     </div>
   )

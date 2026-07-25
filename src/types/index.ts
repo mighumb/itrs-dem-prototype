@@ -1,3 +1,5 @@
+import { localizeScheduleValue, type Locale } from '../i18n/messages'
+
 export type Screen = 'home' | 'new-journey'
 
 export type StepStatus = 'pending' | 'running' | 'done' | 'failed'
@@ -79,6 +81,11 @@ export interface JourneyTemplate {
   monitoring: JourneyMonitoringPreview
 }
 
-export function scheduleSummary(schedule: JourneySchedule): string {
-  return `${schedule.frequency} · ${schedule.locations.join(' + ')} · ${schedule.activeHours}`
+export function scheduleSummary(schedule: JourneySchedule, locale: Locale = 'en'): string {
+  const frequency = localizeScheduleValue(locale, schedule.frequency)
+  const activeHours = localizeScheduleValue(locale, schedule.activeHours)
+  const locations = schedule.locations
+    .map((loc) => localizeScheduleValue(locale, loc))
+    .join(' + ')
+  return `${frequency} · ${locations} · ${activeHours}`
 }

@@ -1,5 +1,12 @@
 import { X } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
+import { useLocale } from '../context/LocaleContext'
+import {
+  SCHEDULE_ACTIVE_HOURS,
+  SCHEDULE_FREQUENCIES,
+  SCHEDULE_LOCATIONS,
+  localizeScheduleValue,
+} from '../i18n/messages'
 import type { JourneySchedule } from '../types'
 import { scheduleSummary } from '../types'
 
@@ -10,23 +17,13 @@ interface ScheduleDrawerProps {
   onConfirm: (schedule: JourneySchedule) => void
 }
 
-const FREQUENCIES = [
-  'Every 5 minutes',
-  'Every 15 minutes',
-  'Every 30 minutes',
-  'Every hour',
-]
-
-const LOCATIONS = ['Paris', 'Frankfurt', 'London', 'New York']
-
-const ACTIVE_HOURS = ['24/7', 'Business hours only', 'Weekdays only']
-
 export default function ScheduleDrawer({
   open,
   initial,
   onClose,
   onConfirm,
 }: ScheduleDrawerProps) {
+  const { t, locale } = useLocale()
   const [frequency, setFrequency] = useState(initial.frequency)
   const [locations, setLocations] = useState<string[]>(initial.locations)
   const [activeHours, setActiveHours] = useState(initial.activeHours)
@@ -50,12 +47,15 @@ export default function ScheduleDrawer({
       >
         <header className="flex items-center justify-between border-b border-zinc-100 px-5 py-4 dark:border-zinc-800">
           <div>
-            <h2 className="text-lg font-semibold tracking-tight dark:text-zinc-100">Schedule</h2>
-            <p className="mt-0.5 text-sm text-zinc-500">When should this journey run?</p>
+            <h2 className="text-lg font-semibold tracking-tight dark:text-zinc-100">
+              {t('scheduleLabel')}
+            </h2>
+            <p className="mt-0.5 text-sm text-zinc-500">{t('scheduleWhen')}</p>
           </div>
           <button
             type="button"
             onClick={onClose}
+            aria-label={t('dismiss')}
             className="rounded-lg p-1.5 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-600"
           >
             <X size={18} />
@@ -63,23 +63,23 @@ export default function ScheduleDrawer({
         </header>
 
         <div className="flex-1 space-y-6 overflow-y-auto px-5 py-6">
-          <Field label="Frequency">
+          <Field label={t('frequency')}>
             <select
               value={frequency}
               onChange={(e) => setFrequency(e.target.value)}
               className="w-full rounded-xl border border-zinc-200 bg-white px-3.5 py-2.5 text-sm outline-none transition focus:border-[#0071e3] focus:ring-2 focus:ring-[#0071e3]/20 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
             >
-              {FREQUENCIES.map((f) => (
+              {SCHEDULE_FREQUENCIES.map((f) => (
                 <option key={f} value={f}>
-                  {f}
+                  {localizeScheduleValue(locale, f)}
                 </option>
               ))}
             </select>
           </Field>
 
-          <Field label="Locations">
+          <Field label={t('locations')}>
             <div className="flex flex-wrap gap-2">
-              {LOCATIONS.map((loc) => {
+              {SCHEDULE_LOCATIONS.map((loc) => {
                 const selected = locations.includes(loc)
                 return (
                   <button
@@ -92,22 +92,22 @@ export default function ScheduleDrawer({
                         : 'border border-zinc-200 bg-white text-zinc-600 hover:border-zinc-300 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:border-zinc-600'
                     }`}
                   >
-                    {loc}
+                    {localizeScheduleValue(locale, loc)}
                   </button>
                 )
               })}
             </div>
           </Field>
 
-          <Field label="Active">
+          <Field label={t('activeLabel')}>
             <select
               value={activeHours}
               onChange={(e) => setActiveHours(e.target.value)}
               className="w-full rounded-xl border border-zinc-200 bg-white px-3.5 py-2.5 text-sm outline-none transition focus:border-[#0071e3] focus:ring-2 focus:ring-[#0071e3]/20 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
             >
-              {ACTIVE_HOURS.map((h) => (
+              {SCHEDULE_ACTIVE_HOURS.map((h) => (
                 <option key={h} value={h}>
-                  {h}
+                  {localizeScheduleValue(locale, h)}
                 </option>
               ))}
             </select>
@@ -115,10 +115,10 @@ export default function ScheduleDrawer({
 
           <div className="rounded-xl bg-zinc-50 px-4 py-3 dark:bg-zinc-800">
             <p className="text-xs font-medium uppercase tracking-wider text-zinc-400">
-              Summary
+              {t('summary')}
             </p>
             <p className="mt-1 text-sm font-medium text-zinc-800 dark:text-zinc-200">
-              {scheduleSummary(draft)}
+              {scheduleSummary(draft, locale)}
             </p>
           </div>
         </div>
@@ -130,10 +130,10 @@ export default function ScheduleDrawer({
             onClick={() => onConfirm(draft)}
             className="w-full cursor-pointer rounded-xl bg-[#0071e3] py-2.5 text-sm font-medium text-white transition hover:bg-[#0077ed] disabled:cursor-not-allowed disabled:opacity-40"
           >
-            Continue — create account to activate
+            {t('scheduleContinueActivate')}
           </button>
           <p className="mt-3 text-center text-xs text-zinc-400">
-            Monitoring starts after you sign up — nothing runs until then.
+            {t('scheduleNothingRunsUntilSignup')}
           </p>
         </footer>
       </div>

@@ -161,6 +161,76 @@ export const messages = {
     delete: 'Delete',
     deleteAll: 'Delete all',
     deleteCount: 'Delete ({count})',
+
+    // Auth modal
+    authWelcomeBack: 'Welcome back — pick up where you left off.',
+    authSignupBody: 'Start monitoring your journeys for free.',
+    password: 'Password',
+    noAccountYet: "Don't have an account?",
+    alreadyHaveAccount: 'Already have an account?',
+
+    // Save modal
+    startMonitoring: 'Start monitoring',
+    saveYourJourney: 'Save your journey',
+    saveActivateScheduleBody: 'Create a free account to activate monitoring on this schedule.',
+    saveJourneyBody: 'Create a free account to save and monitor this journey continuously.',
+    scheduleLabel: 'Schedule',
+    createAccountStartMonitoring: 'Create account & start monitoring',
+    createAccountAndSave: 'Create account & save',
+    freePlanNote: 'No credit card required · 12 runs/day on free plan',
+
+    // Schedule drawer
+    scheduleWhen: 'When should this journey run?',
+    frequency: 'Frequency',
+    locations: 'Locations',
+    activeLabel: 'Active',
+    summary: 'Summary',
+    freqEvery5Min: 'Every 5 minutes',
+    freqEvery15Min: 'Every 15 minutes',
+    freqEvery30Min: 'Every 30 minutes',
+    freqEveryHour: 'Every hour',
+    hours247: '24/7',
+    hoursBusiness: 'Business hours only',
+    hoursWeekdays: 'Weekdays only',
+    locParis: 'Paris',
+    locFrankfurt: 'Frankfurt',
+    locLondon: 'London',
+    locNewYork: 'New York',
+    scheduleContinueActivate: 'Continue — create account to activate',
+    scheduleNothingRunsUntilSignup: 'Monitoring starts after you sign up — nothing runs until then.',
+
+    // Global assistant / shell
+    assistant: 'Assistant',
+    openAssistant: 'Open assistant',
+    assistantTitle: 'Assistant — ask anything, navigate the app',
+    assistantIntro: 'Ask me to navigate, open a view, or explain anything in ITRS DEM.',
+    askAnything: 'Ask anything…',
+    agentPromptNewJourney: 'Create a new journey',
+    agentPromptFailing: 'Show failing journeys',
+    agentPromptDashboard: 'Open Dashboard',
+    dashboard: 'Dashboard',
+    journeys: 'Journeys',
+    phase2: 'Phase 2',
+
+    // Steps editor
+    stepLabel: 'Label',
+    stepAction: 'Action',
+    stepTarget: 'Target',
+    stepTimeout: 'Timeout',
+    technicalDetails: 'Technical details',
+    addStep: '+ Add step',
+    newStep: 'New step',
+    stepsProgress: '{done} / {total} steps',
+    actionNavigate: 'Navigate',
+    actionClick: 'Click',
+    actionType: 'Type',
+    actionVerify: 'Verify',
+
+    // Discovery / home agent chrome
+    journeysSuggested: 'Here are the journeys I suggest — pick one in the form below.',
+    prepareJourney: 'Prepare journey',
+    assistantUnavailable:
+      'The assistant is unavailable right now. Try again in a moment — I won’t invent an offline journey.',
   },
   fr: {
     signIn: 'Connexion',
@@ -323,8 +393,111 @@ export const messages = {
     delete: 'Supprimer',
     deleteAll: 'Tout supprimer',
     deleteCount: 'Supprimer ({count})',
+
+    authWelcomeBack: 'Bon retour — reprenez là où vous vous êtes arrêté.',
+    authSignupBody: 'Commencez à surveiller vos parcours gratuitement.',
+    password: 'Mot de passe',
+    noAccountYet: 'Pas encore de compte ?',
+    alreadyHaveAccount: 'Vous avez déjà un compte ?',
+
+    startMonitoring: 'Démarrer le monitoring',
+    saveYourJourney: 'Enregistrer votre parcours',
+    saveActivateScheduleBody:
+      'Créez un compte gratuit pour activer le monitoring sur ce planning.',
+    saveJourneyBody:
+      'Créez un compte gratuit pour enregistrer et surveiller ce parcours en continu.',
+    scheduleLabel: 'Planning',
+    createAccountStartMonitoring: 'Créer un compte et démarrer le monitoring',
+    createAccountAndSave: 'Créer un compte et enregistrer',
+    freePlanNote: 'Sans carte bancaire · 12 runs/jour sur le plan gratuit',
+
+    scheduleWhen: 'Quand ce parcours doit-il s’exécuter ?',
+    frequency: 'Fréquence',
+    locations: 'Emplacements',
+    activeLabel: 'Actif',
+    summary: 'Résumé',
+    freqEvery5Min: 'Toutes les 5 minutes',
+    freqEvery15Min: 'Toutes les 15 minutes',
+    freqEvery30Min: 'Toutes les 30 minutes',
+    freqEveryHour: 'Toutes les heures',
+    hours247: '24/7',
+    hoursBusiness: 'Heures ouvrées uniquement',
+    hoursWeekdays: 'Jours ouvrés uniquement',
+    locParis: 'Paris',
+    locFrankfurt: 'Francfort',
+    locLondon: 'Londres',
+    locNewYork: 'New York',
+    scheduleContinueActivate: 'Continuer — créer un compte pour activer',
+    scheduleNothingRunsUntilSignup:
+      'Le monitoring démarre après l’inscription — rien ne tourne avant.',
+
+    assistant: 'Assistant',
+    openAssistant: 'Ouvrir l’assistant',
+    assistantTitle: 'Assistant — posez une question, naviguez dans l’app',
+    assistantIntro:
+      'Demandez-moi de naviguer, d’ouvrir une vue, ou d’expliquer quoi que ce soit dans ITRS DEM.',
+    askAnything: 'Posez une question…',
+    agentPromptNewJourney: 'Créer un nouveau parcours',
+    agentPromptFailing: 'Voir les parcours en échec',
+    agentPromptDashboard: 'Ouvrir le tableau de bord',
+    dashboard: 'Tableau de bord',
+    journeys: 'Parcours',
+    phase2: 'Phase 2',
+
+    stepLabel: 'Libellé',
+    stepAction: 'Action',
+    stepTarget: 'Cible',
+    stepTimeout: 'Délai',
+    technicalDetails: 'Détails techniques',
+    addStep: '+ Ajouter une étape',
+    newStep: 'Nouvelle étape',
+    stepsProgress: '{done} / {total} étapes',
+    actionNavigate: 'Naviguer',
+    actionClick: 'Cliquer',
+    actionType: 'Saisir',
+    actionVerify: 'Vérifier',
+
+    journeysSuggested: 'Voici les parcours que je propose — choisissez-en un dans le formulaire ci-dessous.',
+    prepareJourney: 'Préparer le parcours',
+    assistantUnavailable:
+      'L’assistant est indisponible pour le moment. Réessaie dans un instant — je ne peux pas inventer un parcours hors ligne.',
   },
 } as const
+
+/** Canonical schedule option values (stored in JourneySchedule). */
+export const SCHEDULE_FREQUENCIES = [
+  'Every 5 minutes',
+  'Every 15 minutes',
+  'Every 30 minutes',
+  'Every hour',
+] as const
+
+export const SCHEDULE_ACTIVE_HOURS = [
+  '24/7',
+  'Business hours only',
+  'Weekdays only',
+] as const
+
+export const SCHEDULE_LOCATIONS = ['Paris', 'Frankfurt', 'London', 'New York'] as const
+
+const SCHEDULE_VALUE_KEYS: Record<string, MessageKey> = {
+  'Every 5 minutes': 'freqEvery5Min',
+  'Every 15 minutes': 'freqEvery15Min',
+  'Every 30 minutes': 'freqEvery30Min',
+  'Every hour': 'freqEveryHour',
+  '24/7': 'hours247',
+  'Business hours only': 'hoursBusiness',
+  'Weekdays only': 'hoursWeekdays',
+  Paris: 'locParis',
+  Frankfurt: 'locFrankfurt',
+  London: 'locLondon',
+  'New York': 'locNewYork',
+}
+
+export function localizeScheduleValue(locale: Locale, value: string): string {
+  const key = SCHEDULE_VALUE_KEYS[value]
+  return key ? messages[locale][key] : value
+}
 
 /** Rotating DEM target nouns for the homepage hero title. */
 export const HOME_ROTATING_TARGETS: Record<Locale, readonly string[]> = {
