@@ -61,7 +61,7 @@ export default function DiscoveryStack({
   }, [mode, questionIndex, question?.id, savedForQuestion, optionKey])
 
   return (
-    <div className="animate-fade-in flex max-h-[min(48dvh,22rem)] w-full flex-col overflow-hidden overscroll-contain rounded-2xl border border-zinc-200 bg-white shadow-[0_8px_30px_rgb(0,0,0,0.06)] md:max-h-[min(60vh,28rem)] dark:border-zinc-700 dark:bg-zinc-900 dark:shadow-black/40">
+    <div className="animate-fade-in flex max-h-[min(calc(var(--app-height,100dvh)*0.42),22rem)] w-full flex-col overflow-hidden overscroll-contain rounded-2xl border border-zinc-200 bg-white shadow-[0_8px_30px_rgb(0,0,0,0.06)] md:max-h-[min(calc(var(--app-height,100dvh)*0.55),28rem)] dark:border-zinc-700 dark:bg-zinc-900 dark:shadow-black/40">
       <header className="flex shrink-0 items-center gap-2 border-b border-zinc-100 px-3.5 py-2.5 dark:border-zinc-800">
         <p className="min-w-0 flex-1 truncate text-sm font-medium text-zinc-800 dark:text-zinc-100">
           {title}
@@ -178,8 +178,13 @@ export default function DiscoveryStack({
                 if (mode === 'proposals') setOtherText('')
               }
             }}
+            // text-base (16px): iOS Safari zooms inputs under 16px and breaks the sticky/shell frame.
+            enterKeyHint="done"
+            autoComplete="off"
+            autoCorrect="off"
+            spellCheck={false}
             placeholder={mode === 'proposals' ? t('other') : t('somethingElse')}
-            className={`w-full rounded-xl border py-2 pl-8 pr-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-[#0071e3] focus:bg-white dark:focus:bg-zinc-900 ${
+            className={`w-full rounded-xl border py-2.5 pl-8 pr-3 text-base outline-none transition placeholder:text-zinc-400 focus:border-[#0071e3] focus:bg-white dark:focus:bg-zinc-900 ${
               isCustomAnswer || (mode === 'questions' && otherText.trim())
                 ? 'border-[#0071e3] bg-white font-medium text-zinc-900 dark:border-[#0071e3] dark:bg-zinc-900 dark:text-zinc-100'
                 : 'border-zinc-200 bg-zinc-50 text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100'

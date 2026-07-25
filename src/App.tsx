@@ -6,6 +6,7 @@ import SaveModal from './components/SaveModal'
 import ScheduleDrawer from './components/ScheduleDrawer'
 import Shell from './components/Shell'
 import TopHeader from './components/TopHeader'
+import { useVisualViewportHeight } from './hooks/useVisualViewportHeight'
 import { DEFAULT_SCHEDULE } from './mock/schedule'
 import type { JourneyLaunchSession } from './lib/journeyLaunch'
 import Home from './screens/Home'
@@ -33,6 +34,7 @@ export default function App() {
   const [homeSession, setHomeSession] = useState(0)
   const journeyRef = useRef<NewJourneyHandle>(null)
   const pendingScheduleSource = useRef<'accept' | 'customize' | null>(null)
+  useVisualViewportHeight()
 
   const handleStart = (session: JourneyLaunchSession | string) => {
     const next: JourneyLaunchSession =
@@ -86,7 +88,14 @@ export default function App() {
   }
 
   return (
-    <div className="flex h-[100dvh] max-h-[100dvh] flex-col overflow-hidden overscroll-none">
+    <div
+      className="fixed inset-x-0 flex w-full flex-col overflow-hidden overscroll-none"
+      style={{
+        top: 'var(--app-offset-top, 0px)',
+        height: 'var(--app-height, 100dvh)',
+        maxHeight: 'var(--app-height, 100dvh)',
+      }}
+    >
       {!accountCreated && (
         <TopHeader
           onLogIn={() => openAuth('login')}
