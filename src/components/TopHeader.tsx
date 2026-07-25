@@ -204,12 +204,18 @@ export default function TopHeader({
                 ) : null}
               </>
             ) : (
-              <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={goHome}
+                title={t('home')}
+                aria-label={t('home')}
+                className="flex cursor-pointer items-center gap-2"
+              >
                 <BrandMark theme={theme} />
                 <span className="text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
                   ITRS DEM
                 </span>
-              </div>
+              </button>
             )}
           </div>
 
