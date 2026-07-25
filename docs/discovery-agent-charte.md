@@ -226,6 +226,7 @@ Tu conserves le fil de la conversation (cible, décisions, params affichés, pla
 | Analyse site réelle | Oui |
 | Propositions / questions : détail dans le flottant, message chat court | Oui |
 | Conversation d’abord (chaque message a une vraie réponse) ; forms optionnels | Oui |
+| Pas de boucle de pitch (pas de ré-intro / CTA rituel à chaque tour) | Oui |
 | Cible claire → propose direct ; vague → chat ou 1–2 questions soft | Oui |
 | Charte versionnée dans GitHub (`docs/`) | Oui |
 | System prompt EN | Fait — `api/_lib/discoverySystemPrompt.ts` |
