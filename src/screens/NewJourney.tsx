@@ -386,12 +386,20 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
           signal: controller.signal,
           onFrame: (frame) => {
             if (runIdRef.current !== runId) return
+            // Always replace the panel with the capture for the step just executed.
             setBrowserFrame(frame)
           },
           onEvent: (event) => {
             if (runIdRef.current !== runId) return
             if (event.type === 'step_start') {
               const absolute = startIndex + event.index
+              // Drop the previous step's screenshot so the panel never lags behind
+              // the step currently running (common after re-runs / agent fixes).
+              setBrowserFrame({
+                url: 'about:blank',
+                title: event.label,
+                highlight: event.label,
+              })
               setSteps((prev) => {
                 if (options?.replaceSteps) {
                   return prev.map((s, idx) =>
@@ -631,53 +639,82 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
       hidePanel('monitoring')
       setIsRunning(true)
       setBrowserFrame(null)
+      setFixActionsResolved(true)
 
-      // After an agent fix, resume with a successful simulated continuation.
-      // Re-running live Playwright usually hits the same blocker (cookie banner,
-      // stale locator, etc.) and leaves the user stuck on "Fix and continue".
-      setSteps(
-        stepsSnapshot.map((step, index) => ({
-          ...step,
-          status:
-            index < startIndex
-              ? ('done' as const)
-              : index === startIndex
-                ? ('running' as const)
-                : ('pending' as const),
-        })),
-      )
+      const remaining = stepsSnapshot.length - startIndex
+      setMessages((prev) => [
+        ...withoutTransientRunMessages(prev),
+        {
+          id: `agent-run-resume-${runId}`,
+          role: 'agent',
+          content: tf('replayingSteps', { count: remaining }),
+        },
+      ])
 
-      for (let i = startIndex; i < stepsSnapshot.length; i++) {
-        const step = stepsSnapshot[i]!
-        setSteps((prev) =>
-          prev.map((s, idx) => (idx === i ? { ...s, status: 'running' } : s)),
-        )
-        setBrowserFrame(getBrowserFrameForStep(step, i))
-        await delay(STEP_DELAY)
-        if (runIdRef.current !== runId) {
-          fixContinueInFlightRef.current = false
-          return
+      // Always resume with live Playwright so the browser panel stays synced
+      // to real step screenshots (not mock wireframes).
+      const live = await runStepsWithPlaywright(runId, stepsSnapshot, {
+        startIndex,
+        replaceSteps: true,
+      })
+
+      if (runIdRef.current !== runId) {
+        fixContinueInFlightRef.current = false
+        isRunningRef.current = false
+        return
+      }
+
+      let failedStep = live.failedStep
+      if (!live.usedLive) {
+        // Runner unavailable — fall back to local simulation, still advancing
+        // the panel step-by-step so UI state stays aligned with the timeline.
+        for (let i = startIndex; i < stepsSnapshot.length; i++) {
+          const step = stepsSnapshot[i]!
+          setSteps((prev) =>
+            prev.map((s, idx) => (idx === i ? { ...s, status: 'running' } : s)),
+          )
+          setBrowserFrame(getBrowserFrameForStep(step, i))
+          await delay(STEP_DELAY)
+          if (runIdRef.current !== runId) {
+            fixContinueInFlightRef.current = false
+            isRunningRef.current = false
+            return
+          }
+          setSteps((prev) =>
+            prev.map((s, idx) => (idx === i ? { ...s, status: 'done' } : s)),
+          )
         }
-        setSteps((prev) =>
-          prev.map((s, idx) => (idx === i ? { ...s, status: 'done' } : s)),
-        )
+        failedStep = null
+      } else if (failedStep) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `agent-fail-${failedStep!.stepIndex}`,
+            role: 'agent',
+            content: tf('stepFailedStopping', {
+              n: failedStep!.stepIndex + 1,
+              label: failedStep!.stepLabel,
+            }),
+          },
+        ])
       }
 
       if (runIdRef.current !== runId) {
         fixContinueInFlightRef.current = false
+        isRunningRef.current = false
         return
       }
 
-      lastFailedStepRef.current = null
+      if (!failedStep) lastFailedStepRef.current = null
       fixContinueInFlightRef.current = false
       isRunningRef.current = false
       setIsRunning(false)
       setEditMode(false)
-      setFixActionsResolved(true)
+      setFixActionsResolved(!failedStep)
       openPanel('monitoring')
-      setMessages((prev) => applyPostRunMessages(prev, journey, null, { locale }))
+      setMessages((prev) => applyPostRunMessages(prev, journey, failedStep, { locale }))
     },
-    [journey, locale, openPanel, hidePanel],
+    [journey, locale, openPanel, hidePanel, runStepsWithPlaywright, tf],
   )
 
   const runReplay = useCallback(async () => {
