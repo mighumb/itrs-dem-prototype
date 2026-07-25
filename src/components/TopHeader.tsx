@@ -274,7 +274,7 @@ export default function TopHeader({
             role="dialog"
             aria-modal="true"
             aria-labelledby={drawerTitleId}
-            className="absolute inset-y-0 left-0 flex w-[min(20rem,86vw)] flex-col bg-[var(--color-surface)] shadow-xl animate-fade-in"
+            className="absolute inset-y-0 left-0 flex w-[min(16rem,72vw)] flex-col bg-[var(--color-surface)] shadow-xl animate-fade-in"
           >
             <div className="flex items-center justify-between gap-3 px-4 py-4">
               {drawerView === 'settings' ? (
