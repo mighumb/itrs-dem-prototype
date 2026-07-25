@@ -225,7 +225,8 @@ Tu conserves le fil de la conversation (cible, décisions, params affichés, pla
 | UX = conventions ChatGPT / Claude / Gemini | Oui |
 | Analyse site réelle | Oui |
 | Propositions / questions : détail dans le flottant, message chat court | Oui |
-| Conversation d’abord (chaque message a une vraie réponse) ; forms optionnels | Oui |
+| Conversation d’abord (LLM naturel spécialisé DEM) ; forms optionnels | Oui |
+| Contexte site / explore seulement si le tour le demande (pas de pollution) | Oui |
 | Réponse calibrée : profondeur = demande ; phrases complètes ; pas de filler | Oui |
 | Pas de boucle de pitch (pas de ré-intro / CTA rituel à chaque tour) | Oui |
 | Cible claire → propose direct ; vague → chat ou 1–2 questions soft | Oui |
