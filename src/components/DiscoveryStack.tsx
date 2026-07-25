@@ -115,13 +115,21 @@ export default function DiscoveryStack({
                     onClick={() => onSelectOption?.(question.id, option)}
                     className={`flex w-full cursor-pointer items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm transition ${
                       selected
-                        ? 'bg-zinc-100 font-medium text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100'
+                        ? 'bg-[#0071e3]/12 font-medium text-zinc-900 dark:bg-[#0071e3]/20 dark:text-zinc-100'
                         : 'text-zinc-700 hover:bg-zinc-50 dark:text-zinc-300 dark:hover:bg-zinc-800/70'
                     }`}
                   >
-                    <span className="w-4 shrink-0 text-xs text-zinc-400">{index + 1}.</span>
+                    <span
+                      className={`w-4 shrink-0 text-xs ${
+                        selected ? 'text-[#0071e3]' : 'text-zinc-400'
+                      }`}
+                    >
+                      {index + 1}.
+                    </span>
                     <span className="min-w-0 flex-1">{option}</span>
-                    {selected && <ChevronRight size={14} className="shrink-0 text-zinc-400" />}
+                    {selected && (
+                      <ChevronRight size={14} className="shrink-0 text-[#0071e3]/70" aria-hidden />
+                    )}
                   </button>
                 )
               })}
@@ -178,7 +186,7 @@ export default function DiscoveryStack({
             }`}
           />
         </div>
-        {mode === 'questions' && (
+        {!otherText.trim() && mode === 'questions' && (
           <button
             type="button"
             onClick={onSkipQuestion}
@@ -187,7 +195,7 @@ export default function DiscoveryStack({
             {t('skip')}
           </button>
         )}
-        {mode === 'proposals' && !otherText.trim() && (
+        {!otherText.trim() && mode === 'proposals' && (
           <button
             type="button"
             onClick={onClose}
@@ -196,18 +204,18 @@ export default function DiscoveryStack({
             {t('skip')}
           </button>
         )}
-        {mode === 'proposals' && otherText.trim() && (
+        {otherText.trim() ? (
           <button
             type="button"
             onClick={() => {
               onSubmitOther?.(otherText.trim())
-              setOtherText('')
+              if (mode === 'proposals') setOtherText('')
             }}
             className="shrink-0 cursor-pointer rounded-xl bg-[#0071e3] px-3 py-2 text-sm font-medium text-white transition hover:bg-[#0077ed]"
           >
-            OK
+            {t('done')}
           </button>
-        )}
+        ) : null}
       </footer>
     </div>
   )

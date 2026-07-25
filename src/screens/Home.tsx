@@ -10,7 +10,6 @@ import { requestDiscoveryAi, type DiscoveryAiResult } from '../lib/discoveryAi'
 import type { JourneyLaunchSession } from '../lib/journeyLaunch'
 import { getHomeExamples, type HomeJourneyExample } from '../mock/data'
 import {
-  buildJourneyProposals,
   createDiscoveryContext,
   formatPlanMessage,
   hasExploitableContext,
@@ -324,19 +323,16 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
       if (ai.aborted) return
       rememberSnapshot(ai)
 
-      // Always surface a clickable proposal form — never leave the user typing a journey name.
-      const nextProposals =
-        ai.proposals && ai.proposals.length > 0
-          ? ai.proposals
-          : buildJourneyProposals(nextCtx, locale)
-      const agentMessage =
-        ai.proposals && ai.proposals.length > 0
-          ? ai.message
-          : t('journeysSuggested')
+      // Only open the floating form when Gemini returned real proposals — no mock fallback.
+      if (ai.proposals && ai.proposals.length > 0) {
+        setProposals(ai.proposals)
+        setPhase('proposals')
+        pushAgentReply(ai.message || t('journeysSuggested'))
+        return
+      }
 
-      setProposals(nextProposals)
-      setPhase('proposals')
-      pushAgentReply(agentMessage)
+      setPhase('conversation')
+      pushAgentReply(ai.message)
     })
   }
 
@@ -430,54 +426,16 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
       setQuestionIndex(questionIndex + 1)
       return
     }
-    // Last question: Passer = dismiss floating form → Gemini continues in chat.
-    void handleCloseStack()
+    // Last question skipped without validating the form → silent dismiss (no agent turn).
+    handleCloseStack()
   }
 
-  const handleCloseStack = async () => {
+  /** Close floating UI without treating it as a user message — agent stays silent. */
+  const handleCloseStack = () => {
     setConfiguring(false)
     setQuestions([])
     setProposals([])
     setPhase('conversation')
-    await withTyping(async (signal, onStatus) => {
-      const ai = await requestDiscoveryAi({
-        mode: 'chat',
-        userMessage: JSON.stringify({
-          action: 'dismiss_floating_ui',
-          reason: 'user_closed_floating_form',
-        }),
-        messages,
-        phase: 'conversation',
-        context: ctx,
-        preferredLanguage: locale,
-        signal,
-        onStatus,
-      })
-      if (ai.aborted) return
-      rememberSnapshot(ai)
-      if (ai.proposals && ai.proposals.length > 0) {
-        setProposals(ai.proposals)
-        setPhase('proposals')
-      } else if (ai.questions && ai.questions.length > 0) {
-        setQuestions(ai.questions)
-        setQuestionIndex(0)
-        setPhase('questionnaire')
-      }
-      if (ai.readyForPlan && ai.plan) {
-        const formatted = formatPlanMessage(ai.plan)
-        const content =
-          ai.message.includes('1.') || ai.message.includes('1)')
-            ? ai.message
-            : ai.message
-              ? `${ai.message}\n\n${formatted}`
-              : formatted
-        pushAgentReply(content)
-        setPlan(ai.plan)
-        setPhase('planning')
-        return
-      }
-      pushAgentReply(ai.message)
-    })
   }
 
   const handleSelectProposal = async (proposal: JourneyProposal) => {
