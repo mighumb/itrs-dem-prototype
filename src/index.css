@@ -10,6 +10,10 @@
   --color-accent-hover: #0077ed;
 }
 
+:root {
+  color-scheme: light;
+}
+
 .dark {
   color-scheme: dark;
   --color-surface: #0a0a0b;
