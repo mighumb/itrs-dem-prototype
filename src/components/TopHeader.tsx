@@ -266,9 +266,10 @@ export default function TopHeader({
                   type="button"
                   id={drawerTitleId}
                   onClick={() => setDrawerView('main')}
+                  aria-label={t('back')}
                   className="flex min-w-0 cursor-pointer items-center gap-1.5 text-sm font-semibold text-zinc-900 dark:text-zinc-100"
                 >
-                  <ChevronLeft size={18} className="shrink-0 text-zinc-500" />
+                  <ChevronLeft size={18} className="shrink-0 text-zinc-500" aria-hidden />
                   <span className="truncate">{t('settings')}</span>
                 </button>
               ) : (
