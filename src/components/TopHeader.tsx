@@ -260,12 +260,16 @@ export default function TopHeader({
         </button>
       </header>
 
-      {/* —— Mobile drawer —— */}
+      {/* —— Mobile drawer ——
+          Safari 26+ tints the browser chrome from fixed layers near the viewport
+          edges. A full-bleed dark scrim would paint the tab bar black — so the
+          panel stays the only painted fixed surface; dimming uses its box-shadow,
+          and the dismiss hit-target to the right has no background. */}
       {drawerOpen ? (
-        <div className="fixed inset-0 z-50 md:hidden">
+        <>
           <button
             type="button"
-            className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+            className="fixed bottom-0 right-0 top-0 left-[min(16rem,72vw)] z-50 cursor-pointer md:hidden"
             aria-label={t('dismiss')}
             onClick={closeDrawer}
           />
@@ -274,7 +278,11 @@ export default function TopHeader({
             role="dialog"
             aria-modal="true"
             aria-labelledby={drawerTitleId}
-            className="absolute inset-y-0 left-0 flex w-[min(16rem,72vw)] flex-col bg-[var(--color-surface)] shadow-xl animate-fade-in"
+            className="fixed inset-y-0 left-0 z-50 flex w-[min(16rem,72vw)] flex-col bg-[var(--color-surface)] animate-fade-in md:hidden"
+            style={{
+              boxShadow:
+                '4px 0 24px rgb(0 0 0 / 0.12), 0 0 0 100vmax rgb(0 0 0 / 0.4)',
+            }}
           >
             <div className="flex items-center justify-between gap-3 px-4 py-4">
               {drawerView === 'settings' ? (
@@ -355,7 +363,7 @@ export default function TopHeader({
               </div>
             )}
           </nav>
-        </div>
+        </>
       ) : null}
     </>
   )
