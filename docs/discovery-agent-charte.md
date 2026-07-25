@@ -225,7 +225,8 @@ Tu conserves le fil de la conversation (cible, décisions, params affichés, pla
 | UX = conventions ChatGPT / Claude / Gemini | Oui |
 | Analyse site réelle | Oui |
 | Propositions / questions : détail dans le flottant, message chat court | Oui |
-| Cible claire → propose direct ; vague → 1–2 questions soft | Oui |
+| Conversation d’abord (chaque message a une vraie réponse) ; forms optionnels | Oui |
+| Cible claire → propose direct ; vague → chat ou 1–2 questions soft | Oui |
 | Charte versionnée dans GitHub (`docs/`) | Oui |
 | System prompt EN | Fait — `api/_lib/discoverySystemPrompt.ts` |
 | Analyse site réelle | Fait — Playwright explore (`exploreSite.ts`) + fallback HTTP (`analyzeSite.ts`) |
@@ -234,7 +235,7 @@ Tu conserves le fil de la conversation (cible, décisions, params affichés, pla
 | Send → Stop | Fait — AbortController + bouton stop |
 | Trace condensée | Fait — STATUS Gemini + statuts explore/dry-run serveur |
 | Exemples d’accueil | Cartes entreprise (logo + nom + titre de parcours) → Gemini mode `configure` ; params demandés seulement si nécessaires — pas de plan template local |
-| Fermer / Passer (fin) le flottant | Réponse Gemini (`dismiss_floating_ui`) — plus de message i18n scripté |
+| Fermer / Passer (fin) le flottant sans valider | Silence — pas de tour agent (le form ne compte que s’il est soumis) |
 | Hors ligne / API down | Message d’indisponibilité honnête — plus de mock Discovery scripté |
 | Chat NewJourney (workspace) | Fait — mode `iterate` Gemini (plus de `mock/agentChat`) |
 | Hors-sujet bénin → réponse courte + pivot monitoring malin | Fait — prompt + charte |
