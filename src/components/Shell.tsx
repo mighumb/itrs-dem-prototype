@@ -21,7 +21,7 @@ export default function Shell({ children, minimal, onHome }: ShellProps) {
   const { t } = useLocale()
 
   if (minimal) {
-    return <div className="h-full">{children}</div>
+    return <div className="h-full min-h-0 overflow-hidden">{children}</div>
   }
 
   return (

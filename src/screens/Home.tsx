@@ -776,7 +776,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
 
   if (!inSession) {
     return (
-      <div className="flex min-h-full flex-col items-center justify-center px-6 py-16">
+      <div className="flex h-full min-h-0 touch-pan-y flex-col items-center justify-center overflow-y-auto overscroll-y-contain px-6 py-16">
         <div className="w-full max-w-2xl animate-fade-in">
           {userName && userName !== 'there' ? (
             <p className="mb-3 text-center text-sm text-zinc-400 dark:text-zinc-500">
@@ -829,7 +829,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
   return (
     <div className="flex h-full min-h-0 flex-col animate-fade-in">
       {/* One full-height scrollport so the scrollbar runs to the bottom of the input */}
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-y-contain">
         <div className="mx-auto flex min-h-full w-full max-w-2xl flex-col px-6 pt-8">
           <div className="mt-auto space-y-4 pb-4">
             {messages.map((message) => (
@@ -843,7 +843,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
             <div ref={chatEndRef} />
           </div>
 
-          <div className="sticky bottom-0 z-10 flex flex-col gap-2 bg-[var(--color-surface)] pb-6 pt-2">
+          <div className="sticky bottom-0 z-10 flex max-h-[min(70dvh,100%)] flex-col gap-2 overflow-x-hidden bg-[var(--color-surface)] pb-6 pt-2">
             {showStack && phase === 'questionnaire' && (
               <DiscoveryStack
                 mode="questions"
