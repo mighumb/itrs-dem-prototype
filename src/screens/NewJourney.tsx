@@ -187,7 +187,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
       if (scheduleResolvedRef.current) return
       scheduleResolvedRef.current = true
       setScheduleResolved(true)
-      const summary = scheduleSummary(schedule)
+      const summary = scheduleSummary(schedule, locale)
       setMessages((prev) => [
         ...prev,
         { id: 'user-custom', role: 'user', content: summary },
@@ -1217,7 +1217,10 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
         <div className="border-t border-zinc-200/80 px-3 py-2 dark:border-zinc-800 md:hidden">
           <div className="mb-1">
             <p className="text-xs font-medium text-zinc-400">
-              {steps.filter((s) => s.status === 'done').length} / {steps.length} steps
+              {tf('stepsProgress', {
+                done: steps.filter((s) => s.status === 'done').length,
+                total: steps.length,
+              })}
             </p>
           </div>
           <div className="flex gap-1 overflow-x-auto pb-1">

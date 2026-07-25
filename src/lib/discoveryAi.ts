@@ -4,6 +4,7 @@ import type {
   DiscoveryQuestion,
   JourneyProposal,
 } from '../mock/discovery'
+import { t, type Locale } from '../i18n/messages'
 import type { ChatMessage } from '../types'
 
 export type DiscoveryAiMode = 'bootstrap' | 'chat' | 'propose' | 'configure' | 'plan' | 'iterate'
@@ -154,12 +155,10 @@ function stripEnumeratedListFromMessage(message: string): string {
     .trim()
 }
 
-function frameMessageForProposals(locale: 'en' | 'fr', existing: string): string {
+function frameMessageForProposals(locale: Locale, existing: string): string {
   const cleaned = stripEnumeratedListFromMessage(existing)
   if (cleaned && cleaned.length <= 280) return cleaned
-  return locale === 'fr'
-    ? 'Voici les parcours que je te propose — choisis dans le formulaire ci-dessous.'
-    : 'Here are the journeys I suggest — pick one in the form below.'
+  return t(locale, 'journeysSuggested')
 }
 
 /** Normalize + recover proposals/questions so the floating clickable UI can open. */
@@ -254,12 +253,9 @@ function normalizeSiteAnalysis(raw: unknown): SiteAnalysisInfo | null {
 }
 
 /** Honest outage notice — no scripted questionnaire / proposals / plans. */
-function geminiUnavailable(preferredLanguage: 'en' | 'fr'): DiscoveryAiResult {
+function geminiUnavailable(preferredLanguage: Locale): DiscoveryAiResult {
   return {
-    message:
-      preferredLanguage === 'fr'
-        ? 'L’assistant est indisponible pour le moment. Réessaie dans un instant — je ne peux pas inventer un parcours hors ligne.'
-        : 'The assistant is unavailable right now. Try again in a moment — I won’t invent an offline journey.',
+    message: t(preferredLanguage, 'assistantUnavailable'),
     workTrace: null,
     questions: null,
     proposals: null,

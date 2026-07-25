@@ -56,7 +56,7 @@ export default function App() {
   }
 
   const handleAgentNavigate = (target: string) => {
-    if (target === 'Create a new journey') {
+    if (target === 'new-journey' || target === 'Create a new journey') {
       handleGoHome()
     }
   }

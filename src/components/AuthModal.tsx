@@ -1,4 +1,5 @@
 import { X } from 'lucide-react'
+import { useLocale } from '../context/LocaleContext'
 
 export type AuthMode = 'login' | 'signup'
 
@@ -17,6 +18,7 @@ export default function AuthModal({
   onSuccess,
   onSwitchMode,
 }: AuthModalProps) {
+  const { t } = useLocale()
   if (!open) return null
 
   const isLogin = mode === 'login'
@@ -30,11 +32,12 @@ export default function AuthModal({
       >
         <div className="mb-1 flex items-start justify-between">
           <h2 className="text-lg font-semibold tracking-tight dark:text-zinc-100">
-            {isLogin ? 'Log in' : 'Create account'}
+            {isLogin ? t('logIn') : t('createAccount')}
           </h2>
           <button
             type="button"
             onClick={onClose}
+            aria-label={t('dismiss')}
             className="cursor-pointer rounded-lg p-1 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
           >
             <X size={18} />
@@ -42,9 +45,7 @@ export default function AuthModal({
         </div>
 
         <p className="mb-6 text-sm leading-relaxed text-zinc-500">
-          {isLogin
-            ? 'Welcome back — pick up where you left off.'
-            : 'Start monitoring your journeys for free.'}
+          {isLogin ? t('authWelcomeBack') : t('authSignupBody')}
         </p>
 
         <form
@@ -57,31 +58,31 @@ export default function AuthModal({
           <input
             type="email"
             required
-            placeholder="Work email"
+            placeholder={t('workEmail')}
             className="w-full rounded-xl border border-zinc-200 px-3.5 py-2.5 text-sm outline-none transition focus:border-[#0071e3] focus:ring-2 focus:ring-[#0071e3]/20 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
           />
           <input
             type="password"
             required
-            placeholder="Password"
+            placeholder={t('password')}
             className="w-full rounded-xl border border-zinc-200 px-3.5 py-2.5 text-sm outline-none transition focus:border-[#0071e3] focus:ring-2 focus:ring-[#0071e3]/20 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
           />
           <button
             type="submit"
             className="w-full cursor-pointer rounded-xl bg-[#0071e3] py-2.5 text-sm font-medium text-white transition hover:bg-[#0077ed]"
           >
-            {isLogin ? 'Log in' : 'Create account'}
+            {isLogin ? t('logIn') : t('createAccount')}
           </button>
         </form>
 
         <p className="mt-4 text-center text-sm text-zinc-500">
-          {isLogin ? "Don't have an account?" : 'Already have an account?'}{' '}
+          {isLogin ? t('noAccountYet') : t('alreadyHaveAccount')}{' '}
           <button
             type="button"
             onClick={() => onSwitchMode(isLogin ? 'signup' : 'login')}
             className="cursor-pointer font-medium text-[#0071e3] hover:underline"
           >
-            {isLogin ? 'Create account' : 'Log in'}
+            {isLogin ? t('createAccount') : t('logIn')}
           </button>
         </p>
       </div>

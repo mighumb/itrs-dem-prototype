@@ -332,9 +332,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
       const agentMessage =
         ai.proposals && ai.proposals.length > 0
           ? ai.message
-          : locale === 'fr'
-            ? 'Voici les parcours que je te propose — choisis dans le formulaire ci-dessous.'
-            : 'Here are the journeys I suggest — pick one in the form below.'
+          : t('journeysSuggested')
 
       setProposals(nextProposals)
       setPhase('proposals')
@@ -372,7 +370,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
         {
           title: nextCtx.selectedProposal.title,
           summary: nextCtx.selectedProposal.description,
-          steps: [{ label: nextCtx.selectedProposal.title, action: 'Prepare journey' }],
+          steps: [{ label: nextCtx.selectedProposal.title, action: t('prepareJourney') }],
           prompt: promptWithParams,
         },
         undefined,

@@ -22,6 +22,7 @@ export default function BookDemoModal({ open, onClose }: BookDemoModalProps) {
           <button
             type="button"
             onClick={onClose}
+            aria-label={t('dismiss')}
             className="cursor-pointer rounded-lg p-1 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-600"
           >
             <X size={18} />

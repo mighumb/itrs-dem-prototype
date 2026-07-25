@@ -129,11 +129,11 @@ export default function JourneyTimeline({
     if (!onStepsChange) return
     const newStep: JourneyStep = {
       id: `step-${Date.now()}`,
-      label: 'New step',
+      label: t('newStep'),
       action: 'Click',
       status: 'pending',
       duration: defaultStepDurationForAction('Click'),
-      target: defaultTargetForStep('Click', 'New step'),
+      target: defaultTargetForStep('Click', t('newStep')),
       timeout: defaultTimeoutForAction('Click'),
     }
     onStepsChange([...steps, newStep])
@@ -380,7 +380,7 @@ export default function JourneyTimeline({
               {isSelected && (
                 <div className="mt-1.5 space-y-2 rounded-xl border border-zinc-200/80 bg-zinc-50/50 p-3 dark:border-zinc-700/80 dark:bg-zinc-800/40">
                   <label className="block">
-                    <span className="text-[10px] font-medium text-zinc-500">Label</span>
+                    <span className="text-[10px] font-medium text-zinc-500">{t('stepLabel')}</span>
                     <input
                       type="text"
                       value={step.label}
@@ -389,7 +389,7 @@ export default function JourneyTimeline({
                     />
                   </label>
                   <label className="block">
-                    <span className="text-[10px] font-medium text-zinc-500">Action</span>
+                    <span className="text-[10px] font-medium text-zinc-500">{t('stepAction')}</span>
                     <select
                       value={step.action}
                       onChange={(e) => {
@@ -405,7 +405,15 @@ export default function JourneyTimeline({
                     >
                       {ACTION_OPTIONS.map((action) => (
                         <option key={action} value={action}>
-                          {action}
+                          {t(
+                            action === 'Navigate'
+                              ? 'actionNavigate'
+                              : action === 'Click'
+                                ? 'actionClick'
+                                : action === 'Type'
+                                  ? 'actionType'
+                                  : 'actionVerify',
+                          )}
                         </option>
                       ))}
                     </select>
@@ -422,12 +430,12 @@ export default function JourneyTimeline({
                     ) : (
                       <ChevronRight size={12} />
                     )}
-                    Technical details
+                    {t('technicalDetails')}
                   </button>
                   {expandedTech === step.id && (
                     <div className="space-y-2 rounded-lg border border-zinc-200/80 bg-white p-2.5 text-[10px] text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400">
                       <label className="block">
-                        <span className="font-medium text-zinc-500">Target</span>
+                        <span className="font-medium text-zinc-500">{t('stepTarget')}</span>
                         <input
                           type="text"
                           value={step.target ?? defaultTargetForStep(step.action, step.label)}
@@ -436,7 +444,7 @@ export default function JourneyTimeline({
                         />
                       </label>
                       <label className="block">
-                        <span className="font-medium text-zinc-500">Timeout</span>
+                        <span className="font-medium text-zinc-500">{t('stepTimeout')}</span>
                         <input
                           type="text"
                           value={step.timeout ?? defaultTimeoutForAction(step.action)}
@@ -459,7 +467,7 @@ export default function JourneyTimeline({
           onClick={addStep}
           className="mt-3 w-full cursor-pointer rounded-xl border border-dashed border-zinc-300 py-2.5 text-xs font-medium text-zinc-500 transition hover:border-zinc-400 hover:bg-zinc-50 dark:border-zinc-600 dark:text-zinc-400 dark:hover:border-zinc-500 dark:hover:bg-zinc-800/50"
         >
-          + Add step
+          {t('addStep')}
         </button>
       )}
     </div>
