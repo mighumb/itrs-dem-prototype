@@ -48,10 +48,17 @@ export default function BrowserPanel({ frame, isRunning, embedded }: BrowserPane
           </div>
         ) : hasScreenshot ? (
           <img
+            key={frame.screenshotDataUrl}
             src={frame.screenshotDataUrl}
             alt={frame.title || frame.url || t('browserScreenshotAlt')}
             className="h-full w-full object-contain object-top bg-white"
           />
+        ) : isRunning ? (
+          <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
+            <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-500" />
+            <p className="text-sm font-medium text-zinc-500">{frame.title || t('live')}</p>
+            <p className="max-w-xs text-xs text-zinc-400">{t('browserPreviewHint')}</p>
+          </div>
         ) : (
           <>
             <div className="absolute inset-4 overflow-hidden rounded-lg bg-white">
