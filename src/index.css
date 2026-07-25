@@ -30,6 +30,8 @@ html,
 body,
 #root {
   height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
 }
 
 /* Explicit paint so Safari chrome fallback matches the UI surface. */
@@ -43,6 +45,8 @@ body {
   -webkit-font-smoothing: antialiased;
   background-color: var(--color-surface);
   color: #1d1d1f;
+  /* Nested panes own scroll — avoid document rubber-band / sideways pan. */
+  touch-action: manipulation;
 }
 
 .dark body {

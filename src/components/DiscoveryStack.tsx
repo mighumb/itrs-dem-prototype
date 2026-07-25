@@ -61,8 +61,8 @@ export default function DiscoveryStack({
   }, [mode, questionIndex, question?.id, savedForQuestion, optionKey])
 
   return (
-    <div className="animate-fade-in w-full overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-[0_8px_30px_rgb(0,0,0,0.06)] dark:border-zinc-700 dark:bg-zinc-900 dark:shadow-black/40">
-      <header className="flex items-center gap-2 border-b border-zinc-100 px-3.5 py-2.5 dark:border-zinc-800">
+    <div className="animate-fade-in flex max-h-[min(48dvh,22rem)] w-full flex-col overflow-hidden overscroll-contain rounded-2xl border border-zinc-200 bg-white shadow-[0_8px_30px_rgb(0,0,0,0.06)] md:max-h-[min(60vh,28rem)] dark:border-zinc-700 dark:bg-zinc-900 dark:shadow-black/40">
+      <header className="flex shrink-0 items-center gap-2 border-b border-zinc-100 px-3.5 py-2.5 dark:border-zinc-800">
         <p className="min-w-0 flex-1 truncate text-sm font-medium text-zinc-800 dark:text-zinc-100">
           {title}
         </p>
@@ -101,7 +101,7 @@ export default function DiscoveryStack({
         </button>
       </header>
 
-      <div className="p-2">
+      <div className="min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-y-contain p-2">
         {mode === 'questions' && question && (
           <>
             <p className="px-2 pb-2 pt-1 text-sm text-zinc-600 dark:text-zinc-300">{question.prompt}</p>
@@ -162,7 +162,7 @@ export default function DiscoveryStack({
         )}
       </div>
 
-      <footer className="flex items-center gap-2 border-t border-zinc-100 px-3 py-2.5 dark:border-zinc-800">
+      <footer className="flex shrink-0 items-center gap-2 border-t border-zinc-100 px-3 py-2.5 dark:border-zinc-800">
         <div className="relative min-w-0 flex-1">
           <Pencil
             size={13}

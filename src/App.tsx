@@ -86,7 +86,7 @@ export default function App() {
   }
 
   return (
-    <div className="flex h-[100dvh] flex-col">
+    <div className="flex h-[100dvh] max-h-[100dvh] flex-col overflow-hidden overscroll-none">
       {!accountCreated && (
         <TopHeader
           onLogIn={() => openAuth('login')}
@@ -98,7 +98,7 @@ export default function App() {
         />
       )}
 
-      <div className="min-h-0 flex-1">
+      <div className="min-h-0 flex-1 overflow-hidden overscroll-none">
         <Shell minimal={!accountCreated} onHome={handleGoHome}>
         {screen === 'home' && (
           <Home

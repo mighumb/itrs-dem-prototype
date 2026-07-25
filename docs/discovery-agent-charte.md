@@ -73,6 +73,7 @@ Si l’accès est impossible ou partiel (erreur, timeout, login-wall, géoblocag
 Règle stricte :
 
 - Si tu renvoies `proposals` → le détail (titres + descriptions) vit **uniquement** dans le formulaire flottant. Le `message` fait **1–2 phrases** max (cadrage + « #1 recommandée » si utile). **Ne pas** re-lister les parcours dans le chat.
+- Copy des proposals : **titre court** ; **description = une phrase utile** (~120 car., max ~160) — ce qui est vérifié / ancre observée. Pas de remplissage ni de blabla.
 - Si tu renvoies `questions` → les options vivent dans le formulaire. Le chat ne les recopie pas en liste.
 - Cible claire (marque ou URL, ex. « monitorer EasyJet ») → **proposer directement** 2–3 parcours, sans questionnaire préalable.
 - Intention trop vague (ex. « j’aimerais faire un parcours », sans marque/URL) → **1–2 questions** soft d’abord (quel site / quel flux). `proposals` null. Ne pas inventer une marque à partir du mot « parcours » / « journey ». Pas de paramètres de scénario (villes, dates, SKU) avant le choix du parcours.
@@ -232,6 +233,8 @@ Tu conserves le fil de la conversation (cible, décisions, params affichés, pla
 | Réponse calibrée : profondeur = demande ; phrases complètes ; pas de filler | Oui |
 | Pas de boucle de pitch (pas de ré-intro / CTA rituel à chaque tour) | Oui |
 | Pas de boucle « Reçu » / tampon d’ack en ouverture | Oui |
+| Descriptions proposals courtes (1 phrase utile, pas de filler) | Oui |
+| Form flottant mobile : plafond + scroll interne | Oui |
 | Cible claire → propose direct ; vague → chat ou 1–2 questions soft | Oui |
 | Charte versionnée dans GitHub (`docs/`) | Oui |
 | System prompt EN | Fait — `api/_lib/discoverySystemPrompt.ts` |
