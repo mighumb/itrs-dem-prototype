@@ -272,6 +272,22 @@ export function looksLikeHttpUrl(text: string): boolean {
   return /https?:\/\/[^\s]+/i.test(text) || /\b[a-z0-9-]+\.[a-z]{2,}(?:\/|\b)/i.test(text)
 }
 
+/** Client mirror of server gate: only send site evidence when this turn needs it. */
+export function messageRequestsSiteWork(text: string): boolean {
+  const t = text.trim()
+  if (!t) return false
+  if (/https?:\/\/[^\s]+/i.test(t)) return true
+  if (/\b(?:www\.)?[a-z0-9][a-z0-9-]*\.[a-z]{2,}(?:\/[^\s]*)?\b/i.test(t)) return true
+  if (
+    /\b(?:monitor(?:er|ing)?|surveill(?:er|ance)?|parcours(?:\s+(?:sur|pour))?|journey(?:\s+(?:on|for))?|check(?:er)?)\s+[\wÀ-ü][\wÀ-ü&'.-]{1,}/i.test(
+      t,
+    )
+  ) {
+    return true
+  }
+  return false
+}
+
 export async function requestDiscoveryAi(options: {
   mode: DiscoveryAiMode
   userMessage: string
@@ -343,18 +359,39 @@ export async function requestDiscoveryAi(options: {
                 prompt: context.selectedProposal.prompt,
               }
             : null,
-        context: context
-          ? {
-              seed: context.seed,
-              url: context.url,
-              answers: context.answers,
-              selectedProposalId: context.selectedProposalId,
-              pageSnapshot: context.pageSnapshot ?? null,
+        context: (() => {
+          const attachSite =
+            mode === 'propose' ||
+            mode === 'configure' ||
+            mode === 'plan' ||
+            mode === 'iterate' ||
+            messageRequestsSiteWork(userMessage)
+          if (!context) {
+            return { preferredLanguage, journeyName, currentSteps }
+          }
+          if (!attachSite) {
+            return {
               preferredLanguage,
               journeyName,
               currentSteps,
+              answers: context.answers,
+              selectedProposalId: context.selectedProposalId,
+              seed: null,
+              url: null,
+              pageSnapshot: null,
             }
-          : { preferredLanguage, journeyName, currentSteps },
+          }
+          return {
+            seed: context.seed,
+            url: context.url,
+            answers: context.answers,
+            selectedProposalId: context.selectedProposalId,
+            pageSnapshot: context.pageSnapshot ?? null,
+            preferredLanguage,
+            journeyName,
+            currentSteps,
+          }
+        })(),
       }),
     })
 

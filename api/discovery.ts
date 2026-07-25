@@ -46,6 +46,32 @@ type DiscoveryAiRequest = {
   }
 }
 
+/** True when this turn should resolve/crawl a site — not on casual chat. */
+function messageRequestsSiteWork(text: string): boolean {
+  const t = text.trim()
+  if (!t) return false
+  if (/https?:\/\/[^\s]+/i.test(t)) return true
+  if (/\b(?:www\.)?[a-z0-9][a-z0-9-]*\.[a-z]{2,}(?:\/[^\s]*)?\b/i.test(t)) return true
+  // "monitor EasyJet", "surveiller Amazon", "parcours Club Med"
+  if (
+    /\b(?:monitor(?:er|ing)?|surveill(?:er|ance)?|parcours(?:\s+(?:sur|pour))?|journey(?:\s+(?:on|for))?|check(?:er)?)\s+[\wÀ-ü][\wÀ-ü&'.-]{1,}/i.test(
+      t,
+    )
+  ) {
+    return true
+  }
+  return false
+}
+
+function shouldAttachSiteEvidence(body: DiscoveryAiRequest): boolean {
+  if (/\brelocalize_ui\b/.test(body.userMessage)) return false
+  if (['propose', 'configure', 'plan', 'iterate'].includes(body.mode)) return true
+  if (body.mode === 'bootstrap' || body.mode === 'chat') {
+    return messageRequestsSiteWork(body.userMessage)
+  }
+  return false
+}
+
 function buildUserPrompt(
   body: DiscoveryAiRequest,
   analysis: SiteAnalysisResult | null,
@@ -54,31 +80,48 @@ function buildUserPrompt(
 ): string {
   const preferredLanguage =
     body.preferredLanguage ?? body.context?.preferredLanguage ?? 'en'
+  const attachSite = shouldAttachSiteEvidence(body)
+  const base = body.context ?? {}
 
-  const context = {
-    ...(body.context ?? {}),
-    preferredLanguage,
-    url: analysis?.url ?? target?.url ?? body.context?.url ?? null,
-    pageSnapshot: analysis?.snapshot ?? body.context?.pageSnapshot ?? null,
-    siteTarget: target
-      ? {
-          url: target.url,
-          source: target.source,
-          label: target.label,
-          note: target.note,
-        }
-      : null,
-    siteAnalysis: analysis
-      ? {
-          ok: analysis.ok,
-          url: analysis.url,
-          reason: analysis.reason,
-          title: analysis.title,
-          status: analysis.status,
-        }
-      : null,
-    siteExplore: siteExplorePromptView(explore),
-  }
+  const context = attachSite
+    ? {
+        ...base,
+        preferredLanguage,
+        url: analysis?.url ?? target?.url ?? base.url ?? null,
+        pageSnapshot: analysis?.snapshot ?? base.pageSnapshot ?? null,
+        siteTarget: target
+          ? {
+              url: target.url,
+              source: target.source,
+              label: target.label,
+              note: target.note,
+            }
+          : null,
+        siteAnalysis: analysis
+          ? {
+              ok: analysis.ok,
+              url: analysis.url,
+              reason: analysis.reason,
+              title: analysis.title,
+              status: analysis.status,
+            }
+          : null,
+        siteExplore: siteExplorePromptView(explore),
+      }
+    : {
+        // Conversational turn: no leftover seed/url/explore — avoids site hallucinations.
+        preferredLanguage,
+        answers: base.answers ?? {},
+        selectedProposalId: base.selectedProposalId ?? null,
+        journeyName: base.journeyName ?? null,
+        currentSteps: base.currentSteps ?? null,
+        seed: null,
+        url: null,
+        pageSnapshot: null,
+        siteTarget: null,
+        siteAnalysis: null,
+        siteExplore: null,
+      }
 
   return JSON.stringify(
     {
@@ -216,6 +259,10 @@ async function resolveTargetOnly(
   body: DiscoveryAiRequest,
   apiKeys: string[],
 ): Promise<ResolvedSiteTarget | null> {
+  if (!shouldAttachSiteEvidence(body)) {
+    return null
+  }
+
   if (body.context?.pageSnapshot) {
     const existing = body.context?.url ?? null
     return existing
@@ -234,11 +281,15 @@ async function resolveTargetOnly(
     return null
   }
 
-  const seedText = [body.userMessage, body.context?.seed].filter(Boolean).join(' — ')
+  // bootstrap/chat: resolve from THIS message only (never glue leftover seed).
+  // Journey modes may still use seed + message.
+  const seedText = ['propose', 'configure', 'plan', 'iterate'].includes(body.mode)
+    ? [body.userMessage, body.context?.seed].filter(Boolean).join(' — ')
+    : body.userMessage
 
   return resolveSiteTarget(seedText, {
     apiKeys,
-    existingUrl: body.context?.url,
+    existingUrl: body.context?.url ?? null,
     preferredLanguage: body.preferredLanguage ?? body.context?.preferredLanguage ?? null,
   })
 }
@@ -248,6 +299,10 @@ async function gatherSiteEvidence(
   target: ResolvedSiteTarget | null,
   onStatus: (text: string) => void,
 ): Promise<{ analysis: SiteAnalysisResult | null; explore: SiteExploreResult | null }> {
+  if (!shouldAttachSiteEvidence(body)) {
+    return { analysis: null, explore: null }
+  }
+
   // Cached evidence from a prior turn — do not re-crawl.
   if (body.context?.pageSnapshot) {
     const url = body.context.url ?? target?.url ?? ''
