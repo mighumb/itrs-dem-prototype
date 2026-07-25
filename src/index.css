@@ -12,6 +12,8 @@
 
 :root {
   color-scheme: light;
+  --app-height: 100dvh;
+  --app-offset-top: 0px;
 }
 
 .dark {

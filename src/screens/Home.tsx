@@ -828,10 +828,10 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
 
   return (
     <div className="flex h-full min-h-0 flex-col animate-fade-in">
-      {/* One full-height scrollport so the scrollbar runs to the bottom of the input */}
-      <div className="min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-y-contain">
-        <div className="mx-auto flex min-h-full w-full max-w-2xl flex-col px-6 pt-8">
-          <div className="mt-auto space-y-4 pb-4">
+      {/* Messages scroll; form + composer stay in a fixed footer (avoids sticky+keyboard break). */}
+      <div className="min-h-0 flex-1 touch-pan-y overflow-x-hidden overflow-y-auto overscroll-y-contain">
+        <div className="mx-auto flex w-full max-w-2xl flex-col justify-end px-6 pt-8 pb-4" style={{ minHeight: '100%' }}>
+          <div className="space-y-4">
             {messages.map((message) => (
               <AgentMessage key={message.id} message={message} hideActions />
             ))}
@@ -842,53 +842,53 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
             )}
             <div ref={chatEndRef} />
           </div>
-
-          <div className="sticky bottom-0 z-10 flex max-h-[min(70dvh,100%)] flex-col gap-2 overflow-x-hidden bg-[var(--color-surface)] pb-6 pt-2">
-            {showStack && phase === 'questionnaire' && (
-              <DiscoveryStack
-                mode="questions"
-                title={configuring ? t('configureJourney') : t('refineJourney')}
-                questions={questions}
-                questionIndex={questionIndex}
-                answers={ctx?.answers}
-                onQuestionIndexChange={setQuestionIndex}
-                onSelectOption={(id, option) => void handleSelectOption(id, option)}
-                onSkipQuestion={() => void handleSkipQuestion()}
-                onClose={handleCloseStack}
-                onSubmitOther={(text) => void handleOther(text)}
-              />
-            )}
-
-            {showStack && phase === 'proposals' && (
-              <DiscoveryStack
-                mode="proposals"
-                title={t('chooseJourney')}
-                proposals={proposals}
-                onClose={handleCloseStack}
-                onSelectProposal={(proposal) => void handleSelectProposal(proposal)}
-                onSubmitOther={(text) => void handleOther(text)}
-              />
-            )}
-
-            {showRun && (
-              <div className="flex items-center gap-3 rounded-2xl border border-zinc-200 bg-white px-3.5 py-2.5 dark:border-zinc-700 dark:bg-zinc-900">
-                <p className="min-w-0 flex-1 text-sm text-zinc-600 dark:text-zinc-300">
-                  {t('readyToRun')}
-                </p>
-                <button
-                  type="button"
-                  onClick={handleRun}
-                  className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full bg-[#0071e3] px-4 py-1.5 text-sm font-semibold text-white transition hover:bg-[#0077ed]"
-                >
-                  <Play size={12} fill="currentColor" />
-                  {t('run')}
-                </button>
-              </div>
-            )}
-
-            {composer}
-          </div>
         </div>
+      </div>
+
+      <div className="mx-auto flex w-full max-w-2xl shrink-0 flex-col gap-2 overflow-x-hidden bg-[var(--color-surface)] px-6 pt-2 pb-[max(1rem,env(safe-area-inset-bottom))]">
+        {showStack && phase === 'questionnaire' && (
+          <DiscoveryStack
+            mode="questions"
+            title={configuring ? t('configureJourney') : t('refineJourney')}
+            questions={questions}
+            questionIndex={questionIndex}
+            answers={ctx?.answers}
+            onQuestionIndexChange={setQuestionIndex}
+            onSelectOption={(id, option) => void handleSelectOption(id, option)}
+            onSkipQuestion={() => void handleSkipQuestion()}
+            onClose={handleCloseStack}
+            onSubmitOther={(text) => void handleOther(text)}
+          />
+        )}
+
+        {showStack && phase === 'proposals' && (
+          <DiscoveryStack
+            mode="proposals"
+            title={t('chooseJourney')}
+            proposals={proposals}
+            onClose={handleCloseStack}
+            onSelectProposal={(proposal) => void handleSelectProposal(proposal)}
+            onSubmitOther={(text) => void handleOther(text)}
+          />
+        )}
+
+        {showRun && (
+          <div className="flex items-center gap-3 rounded-2xl border border-zinc-200 bg-white px-3.5 py-2.5 dark:border-zinc-700 dark:bg-zinc-900">
+            <p className="min-w-0 flex-1 text-sm text-zinc-600 dark:text-zinc-300">
+              {t('readyToRun')}
+            </p>
+            <button
+              type="button"
+              onClick={handleRun}
+              className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full bg-[#0071e3] px-4 py-1.5 text-sm font-semibold text-white transition hover:bg-[#0077ed]"
+            >
+              <Play size={12} fill="currentColor" />
+              {t('run')}
+            </button>
+          </div>
+        )}
+
+        {composer}
       </div>
     </div>
   )
