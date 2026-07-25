@@ -1,5 +1,5 @@
-import { ChevronDown, Moon, Sun } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { Menu, Moon, Sun, X } from 'lucide-react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { useLocale } from '../context/LocaleContext'
 import { useTheme } from '../context/ThemeContext'
 
@@ -12,143 +12,292 @@ interface TopHeaderProps {
   journeySubtitle?: string
 }
 
+function BrandMark({
+  theme,
+  className = '',
+}: {
+  theme: 'light' | 'dark'
+  className?: string
+}) {
+  // Light UI → dark glyph; dark UI → light glyph (assets named for the mode they serve).
+  const src =
+    theme === 'dark' ? '/itrs-favicon-dark-mode.svg' : '/itrs-favicon-light-mode.svg'
+  return (
+    <img
+      src={src}
+      alt=""
+      width={22}
+      height={21}
+      className={`h-[22px] w-[22px] shrink-0 ${className}`}
+      draggable={false}
+    />
+  )
+}
+
 export default function TopHeader({
   onLogIn,
-  onSignUp,
+  onSignUp: _onSignUp,
   onBookDemo,
   onHome,
   journeyTitle,
   journeySubtitle,
 }: TopHeaderProps) {
-  const [menuOpen, setMenuOpen] = useState(false)
-  const menuRef = useRef<HTMLDivElement>(null)
+  const [drawerOpen, setDrawerOpen] = useState(false)
+  const drawerTitleId = useId()
+  const closeBtnRef = useRef<HTMLButtonElement>(null)
   const { theme, toggleTheme } = useTheme()
   const { t, locale, setLocale } = useLocale()
 
   useEffect(() => {
-    if (!menuOpen) return
-    const handleClick = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setMenuOpen(false)
-      }
+    if (!drawerOpen) return
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    closeBtnRef.current?.focus()
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setDrawerOpen(false)
     }
-    document.addEventListener('mousedown', handleClick)
-    return () => document.removeEventListener('mousedown', handleClick)
-  }, [menuOpen])
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.body.style.overflow = prev
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [drawerOpen])
+
+  const goHome = () => {
+    setDrawerOpen(false)
+    onHome?.()
+  }
+
+  const openSignIn = () => {
+    setDrawerOpen(false)
+    onLogIn()
+  }
+
+  const languageToggle = (compact = false) => (
+    <div
+      className={`flex items-center rounded-lg border border-zinc-200 p-0.5 dark:border-zinc-700 ${
+        compact ? 'w-full' : ''
+      }`}
+      role="group"
+      aria-label={t('language')}
+    >
+      <button
+        type="button"
+        onClick={() => setLocale('en')}
+        aria-pressed={locale === 'en'}
+        className={`${compact ? 'flex-1' : ''} cursor-pointer rounded-md px-2 py-1 text-xs font-semibold tracking-wide transition ${
+          locale === 'en'
+            ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900'
+            : 'text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-100'
+        }`}
+      >
+        EN
+      </button>
+      <button
+        type="button"
+        onClick={() => setLocale('fr')}
+        aria-pressed={locale === 'fr'}
+        className={`${compact ? 'flex-1' : ''} cursor-pointer rounded-md px-2 py-1 text-xs font-semibold tracking-wide transition ${
+          locale === 'fr'
+            ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900'
+            : 'text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-100'
+        }`}
+      >
+        FR
+      </button>
+    </div>
+  )
+
+  const themeButton = (opts?: { className?: string; withLabel?: boolean }) => (
+    <button
+      type="button"
+      onClick={toggleTheme}
+      title={theme === 'dark' ? t('lightMode') : t('darkMode')}
+      aria-label={theme === 'dark' ? t('lightMode') : t('darkMode')}
+      className={
+        opts?.className ??
+        'flex cursor-pointer items-center justify-center rounded-lg p-1.5 text-zinc-500 transition hover:bg-zinc-200/80 hover:text-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100'
+      }
+    >
+      {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
+      {opts?.withLabel ? (
+        <span className="text-sm font-medium">
+          {theme === 'dark' ? t('lightMode') : t('darkMode')}
+        </span>
+      ) : null}
+    </button>
+  )
 
   return (
-    <header className="flex shrink-0 items-center gap-4 bg-[var(--color-surface)] px-4 py-3">
-      <div className="flex shrink-0 items-center gap-1.5">
+    <>
+      <header className="relative z-40 flex shrink-0 items-center gap-3 bg-[var(--color-surface)] px-4 py-3">
+        {/* —— Mobile left: burger —— */}
         <button
           type="button"
-          onClick={onHome}
+          className="flex cursor-pointer items-center justify-center rounded-lg p-1.5 text-zinc-700 transition hover:bg-zinc-200/80 md:hidden dark:text-zinc-200 dark:hover:bg-zinc-800"
+          aria-label={t('menu')}
+          aria-expanded={drawerOpen}
+          aria-controls="mobile-nav-drawer"
+          onClick={() => setDrawerOpen(true)}
+        >
+          <Menu size={20} />
+        </button>
+
+        {/* —— Desktop left: brand → Home —— */}
+        <button
+          type="button"
+          onClick={goHome}
           title={t('home')}
-          className="cursor-pointer text-sm font-semibold tracking-tight text-zinc-900 transition hover:opacity-70 dark:text-zinc-100"
+          className="hidden cursor-pointer items-center gap-2 md:flex"
         >
-          ITRS DEM
+          <BrandMark theme={theme} />
+          <span className="text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
+            ITRS DEM
+          </span>
         </button>
-        <button
-          type="button"
-          onClick={toggleTheme}
-          title={theme === 'dark' ? t('lightMode') : t('darkMode')}
-          aria-label={theme === 'dark' ? t('lightMode') : t('darkMode')}
-          className="flex cursor-pointer items-center justify-center rounded-lg p-1.5 text-zinc-500 transition hover:bg-zinc-200/80 hover:text-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
-        >
-          {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
-        </button>
-      </div>
 
-      {journeyTitle && (
-        <div className="min-w-0 flex-1 text-center">
-          <p className="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-            {journeyTitle}
-          </p>
-          {journeySubtitle && (
-            <p className="truncate text-xs text-zinc-400 dark:text-zinc-500">{journeySubtitle}</p>
-          )}
-        </div>
-      )}
+        {/* —— Center —— */}
+        <div className="min-w-0 flex-1">
+          {/* Mobile center */}
+          <div className="flex flex-col items-center justify-center md:hidden">
+            {journeyTitle ? (
+              <>
+                <p className="max-w-[14rem] truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                  {journeyTitle}
+                </p>
+                {journeySubtitle ? (
+                  <p className="max-w-[14rem] truncate text-xs text-zinc-400 dark:text-zinc-500">
+                    {journeySubtitle}
+                  </p>
+                ) : null}
+              </>
+            ) : (
+              <div className="flex items-center gap-2">
+                <BrandMark theme={theme} />
+                <span className="text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
+                  ITRS DEM
+                </span>
+              </div>
+            )}
+          </div>
 
-      <div className={`flex shrink-0 items-center gap-2 ${journeyTitle ? '' : 'ml-auto'}`}>
-        <div
-          className="flex items-center rounded-lg border border-zinc-200 p-0.5 dark:border-zinc-700"
-          role="group"
-          aria-label={t('language')}
-        >
-          <button
-            type="button"
-            onClick={() => setLocale('en')}
-            aria-pressed={locale === 'en'}
-            className={`cursor-pointer rounded-md px-2 py-1 text-xs font-semibold tracking-wide transition ${
-              locale === 'en'
-                ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900'
-                : 'text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-100'
-            }`}
-          >
-            EN
-          </button>
-          <button
-            type="button"
-            onClick={() => setLocale('fr')}
-            aria-pressed={locale === 'fr'}
-            className={`cursor-pointer rounded-md px-2 py-1 text-xs font-semibold tracking-wide transition ${
-              locale === 'fr'
-                ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900'
-                : 'text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-100'
-            }`}
-          >
-            FR
-          </button>
+          {/* Desktop center — journey only */}
+          <div className="hidden min-w-0 text-center md:block">
+            {journeyTitle ? (
+              <>
+                <p className="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                  {journeyTitle}
+                </p>
+                {journeySubtitle ? (
+                  <p className="truncate text-xs text-zinc-400 dark:text-zinc-500">
+                    {journeySubtitle}
+                  </p>
+                ) : null}
+              </>
+            ) : null}
+          </div>
         </div>
-        <div ref={menuRef} className="relative">
+
+        {/* —— Desktop right —— */}
+        <div className="hidden shrink-0 items-center gap-2 md:flex">
+          {themeButton()}
+          {languageToggle()}
           <button
             type="button"
-            onClick={() => setMenuOpen((open) => !open)}
-            className={`flex cursor-pointer items-center gap-1 rounded-lg px-3 py-1.5 text-sm font-medium transition ${
-              menuOpen
-                ? 'bg-zinc-200/80 text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100'
-                : 'text-zinc-700 hover:bg-zinc-200/80 hover:text-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800 dark:hover:text-zinc-100'
-            }`}
+            onClick={openSignIn}
+            className="cursor-pointer rounded-lg px-3 py-1.5 text-sm font-medium text-zinc-700 transition hover:bg-zinc-200/80 hover:text-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
           >
             {t('signIn')}
-            <ChevronDown
-              size={14}
-              className={`text-zinc-400 transition dark:text-zinc-500 ${menuOpen ? 'rotate-180' : ''}`}
-            />
           </button>
-          {menuOpen && (
-            <div className="absolute right-0 z-50 mt-1 w-44 overflow-hidden rounded-xl border border-zinc-200 bg-white py-1 dark:border-zinc-700 dark:bg-zinc-900">
-              <button
-                type="button"
-                onClick={() => {
-                  setMenuOpen(false)
-                  onLogIn()
-                }}
-                className="block w-full cursor-pointer px-3 py-2 text-left text-sm text-zinc-700 transition hover:bg-zinc-50 dark:text-zinc-300 dark:hover:bg-zinc-800"
-              >
-                {t('logIn')}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setMenuOpen(false)
-                  onSignUp()
-                }}
-                className="block w-full cursor-pointer px-3 py-2 text-left text-sm text-zinc-700 transition hover:bg-zinc-50 dark:text-zinc-300 dark:hover:bg-zinc-800"
-              >
-                {t('createAccount')}
-              </button>
-            </div>
-          )}
+          <button
+            type="button"
+            onClick={onBookDemo}
+            className="cursor-pointer rounded-lg bg-[#0071e3] px-3.5 py-1.5 text-sm font-semibold text-white transition hover:bg-[#0077ed]"
+          >
+            {t('bookDemo')}
+          </button>
         </div>
+
+        {/* —— Mobile right: Book demo —— */}
         <button
           type="button"
           onClick={onBookDemo}
-          className="cursor-pointer rounded-lg bg-[#0071e3] px-3.5 py-1.5 text-sm font-semibold text-white transition hover:bg-[#0077ed]"
+          className="shrink-0 cursor-pointer rounded-lg bg-[#0071e3] px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-[#0077ed] md:hidden"
         >
           {t('bookDemo')}
         </button>
-      </div>
-    </header>
+      </header>
+
+      {/* —— Mobile drawer —— */}
+      {drawerOpen ? (
+        <div className="fixed inset-0 z-50 md:hidden">
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+            aria-label={t('dismiss')}
+            onClick={() => setDrawerOpen(false)}
+          />
+          <nav
+            id="mobile-nav-drawer"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={drawerTitleId}
+            className="absolute inset-y-0 left-0 flex w-[min(20rem,86vw)] flex-col bg-[var(--color-surface)] shadow-xl animate-fade-in"
+          >
+            <div className="flex items-center justify-between gap-2 border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
+              <button
+                type="button"
+                id={drawerTitleId}
+                onClick={goHome}
+                title={t('home')}
+                className="flex min-w-0 cursor-pointer items-center gap-2"
+              >
+                <BrandMark theme={theme} />
+                <span className="truncate text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
+                  ITRS DEM
+                </span>
+              </button>
+              <button
+                ref={closeBtnRef}
+                type="button"
+                onClick={() => setDrawerOpen(false)}
+                aria-label={t('dismiss')}
+                className="flex cursor-pointer items-center justify-center rounded-lg p-1.5 text-zinc-500 transition hover:bg-zinc-200/80 dark:hover:bg-zinc-800"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="flex flex-col gap-1 p-3">
+              <button
+                type="button"
+                onClick={openSignIn}
+                className="cursor-pointer rounded-xl px-3 py-2.5 text-left text-sm font-medium text-zinc-800 transition hover:bg-zinc-100 dark:text-zinc-100 dark:hover:bg-zinc-800"
+              >
+                {t('signIn')}
+              </button>
+
+              <div className="mt-2 px-1">
+                <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-zinc-400">
+                  {t('language')}
+                </p>
+                {languageToggle(true)}
+              </div>
+
+              <div className="mt-3 px-1">
+                <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-zinc-400">
+                  {t('appearance')}
+                </p>
+                {themeButton({
+                  withLabel: true,
+                  className:
+                    'flex w-full cursor-pointer items-center gap-2 rounded-xl px-3 py-2.5 text-left text-zinc-800 transition hover:bg-zinc-100 dark:text-zinc-100 dark:hover:bg-zinc-800',
+                })}
+              </div>
+            </div>
+          </nav>
+        </div>
+      ) : null}
+    </>
   )
 }
