@@ -1,4 +1,4 @@
-import { Menu, Moon, Sun, X } from 'lucide-react'
+import { ChevronLeft, LogIn, Menu, Moon, Settings, Sun, X } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 import { useLocale } from '../context/LocaleContext'
 import { useTheme } from '../context/ThemeContext'
@@ -11,6 +11,8 @@ interface TopHeaderProps {
   journeyTitle?: string
   journeySubtitle?: string
 }
+
+type DrawerView = 'main' | 'settings'
 
 function BrandMark({
   theme,
@@ -43,10 +45,16 @@ export default function TopHeader({
   journeySubtitle,
 }: TopHeaderProps) {
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const [drawerView, setDrawerView] = useState<DrawerView>('main')
   const drawerTitleId = useId()
   const closeBtnRef = useRef<HTMLButtonElement>(null)
   const { theme, toggleTheme } = useTheme()
   const { t, locale, setLocale } = useLocale()
+
+  const closeDrawer = () => {
+    setDrawerOpen(false)
+    setDrawerView('main')
+  }
 
   useEffect(() => {
     if (!drawerOpen) return
@@ -54,22 +62,27 @@ export default function TopHeader({
     document.body.style.overflow = 'hidden'
     closeBtnRef.current?.focus()
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setDrawerOpen(false)
+      if (e.key !== 'Escape') return
+      if (drawerView === 'settings') {
+        setDrawerView('main')
+        return
+      }
+      closeDrawer()
     }
     document.addEventListener('keydown', onKey)
     return () => {
       document.body.style.overflow = prev
       document.removeEventListener('keydown', onKey)
     }
-  }, [drawerOpen])
+  }, [drawerOpen, drawerView])
 
   const goHome = () => {
-    setDrawerOpen(false)
+    closeDrawer()
     onHome?.()
   }
 
   const openSignIn = () => {
-    setDrawerOpen(false)
+    closeDrawer()
     onLogIn()
   }
 
@@ -138,7 +151,10 @@ export default function TopHeader({
           aria-label={t('menu')}
           aria-expanded={drawerOpen}
           aria-controls="mobile-nav-drawer"
-          onClick={() => setDrawerOpen(true)}
+          onClick={() => {
+            setDrawerView('main')
+            setDrawerOpen(true)
+          }}
         >
           <Menu size={20} />
         </button>
@@ -235,7 +251,7 @@ export default function TopHeader({
             type="button"
             className="absolute inset-0 bg-black/40 backdrop-blur-sm"
             aria-label={t('dismiss')}
-            onClick={() => setDrawerOpen(false)}
+            onClick={closeDrawer}
           />
           <nav
             id="mobile-nav-drawer"
@@ -244,23 +260,35 @@ export default function TopHeader({
             aria-labelledby={drawerTitleId}
             className="absolute inset-y-0 left-0 flex w-[min(20rem,86vw)] flex-col bg-[var(--color-surface)] shadow-xl animate-fade-in"
           >
-            <div className="flex items-center justify-between gap-2 border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
-              <button
-                type="button"
-                id={drawerTitleId}
-                onClick={goHome}
-                title={t('home')}
-                className="flex min-w-0 cursor-pointer items-center gap-2"
-              >
-                <BrandMark theme={theme} />
-                <span className="truncate text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
-                  ITRS DEM
-                </span>
-              </button>
+            <div className="flex items-center justify-between gap-2 px-4 py-3">
+              {drawerView === 'settings' ? (
+                <button
+                  type="button"
+                  id={drawerTitleId}
+                  onClick={() => setDrawerView('main')}
+                  className="flex min-w-0 cursor-pointer items-center gap-1.5 text-sm font-semibold text-zinc-900 dark:text-zinc-100"
+                >
+                  <ChevronLeft size={18} className="shrink-0 text-zinc-500" />
+                  <span className="truncate">{t('settings')}</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  id={drawerTitleId}
+                  onClick={goHome}
+                  title={t('home')}
+                  className="flex min-w-0 cursor-pointer items-center gap-2"
+                >
+                  <BrandMark theme={theme} />
+                  <span className="truncate text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
+                    ITRS DEM
+                  </span>
+                </button>
+              )}
               <button
                 ref={closeBtnRef}
                 type="button"
-                onClick={() => setDrawerOpen(false)}
+                onClick={closeDrawer}
                 aria-label={t('dismiss')}
                 className="flex cursor-pointer items-center justify-center rounded-lg p-1.5 text-zinc-500 transition hover:bg-zinc-200/80 dark:hover:bg-zinc-800"
               >
@@ -268,33 +296,45 @@ export default function TopHeader({
               </button>
             </div>
 
-            <div className="flex flex-col gap-1 p-3">
-              <button
-                type="button"
-                onClick={openSignIn}
-                className="cursor-pointer rounded-xl px-3 py-2.5 text-left text-sm font-medium text-zinc-800 transition hover:bg-zinc-100 dark:text-zinc-100 dark:hover:bg-zinc-800"
-              >
-                {t('signIn')}
-              </button>
-
-              <div className="mt-2 px-1">
-                <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-zinc-400">
-                  {t('language')}
-                </p>
-                {languageToggle(true)}
+            {drawerView === 'main' ? (
+              <div className="mt-auto flex flex-col gap-1 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+                <button
+                  type="button"
+                  onClick={openSignIn}
+                  className="flex w-full cursor-pointer items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-zinc-800 transition hover:bg-zinc-100 dark:text-zinc-100 dark:hover:bg-zinc-800"
+                >
+                  <span>{t('signIn')}</span>
+                  <LogIn size={18} className="shrink-0 text-zinc-400" aria-hidden />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDrawerView('settings')}
+                  className="flex w-full cursor-pointer items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-zinc-800 transition hover:bg-zinc-100 dark:text-zinc-100 dark:hover:bg-zinc-800"
+                >
+                  <span>{t('settings')}</span>
+                  <Settings size={18} className="shrink-0 text-zinc-400" aria-hidden />
+                </button>
               </div>
-
-              <div className="mt-3 px-1">
-                <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-zinc-400">
-                  {t('appearance')}
-                </p>
-                {themeButton({
-                  withLabel: true,
-                  className:
-                    'flex w-full cursor-pointer items-center gap-2 rounded-xl px-3 py-2.5 text-left text-zinc-800 transition hover:bg-zinc-100 dark:text-zinc-100 dark:hover:bg-zinc-800',
-                })}
+            ) : (
+              <div className="flex flex-col gap-4 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+                <div>
+                  <p className="mb-1.5 px-1 text-[11px] font-medium uppercase tracking-wide text-zinc-400">
+                    {t('language')}
+                  </p>
+                  {languageToggle(true)}
+                </div>
+                <div>
+                  <p className="mb-1.5 px-1 text-[11px] font-medium uppercase tracking-wide text-zinc-400">
+                    {t('appearance')}
+                  </p>
+                  {themeButton({
+                    withLabel: true,
+                    className:
+                      'flex w-full cursor-pointer items-center gap-2 rounded-xl px-3 py-2.5 text-left text-zinc-800 transition hover:bg-zinc-100 dark:text-zinc-100 dark:hover:bg-zinc-800',
+                  })}
+                </div>
               </div>
-            </div>
+            )}
           </nav>
         </div>
       ) : null}
