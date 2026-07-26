@@ -12,13 +12,22 @@ export type JourneyRunEvent =
       title: string
       screenshotDataUrl: string
     }
-  | { type: 'step_done'; index: number; id: string }
+  | {
+      type: 'step_done'
+      index: number
+      id: string
+      durationMs: number
+      url: string
+      title: string
+      screenshotDataUrl?: string
+    }
   | {
       type: 'step_failed'
       index: number
       id: string
       label: string
       error: string
+      durationMs: number
       url?: string
       title?: string
       screenshotDataUrl?: string

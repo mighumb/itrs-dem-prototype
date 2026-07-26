@@ -60,6 +60,25 @@ export interface StepMonitoringMetrics {
   previewCaption: string
 }
 
+/** Real metrics from the latest Playwright (or simulated) run — overwrites Monitoring each run. */
+export interface LastRunStepMetric {
+  stepId: string
+  index: number
+  label: string
+  status: 'done' | 'failed'
+  durationMs: number
+  url?: string
+  title?: string
+  error?: string
+  screenshotDataUrl?: string
+}
+
+export interface LastRunSnapshot {
+  mode: 'playwright' | 'simulated'
+  finishedAt: number
+  steps: LastRunStepMetric[]
+}
+
 export interface JourneyMonitoringPreview {
   kpi: {
     availability: string

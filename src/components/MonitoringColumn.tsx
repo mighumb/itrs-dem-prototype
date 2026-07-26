@@ -1,14 +1,13 @@
 import { AlertTriangle, CheckCircle2, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useLocale } from '../context/LocaleContext'
-import { buildMonitoringPreviewSteps, computeRunMonitoringKpi, getStepMonitoringMetrics } from '../mock/data'
-import type { JourneyMonitoringPreview, JourneyStep, StepMonitoringMetrics } from '../types'
+import { computeLastRunKpi, formatDurationMs } from '../lib/runMonitoring'
+import type { LastRunSnapshot, LastRunStepMetric } from '../types'
 
 interface MonitoringColumnProps {
   isUnsaved?: boolean
   journeyName: string
-  steps: JourneyStep[]
-  monitoring: JourneyMonitoringPreview
+  lastRun: LastRunSnapshot | null
   onClose: () => void
   onSave: () => void
   embedded?: boolean
@@ -17,43 +16,40 @@ interface MonitoringColumnProps {
 export default function MonitoringColumn({
   isUnsaved,
   journeyName,
-  steps,
-  monitoring: _monitoring,
+  lastRun,
   onClose,
   onSave,
   embedded,
 }: MonitoringColumnProps) {
   const { t, tf, locale } = useLocale()
-  const previewSteps = buildMonitoringPreviewSteps(steps)
-  const [selectedStepId, setSelectedStepId] = useState(previewSteps[0]?.id ?? '')
+  const runSteps = lastRun?.steps ?? []
+  const [selectedStepId, setSelectedStepId] = useState(runSteps[0]?.stepId ?? '')
 
-  const failedCount = previewSteps.filter((s) => s.status === 'failed').length
-  const kpi = computeRunMonitoringKpi(steps, locale)
+  const failedCount = runSteps.filter((s) => s.status === 'failed').length
+  const kpi = computeLastRunKpi(lastRun, locale)
   const showAlert = failedCount > 0
-  // Always localize alert chrome — journey templates may carry EN placeholders.
   const alertTitle = t('stepFailureDetected')
   const alertMessage = tf('stepsFailedInRun', { count: failedCount })
+  const isSimulated = lastRun?.mode === 'simulated'
 
   useEffect(() => {
-    if (!previewSteps.some((step) => step.id === selectedStepId)) {
-      setSelectedStepId(previewSteps[0]?.id ?? '')
+    if (!runSteps.some((step) => step.stepId === selectedStepId)) {
+      setSelectedStepId(runSteps[0]?.stepId ?? '')
     }
-  }, [previewSteps, selectedStepId])
+  }, [runSteps, selectedStepId])
 
-  const selectedIndex = previewSteps.findIndex((step) => step.id === selectedStepId)
-  const selectedStep = selectedIndex >= 0 ? previewSteps[selectedIndex] : previewSteps[0]
-  const selectedOriginalIndex = selectedStep
-    ? steps.findIndex((step) => step.id === selectedStep.id)
-    : -1
-  const selectedMetrics =
-    selectedStep && selectedOriginalIndex >= 0
-      ? getStepMonitoringMetrics(selectedStep, selectedOriginalIndex, steps, locale)
-      : null
-  const hasUnrunSteps = steps.some((step) => step.status === 'pending')
+  const selectedStep =
+    runSteps.find((step) => step.stepId === selectedStepId) ?? runSteps[0] ?? null
 
   const body = (
     <>
       <div className="min-h-0 flex-1 overflow-y-auto p-4">
+        {isSimulated && (
+          <div className="mb-4 rounded-xl border border-amber-200/80 bg-amber-50/90 px-3 py-2.5 text-xs text-amber-900">
+            {t('monitoringSimulatedBanner')}
+          </div>
+        )}
+
         {showAlert && (
           <div className="mb-4 flex gap-2 rounded-xl border border-red-200/80 bg-red-50/90 p-3">
             <AlertTriangle size={16} className="mt-0.5 shrink-0 text-red-600" />
@@ -64,7 +60,9 @@ export default function MonitoringColumn({
           </div>
         )}
 
-        <h2 className="mb-3 truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100">{journeyName}</h2>
+        <h2 className="mb-3 truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+          {journeyName}
+        </h2>
 
         <div className="mb-4 grid grid-cols-3 gap-2">
           <KpiCard
@@ -81,68 +79,58 @@ export default function MonitoringColumn({
         </div>
 
         <div className="rounded-xl border border-zinc-200/80 bg-zinc-50/50 p-3 dark:border-zinc-700/80 dark:bg-zinc-800/40">
-          {previewSteps.length === 0 ? (
-            <p className="py-4 text-center text-xs text-zinc-400">
-              {t('noExecutedSteps')}
-            </p>
+          {runSteps.length === 0 ? (
+            <p className="py-4 text-center text-xs text-zinc-400">{t('noExecutedSteps')}</p>
           ) : (
             <div className="flex gap-2 overflow-x-auto pb-1">
-              {previewSteps.map((step) => {
-              const isSelected = step.id === selectedStepId
-              const isFailed = step.status === 'failed'
-              const stepNumber = steps.findIndex((s) => s.id === step.id) + 1
+              {runSteps.map((step) => {
+                const isSelected = step.stepId === selectedStepId
+                const isFailed = step.status === 'failed'
+                const stepNumber = step.index + 1
 
-              return (
-                <button
-                  key={step.id}
-                  type="button"
-                  onClick={() => setSelectedStepId(step.id)}
-                  className={`flex w-[4.5rem] shrink-0 cursor-pointer flex-col items-center gap-1.5 rounded-lg border p-2 text-center transition ${
-                    isSelected
-                      ? 'border-[#0071e3] bg-[#0071e3]/8 ring-2 ring-[#0071e3]/25'
-                      : isFailed
-                        ? 'border-red-200 bg-red-50/60 hover:border-red-300'
-                        : 'border-zinc-100 bg-zinc-50 hover:border-zinc-300 hover:bg-white dark:border-zinc-700 dark:bg-zinc-800/60 dark:hover:border-zinc-600 dark:hover:bg-zinc-800'
-                  }`}
-                >
-                  <span
-                    className={`flex h-6 w-6 items-center justify-center rounded-md text-[10px] font-bold ${
-                      isFailed
-                        ? 'bg-red-100 text-red-600'
-                        : isSelected
-                          ? 'bg-[#0071e3] text-white'
-                          : 'bg-emerald-100 text-emerald-700'
+                return (
+                  <button
+                    key={step.stepId}
+                    type="button"
+                    onClick={() => setSelectedStepId(step.stepId)}
+                    className={`flex w-[4.5rem] shrink-0 cursor-pointer flex-col items-center gap-1.5 rounded-lg border p-2 text-center transition ${
+                      isSelected
+                        ? 'border-[#0071e3] bg-[#0071e3]/8 ring-2 ring-[#0071e3]/25'
+                        : isFailed
+                          ? 'border-red-200 bg-red-50/60 hover:border-red-300'
+                          : 'border-zinc-100 bg-zinc-50 hover:border-zinc-300 hover:bg-white dark:border-zinc-700 dark:bg-zinc-800/60 dark:hover:border-zinc-600 dark:hover:bg-zinc-800'
                     }`}
                   >
-                    {isFailed ? '!' : stepNumber}
-                  </span>
-                  <span
-                    className={`line-clamp-2 text-[9px] leading-tight ${
-                      isSelected ? 'font-medium text-[#0071e3]' : 'text-zinc-500'
-                    }`}
-                  >
-                    {step.label.split(' ').slice(0, 2).join(' ')}
-                  </span>
-                </button>
-              )
-            })}
+                    <span
+                      className={`flex h-6 w-6 items-center justify-center rounded-md text-[10px] font-bold ${
+                        isFailed
+                          ? 'bg-red-100 text-red-600'
+                          : isSelected
+                            ? 'bg-[#0071e3] text-white'
+                            : 'bg-emerald-100 text-emerald-700'
+                      }`}
+                    >
+                      {isFailed ? '!' : stepNumber}
+                    </span>
+                    <span
+                      className={`line-clamp-2 text-[9px] leading-tight ${
+                        isSelected ? 'font-medium text-[#0071e3]' : 'text-zinc-500'
+                      }`}
+                    >
+                      {step.label.split(' ').slice(0, 2).join(' ')}
+                    </span>
+                    <span className="text-[9px] tabular-nums text-zinc-400">
+                      {formatDurationMs(step.durationMs)}
+                    </span>
+                  </button>
+                )
+              })}
             </div>
           )}
         </div>
 
-        {hasUnrunSteps && previewSteps.length > 0 && (
-          <p className="mt-2 text-[11px] text-zinc-400">
-            {t('newStepsAppear')}
-          </p>
-        )}
+        {selectedStep && <StepDetailPanel step={selectedStep} />}
 
-        {selectedStep && selectedMetrics && selectedOriginalIndex >= 0 && (
-          <StepDetailPanel
-            step={selectedStep}
-            stepIndex={selectedOriginalIndex}
-            metrics={selectedMetrics}
-          />
-        )}
         {isUnsaved ? (
           <div className="mt-4 rounded-lg bg-amber-50 px-3 py-2.5">
             <p className="text-[11px] leading-snug text-amber-900">
@@ -159,7 +147,9 @@ export default function MonitoringColumn({
         ) : (
           <div className="mt-4 flex items-start gap-2 rounded-lg bg-emerald-50 px-3 py-2.5 text-[11px] text-emerald-800">
             <CheckCircle2 size={14} className="mt-0.5 shrink-0" />
-            {t('liveMonitoringActive')}
+            {lastRun?.mode === 'playwright'
+              ? t('monitoringFromThisRun')
+              : t('liveMonitoringActive')}
           </div>
         )}
       </div>
@@ -190,94 +180,84 @@ export default function MonitoringColumn({
   )
 }
 
-function StepDetailPanel({
-  step,
-  stepIndex,
-  metrics,
-}: {
-  step: JourneyStep
-  stepIndex: number
-  metrics: StepMonitoringMetrics
-}) {
+function StepDetailPanel({ step }: { step: LastRunStepMetric }) {
   const { t, tf } = useLocale()
+  const isFailed = step.status === 'failed'
+  const statusLabel = isFailed ? t('statusFailing') : t('statusOk')
+
   return (
     <div className="mt-3 rounded-xl border border-zinc-200/80 bg-white p-4 dark:border-zinc-700/80 dark:bg-zinc-900">
       <div className="mb-3 flex items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="text-[10px] font-medium uppercase tracking-wider text-zinc-400">
-            {tf('stepN', { n: stepIndex + 1 })}
+            {tf('stepN', { n: step.index + 1 })}
           </p>
-          <p className="mt-0.5 truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100">{step.label}</p>
+          <p className="mt-0.5 truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+            {step.label}
+          </p>
         </div>
-        <StatusBadge status={metrics.status} label={metrics.statusLabel} />
+        <StatusBadge status={isFailed ? 'failing' : 'ok'} label={statusLabel} />
       </div>
 
       <p className="mb-2 text-[10px] font-medium uppercase tracking-wider text-zinc-400">
         {t('whatWeMeasured')}
       </p>
       <div className="grid grid-cols-2 gap-2">
-        <ExperienceMetric
-          label={t('stepDuration')}
-          value={metrics.stepDuration}
-          hint={t('stepDurationHint')}
-        />
-        {metrics.readyForUser && (
-          <ExperienceMetric
-            label={t('readyForUser')}
-            value={metrics.readyForUser}
-            hint={t('readyForUserHint')}
-          />
+        <MetricCell label={t('stepDuration')} value={formatDurationMs(step.durationMs)} />
+        {step.url && (
+          <MetricCell label={t('monitoringPageUrl')} value={shortUrl(step.url)} hint={step.url} />
         )}
-        {metrics.mainContentVisible && (
-          <ExperienceMetric
-            label={t('mainContentVisible')}
-            value={metrics.mainContentVisible}
-            hint={t('mainContentVisibleHint')}
-          />
-        )}
-        {metrics.pageFullyLoaded && (
-          <ExperienceMetric
-            label={t('pageFullyLoaded')}
-            value={metrics.pageFullyLoaded}
-            hint={t('pageFullyLoadedHint')}
-          />
-        )}
-        <ExperienceMetric
-          label={t('visualStability')}
-          value={metrics.layoutStability}
-          hint={t('visualStabilityHint')}
-        />
+        {step.title && <MetricCell label={t('monitoringPageTitle')} value={step.title} />}
       </div>
 
-      {metrics.insight && (
-        <p
-          className={`mt-3 rounded-lg px-3 py-2.5 text-[11px] leading-relaxed ${
-            metrics.status === 'failing'
-              ? 'bg-red-50 text-red-800'
-              : 'bg-amber-50 text-amber-900'
-          }`}
-        >
-          {metrics.insight}
+      {step.error && (
+        <p className="mt-3 rounded-lg bg-red-50 px-3 py-2.5 text-[11px] leading-relaxed text-red-800">
+          {step.error}
         </p>
+      )}
+
+      {step.screenshotDataUrl && (
+        <div className="mt-3 overflow-hidden rounded-lg border border-zinc-100 dark:border-zinc-700">
+          <img
+            src={step.screenshotDataUrl}
+            alt={t('browserScreenshotAlt')}
+            className="max-h-40 w-full object-cover object-top"
+          />
+        </div>
       )}
     </div>
   )
 }
 
-function ExperienceMetric({
+function shortUrl(url: string): string {
+  try {
+    const parsed = new URL(url)
+    const path = parsed.pathname === '/' ? '' : parsed.pathname
+    const display = `${parsed.hostname}${path}`
+    return display.length > 36 ? `${display.slice(0, 34)}…` : display
+  } catch {
+    return url.length > 36 ? `${url.slice(0, 34)}…` : url
+  }
+}
+
+function MetricCell({
   label,
   value,
   hint,
 }: {
   label: string
   value: string
-  hint: string
+  hint?: string
 }) {
   return (
     <div className="rounded-lg border border-zinc-100 bg-zinc-50/80 p-2.5 dark:border-zinc-700 dark:bg-zinc-800/60">
       <p className="text-[10px] font-medium text-zinc-600">{label}</p>
-      <p className="mt-0.5 text-base font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">{value}</p>
-      <p className="mt-0.5 text-[9px] leading-snug text-zinc-400">{hint}</p>
+      <p
+        className="mt-0.5 truncate text-sm font-semibold tabular-nums text-zinc-900 dark:text-zinc-100"
+        title={hint ?? value}
+      >
+        {value}
+      </p>
     </div>
   )
 }
@@ -286,12 +266,11 @@ function StatusBadge({
   status,
   label,
 }: {
-  status: StepMonitoringMetrics['status']
+  status: 'ok' | 'failing'
   label: string
 }) {
   const styles = {
     ok: 'bg-emerald-50 text-emerald-700',
-    degraded: 'bg-amber-50 text-amber-700',
     failing: 'bg-red-50 text-red-600',
   }
 
