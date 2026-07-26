@@ -43,19 +43,29 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
   const [plan, setPlan] = useState<DiscoveryPlan | null>(null)
   const [configuring, setConfiguring] = useState(false)
   const chatEndRef = useRef<HTMLDivElement>(null)
+  const formDockRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const abortRef = useRef<AbortController | null>(null)
   const messagesRef = useRef<ChatMessage[]>([])
   messagesRef.current = messages
 
   const rememberSnapshot = (ai: DiscoveryAiResult) => {
-    if (!ai.pageSnapshot && !ai.siteAnalysis) return
+    // Keep candidate URL even before crawl (awaiting confirmation after brand/acronym resolve).
+    if (!ai.pageSnapshot && !ai.siteAnalysis?.url) return
     setCtx((prev) => {
-      if (!prev) return prev
+      const url = ai.siteAnalysis?.url ?? prev?.url ?? null
+      const base = prev ?? createDiscoveryContext(url ?? ai.siteAnalysis?.title ?? 'site')
+      const awaitingConfirm = ai.siteAnalysis?.reason === 'awaiting_user_confirmation'
       return {
-        ...prev,
-        url: ai.siteAnalysis?.url ?? prev.url,
-        pageSnapshot: ai.pageSnapshot ?? prev.pageSnapshot ?? null,
+        ...base,
+        url,
+        pageSnapshot: awaitingConfirm
+          ? null
+          : ai.pageSnapshot ?? base.pageSnapshot ?? null,
+        seed:
+          url && ai.siteAnalysis?.title
+            ? `${ai.siteAnalysis.title} ${url}`
+            : url ?? base.seed,
       }
     })
   }
@@ -66,9 +76,18 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
     !agentTyping && (phase === 'questionnaire' || phase === 'proposals')
   const showRun = phase === 'planning' && Boolean(plan)
 
+  // Smart scroll: when a floating form appears, bring the dock into view
+  // (document scroll). Otherwise follow the latest message.
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
-  }, [messages, agentTyping, workStatus, showStack, showRun])
+    const id = window.setTimeout(() => {
+      if (showStack || showRun) {
+        formDockRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+        return
+      }
+      chatEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+    }, showStack || showRun ? 60 : 0)
+    return () => window.clearTimeout(id)
+  }, [messages, agentTyping, workStatus, showStack, showRun, proposals, questions])
 
   const pushMessages = (...next: ChatMessage[]) => {
     setMessages((prev) => {
@@ -833,11 +852,12 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
 
   return (
     <div
-      className="mx-auto flex w-full max-w-2xl flex-col animate-fade-in px-6 pt-8"
+      className="mx-auto flex w-full max-w-2xl flex-col px-6 pt-8"
       style={{ minHeight: 'calc(var(--app-height, 100dvh) - 3.5rem)' }}
     >
       {/* Document scroll (Amazon-style) so native browser pull-to-refresh can
-          rubber-band the whole page — no nested overflow trap, no custom loader. */}
+          rubber-band the whole page — no nested overflow trap, no custom loader.
+          No transform animation on this root: it would break position:sticky. */}
       <div className="mt-auto w-full space-y-4 pb-4">
         {messages.map((message) => (
           <AgentMessage key={message.id} message={message} hideActions />
@@ -851,6 +871,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
       </div>
 
       <div
+        ref={formDockRef}
         className="sticky z-10 flex w-full flex-col gap-2 bg-[var(--color-surface)] pt-2 pb-[max(1rem,env(safe-area-inset-bottom))] transition-[bottom] duration-300 ease-out"
         style={{ bottom: 'var(--keyboard-inset, 0px)' }}
       >
