@@ -1089,6 +1089,12 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
     />
   )
 
+  const recordingStartUrl =
+    session.siteUrl ||
+    extractUrlFromText(session.prompt) ||
+    extractUrlFromText(initialPrompt) ||
+    null
+
   const renderDetachedPanelContent = (id: DetachablePanelId) => {
     switch (id) {
       case 'browser':
@@ -1097,6 +1103,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
             frame={browserFrame}
             isRunning={isRunning}
             embedded
+            startUrl={recordingStartUrl}
             onApplyRecording={handleApplyRecording}
           />
         )
@@ -1251,6 +1258,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
               frame={browserFrame}
               isRunning={isRunning}
               embedded
+              startUrl={recordingStartUrl}
               onApplyRecording={handleApplyRecording}
             />
           </WorkspacePanel>

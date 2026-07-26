@@ -1,5 +1,6 @@
 /**
- * Records Navigate / Click / Type on the active tab while recording is ON.
+ * Records Navigate / Click / Type while recording is ON.
+ * Shows a clear REC bar on the site tab being recorded.
  */
 ;(function () {
   if (window.__ITRS_DEM_RECORDER__) return
@@ -7,6 +8,17 @@
 
   let recording = false
   let lastNavUrl = ''
+  let bannerEl = null
+
+  function isDemAppPage() {
+    const h = location.hostname
+    return (
+      h === 'localhost' ||
+      h === '127.0.0.1' ||
+      h.endsWith('.vercel.app') ||
+      h === 'mighumb.github.io'
+    )
+  }
 
   function cssEscape(value) {
     if (typeof CSS !== 'undefined' && CSS.escape) return CSS.escape(value)
@@ -22,7 +34,9 @@
       el.getAttribute('data-qa')
     if (testId) return `[data-testid="${testId.replace(/"/g, '\\"')}"]`
     const aria = el.getAttribute('aria-label')
-    if (aria) return `${el.tagName.toLowerCase()}[aria-label="${aria.slice(0, 80).replace(/"/g, '\\"')}"]`
+    if (aria) {
+      return `${el.tagName.toLowerCase()}[aria-label="${aria.slice(0, 80).replace(/"/g, '\\"')}"]`
+    }
     const name = el.getAttribute('name')
     if (name) return `${el.tagName.toLowerCase()}[name="${cssEscape(name)}"]`
     return el.tagName.toLowerCase()
@@ -53,14 +67,67 @@
     return /password|passwd|pwd|secret|card|cvv|cvc|ssn/.test(name)
   }
 
+  function ensureBanner() {
+    if (isDemAppPage()) return
+    if (bannerEl && document.documentElement.contains(bannerEl)) return
+    bannerEl = document.createElement('div')
+    bannerEl.id = 'itrs-dem-rec-banner'
+    bannerEl.setAttribute('data-itrs-dem', 'rec-banner')
+    bannerEl.innerHTML =
+      '<span class="itrs-dem-rec-dot"></span><strong>ITRS DEM</strong> · Enregistrement en cours — naviguez normalement sur ce site'
+    const style = document.createElement('style')
+    style.textContent = `
+      #itrs-dem-rec-banner {
+        position: fixed !important;
+        top: 0 !important;
+        left: 0 !important;
+        right: 0 !important;
+        z-index: 2147483647 !important;
+        display: flex !important;
+        align-items: center !important;
+        gap: 8px !important;
+        padding: 10px 14px !important;
+        background: #b91c1c !important;
+        color: #fff !important;
+        font: 600 13px/1.3 system-ui, -apple-system, sans-serif !important;
+        box-shadow: 0 2px 12px rgba(0,0,0,.25) !important;
+        pointer-events: none !important;
+      }
+      #itrs-dem-rec-banner .itrs-dem-rec-dot {
+        width: 8px; height: 8px; border-radius: 99px;
+        background: #fff; box-shadow: 0 0 0 0 rgba(255,255,255,.7);
+        animation: itrs-dem-pulse 1.2s ease-out infinite;
+      }
+      @keyframes itrs-dem-pulse {
+        0% { box-shadow: 0 0 0 0 rgba(255,255,255,.65); }
+        70% { box-shadow: 0 0 0 8px rgba(255,255,255,0); }
+        100% { box-shadow: 0 0 0 0 rgba(255,255,255,0); }
+      }
+      html.itrs-dem-recording { scroll-padding-top: 44px !important; }
+      body.itrs-dem-recording { padding-top: 44px !important; }
+    `
+    bannerEl.prepend(style)
+    document.documentElement.classList.add('itrs-dem-recording')
+    document.body?.classList.add('itrs-dem-recording')
+    ;(document.body || document.documentElement).appendChild(bannerEl)
+  }
+
+  function removeBanner() {
+    bannerEl?.remove()
+    bannerEl = null
+    document.documentElement.classList.remove('itrs-dem-recording')
+    document.body?.classList.remove('itrs-dem-recording')
+  }
+
   function sendStep(step) {
-    if (!recording) return
+    if (!recording || isDemAppPage()) return
     chrome.runtime.sendMessage({ type: 'add_step', step }, () => {
       void chrome.runtime.lastError
     })
   }
 
   function recordNavigate(reason) {
+    if (isDemAppPage()) return
     const url = location.href
     if (!url || url === lastNavUrl) return
     lastNavUrl = url
@@ -76,9 +143,10 @@
   }
 
   function onClick(event) {
-    if (!recording) return
+    if (!recording || isDemAppPage()) return
     const target = event.target
     if (!(target instanceof Element)) return
+    if (target.closest('#itrs-dem-rec-banner')) return
     const clickable = target.closest(
       'a,button,input[type="submit"],input[type="button"],[role="button"],[onclick]',
     )
@@ -102,9 +170,15 @@
   }
 
   function onChange(event) {
-    if (!recording) return
+    if (!recording || isDemAppPage()) return
     const el = event.target
-    if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement)) {
+    if (
+      !(
+        el instanceof HTMLInputElement ||
+        el instanceof HTMLTextAreaElement ||
+        el instanceof HTMLSelectElement
+      )
+    ) {
       return
     }
     if (isSensitive(el)) return
@@ -126,18 +200,36 @@
   }
 
   async function syncFlag() {
-    const data = await chrome.storage.local.get('itrsDemRecordingFlag')
+    const data = await chrome.storage.local.get(['itrsDemRecordingFlag', 'itrsDemRecordingTabId'])
     const next = Boolean(data.itrsDemRecordingFlag)
     const was = recording
     recording = next
-    if (recording && !was) {
-      lastNavUrl = ''
-      recordNavigate('load')
-    }
+
+    // Banner only on the dedicated recording tab when we know its id; else on any non-DEM page.
+    const tabHint = data.itrsDemRecordingTabId
+    chrome.runtime.sendMessage({ type: 'whoami' }, (res) => {
+      void chrome.runtime.lastError
+      const myTabId = res?.tabId
+      const onRecordingTab =
+        typeof tabHint !== 'number' || typeof myTabId !== 'number' || myTabId === tabHint
+
+      if (recording && onRecordingTab && !isDemAppPage()) {
+        ensureBanner()
+        if (!was) {
+          lastNavUrl = ''
+          recordNavigate('load')
+        }
+      } else {
+        removeBanner()
+      }
+    })
   }
 
   chrome.storage.onChanged.addListener((changes, area) => {
-    if (area === 'local' && changes.itrsDemRecordingFlag) {
+    if (
+      area === 'local' &&
+      (changes.itrsDemRecordingFlag || changes.itrsDemRecordingTabId)
+    ) {
       void syncFlag()
     }
   })

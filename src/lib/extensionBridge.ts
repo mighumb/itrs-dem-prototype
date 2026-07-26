@@ -17,6 +17,8 @@ type BridgeRequestType =
   | 'stop_recording'
   | 'get_steps'
   | 'get_state'
+  | 'get_frame'
+  | 'focus_recording_tab'
   | 'clear_steps'
 
 type BridgeResponse = {
@@ -25,6 +27,9 @@ type BridgeResponse = {
   recording?: boolean
   steps?: RecordedBrowserStep[]
   stepCount?: number
+  frame?: string | null
+  frameUrl?: string | null
+  recordingTabId?: number | null
   error?: string
 }
 
@@ -37,11 +42,13 @@ function isBrowser(): boolean {
 
 export function requestExtension<T extends BridgeResponse = BridgeResponse>(
   type: BridgeRequestType,
-  timeoutMs = 1200,
+  options?: { timeoutMs?: number; url?: string | null },
 ): Promise<T> {
   if (!isBrowser()) {
     return Promise.resolve({ ok: false, installed: false, error: 'no_window' } as T)
   }
+
+  const timeoutMs = options?.timeoutMs ?? 1200
 
   return new Promise((resolve) => {
     const requestId = `req-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
@@ -71,13 +78,24 @@ export function requestExtension<T extends BridgeResponse = BridgeResponse>(
           recording: Boolean(data.recording),
           steps: Array.isArray(data.steps) ? (data.steps as RecordedBrowserStep[]) : undefined,
           stepCount: typeof data.stepCount === 'number' ? data.stepCount : undefined,
+          frame: typeof data.frame === 'string' ? data.frame : null,
+          frameUrl: typeof data.frameUrl === 'string' ? data.frameUrl : null,
+          recordingTabId: typeof data.recordingTabId === 'number' ? data.recordingTabId : null,
           error: typeof data.error === 'string' ? data.error : undefined,
         } as T)
       }
     }
 
     window.addEventListener('message', onMessage)
-    window.postMessage({ source: PAGE, type, requestId }, window.location.origin)
+    window.postMessage(
+      {
+        source: PAGE,
+        type,
+        requestId,
+        url: options?.url ?? undefined,
+      },
+      window.location.origin,
+    )
   })
 }
 
@@ -89,17 +107,37 @@ export async function pingExtension(): Promise<{ installed: boolean; recording: 
   }
 }
 
-export async function startExtensionRecording(): Promise<boolean> {
-  const res = await requestExtension('start_recording')
+export async function startExtensionRecording(url?: string | null): Promise<boolean> {
+  const res = await requestExtension('start_recording', { url: url ?? null, timeoutMs: 2500 })
   return Boolean(res.ok && res.installed)
 }
 
 export async function stopExtensionRecording(): Promise<RecordedBrowserStep[]> {
-  const res = await requestExtension('stop_recording', 2000)
+  const res = await requestExtension('stop_recording', { timeoutMs: 2500 })
   return Array.isArray(res.steps) ? res.steps : []
 }
 
 export async function getExtensionSteps(): Promise<RecordedBrowserStep[]> {
-  const res = await requestExtension('get_steps', 2000)
+  const res = await requestExtension('get_steps', { timeoutMs: 2000 })
   return Array.isArray(res.steps) ? res.steps : []
+}
+
+export async function getExtensionFrame(): Promise<{
+  frame: string | null
+  frameUrl: string | null
+  stepCount: number
+  recording: boolean
+}> {
+  const res = await requestExtension('get_frame', { timeoutMs: 1500 })
+  return {
+    frame: res.frame ?? null,
+    frameUrl: res.frameUrl ?? null,
+    stepCount: res.stepCount ?? 0,
+    recording: Boolean(res.recording),
+  }
+}
+
+export async function focusRecordingTab(): Promise<boolean> {
+  const res = await requestExtension('focus_recording_tab', { timeoutMs: 1500 })
+  return Boolean(res.ok)
 }

@@ -1,30 +1,36 @@
 # ITRS DEM — Take Control (Chrome extension)
 
-Record real clicks / navigations in **your** Chrome, then import them into the ITRS DEM prototype as journey steps. Useful when sites block server-side Playwright (e.g. adidas.fr).
+Record real clicks / navigations in **your** Chrome, see a **live mirror** in the DEM Browser panel, then import steps into the journey timeline.
+
+Useful when sites block server-side Playwright (e.g. adidas.fr).
 
 ## Install (dev / unpacked — no Chrome Web Store)
 
 1. Open Chrome → `chrome://extensions`
 2. Enable **Developer mode** (top right)
 3. Click **Load unpacked**
-4. Select this folder: `extension/` (the one that contains `manifest.json`)
+4. Select this folder: `extension/` (contains `manifest.json`)
 5. Keep the extension **enabled**
-
-You do **not** need Google review for this mode.
+6. After pulling updates: click **Reload** on the extension card
 
 ## Use with the prototype
 
-1. Open the DEM app (`npm run dev` or the Vercel URL)
-2. Start / open a journey workspace (page 2)
-3. In the **Browser** panel, click **Take control**
-4. Click **Start recording** (in the panel or the extension popup)
-5. In another tab, browse the real site (product page, add to cart, …)
-6. Return to DEM → **Stop & import steps**
+1. Open the DEM app and a journey workspace (page 2)
+2. Browser panel → **Take control** → **Start recording**
+3. Chrome **opens a tab automatically** (site URL when known) with a **red REC bar**
+4. Browse **in that tab** (product, cart, …). The DEM panel shows a **live mirror** while the tab is focused
+5. Watch the step counter increase → **Stop & import steps**
 
-The Steps timeline updates with what you did. You can then **Run** / edit as usual.
+## What you see where
+
+| Place | Signal |
+| --- | --- |
+| **Chrome tab** | Red bar: `ITRS DEM · Enregistrement en cours` |
+| **ITRS Browser panel** | Red recording strip + step count + live screenshot mirror |
+| **Extension popup** | `Recording…` + step count |
 
 ## Notes
 
-- Password / sensitive fields are not recorded
+- Interact in the **Chrome tab** (real site). The panel is a **mirror**, not a second interactive engine (free / no cloud browser).
+- Passwords / sensitive fields are not recorded
 - Max 80 steps per recording
-- Works on `localhost`, `*.vercel.app`, and the GitHub Pages host via the page bridge

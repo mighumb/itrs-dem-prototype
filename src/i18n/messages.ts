@@ -84,11 +84,16 @@ export const messages = {
     extensionRetry: 'I installed it — retry',
     extensionReadyTitle: 'Take control with your browser',
     extensionReadyBody:
-      'Start recording, then browse the real site in another tab (product page, add to cart…). Come back here to import the steps.',
+      'We open a Chrome tab with a red REC bar. Browse there (product, cart…). This panel shows a live mirror while that tab is focused.',
+    extensionWillOpen: 'Will open:',
     extensionStart: 'Start recording',
-    extensionRecordingTitle: 'Recording in your Chrome…',
+    extensionRecordingTitle: 'Recording — use the Chrome tab with the red bar',
     extensionRecordingBody:
-      'Use another tab on the real website. Clicks and page changes are captured. Passwords are ignored.',
+      'Interact in that tab. This panel mirrors it when the tab is focused. Passwords are ignored.',
+    extensionMirrorHint:
+      'Focus the Chrome tab with the red REC bar to see the live view here, then keep browsing there.',
+    extensionLiveView: 'Live view of recording tab',
+    extensionFocusTab: 'Show recording tab',
     extensionStepCount: '{count} step(s) captured',
     extensionStopImport: 'Stop & import steps',
     extensionStartFailed: 'Could not reach the extension. Is it enabled on this page?',
@@ -345,11 +350,16 @@ export const messages = {
     extensionRetry: 'C’est installé — réessayer',
     extensionReadyTitle: 'Prendre le contrôle avec votre navigateur',
     extensionReadyBody:
-      'Lancez l’enregistrement, puis naviguez sur le vrai site dans un autre onglet (fiche produit, panier…). Revenez ici pour importer les étapes.',
+      'On ouvre un onglet Chrome avec une barre rouge REC. Naviguez là-bas (produit, panier…). Ce panneau affiche un miroir live tant que cet onglet est au premier plan.',
+    extensionWillOpen: 'Ouverture :',
     extensionStart: 'Démarrer l’enregistrement',
-    extensionRecordingTitle: 'Enregistrement dans Chrome…',
+    extensionRecordingTitle: 'Enregistrement — utilisez l’onglet Chrome avec la barre rouge',
     extensionRecordingBody:
-      'Utilisez un autre onglet sur le site réel. Les clics et changements de page sont capturés. Les mots de passe sont ignorés.',
+      'Cliquez dans cet onglet. Ce panneau le reflète quand il est au premier plan. Les mots de passe sont ignorés.',
+    extensionMirrorHint:
+      'Mettez au premier plan l’onglet Chrome avec la barre REC rouge pour voir la vue live ici, puis continuez à naviguer là-bas.',
+    extensionLiveView: 'Vue live de l’onglet d’enregistrement',
+    extensionFocusTab: 'Afficher l’onglet d’enregistrement',
     extensionStepCount: '{count} étape(s) capturée(s)',
     extensionStopImport: 'Arrêter et importer',
     extensionStartFailed: 'Extension inaccessible. Est-elle activée sur cette page ?',

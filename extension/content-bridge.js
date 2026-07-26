@@ -20,6 +20,7 @@
       {
         type: data.type,
         step: data.step,
+        url: data.url,
       },
       (response) => {
         const err = chrome.runtime.lastError
@@ -42,6 +43,5 @@
     )
   })
 
-  // Announce presence early so the app can detect the extension.
   reply({ type: 'ready', installed: true })
 })()

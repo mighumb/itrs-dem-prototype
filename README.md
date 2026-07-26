@@ -34,8 +34,9 @@ Interactive **frontend-only** prototype for validating the business-user journey
 When a site blocks server-side Playwright (bot protection), record the journey in **your** Chrome:
 
 1. Chrome → `chrome://extensions` → **Developer mode** → **Load unpacked** → select the repo’s `extension/` folder  
-2. Open a journey workspace → Browser panel → **Take control**  
-3. **Start recording** → browse the real site in another tab → **Stop & import steps**
+2. Open a journey workspace → Browser panel → **Take control** → **Start recording**  
+3. A Chrome tab opens with a **red REC bar**; browse there. The panel shows a **live mirror** while that tab is focused  
+4. **Stop & import steps**
 
 Details: [`extension/README.md`](./extension/README.md). No Chrome Web Store review required for unpacked/dev mode.
 

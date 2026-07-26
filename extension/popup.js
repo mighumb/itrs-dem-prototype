@@ -6,7 +6,9 @@ const stopBtn = document.getElementById('stop')
 function paint(state) {
   const recording = Boolean(state?.recording)
   const n = Array.isArray(state?.steps) ? state.steps.length : state?.stepCount || 0
-  statusEl.textContent = recording ? 'Recording…' : 'Ready'
+  statusEl.textContent = recording
+    ? 'Recording… (red bar on the site tab)'
+    : 'Ready'
   statusEl.style.color = recording ? '#dc2626' : '#0071e3'
   countEl.textContent = `${n} step${n === 1 ? '' : 's'}`
   startBtn.disabled = recording

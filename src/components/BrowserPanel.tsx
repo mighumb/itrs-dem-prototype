@@ -1,7 +1,9 @@
-import { Hand, Loader2 } from 'lucide-react'
+import { ExternalLink, Hand, Loader2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useLocale } from '../context/LocaleContext'
 import {
+  focusRecordingTab,
+  getExtensionFrame,
   getExtensionSteps,
   pingExtension,
   startExtensionRecording,
@@ -14,6 +16,8 @@ interface BrowserPanelProps {
   frame: BrowserFrame | null
   isRunning?: boolean
   embedded?: boolean
+  /** Site URL to open automatically when recording starts. */
+  startUrl?: string | null
   /** When set, Take control / record import is available. */
   onApplyRecording?: (steps: RecordedBrowserStep[]) => void
   disabled?: boolean
@@ -25,6 +29,7 @@ export default function BrowserPanel({
   frame,
   isRunning,
   embedded,
+  startUrl,
   onApplyRecording,
   disabled,
 }: BrowserPanelProps) {
@@ -32,13 +37,19 @@ export default function BrowserPanel({
   const hasScreenshot = Boolean(frame?.screenshotDataUrl)
   const [phase, setPhase] = useState<ControlPhase>('closed')
   const [stepCount, setStepCount] = useState(0)
+  const [liveFrame, setLiveFrame] = useState<string | null>(null)
+  const [liveUrl, setLiveUrl] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     if (phase !== 'recording') return
     const id = window.setInterval(() => {
-      void getExtensionSteps().then((steps) => setStepCount(steps.length))
-    }, 1200)
+      void Promise.all([getExtensionSteps(), getExtensionFrame()]).then(([steps, shot]) => {
+        setStepCount(steps.length)
+        if (shot.frame) setLiveFrame(shot.frame)
+        if (shot.frameUrl) setLiveUrl(shot.frameUrl)
+      })
+    }, 800)
     return () => window.clearInterval(id)
   }, [phase])
 
@@ -53,23 +64,30 @@ export default function BrowserPanel({
     }
     if (recording) {
       const steps = await getExtensionSteps()
+      const shot = await getExtensionFrame()
       setStepCount(steps.length)
+      setLiveFrame(shot.frame)
+      setLiveUrl(shot.frameUrl)
       setPhase('recording')
       return
     }
     setStepCount(0)
+    setLiveFrame(null)
+    setLiveUrl(null)
     setPhase('ready')
   }
 
   const handleStart = async () => {
     setError(null)
-    const ok = await startExtensionRecording()
+    const ok = await startExtensionRecording(startUrl)
     if (!ok) {
       setError(t('extensionStartFailed'))
       setPhase('missing')
       return
     }
     setStepCount(0)
+    setLiveFrame(null)
+    setLiveUrl(startUrl ?? null)
     setPhase('recording')
   }
 
@@ -87,6 +105,7 @@ export default function BrowserPanel({
       onApplyRecording(steps)
       setPhase('closed')
       setStepCount(0)
+      setLiveFrame(null)
     } catch {
       setError(t('extensionStartFailed'))
       setPhase('ready')
@@ -97,6 +116,13 @@ export default function BrowserPanel({
     setPhase('closed')
     setError(null)
   }
+
+  const displayUrl =
+    phase === 'recording'
+      ? liveUrl || startUrl || frame?.url || 'about:blank'
+      : frame?.url ?? 'about:blank'
+
+  const showLiveMirror = phase === 'recording' && Boolean(liveFrame)
 
   return (
     <div
@@ -111,7 +137,7 @@ export default function BrowserPanel({
           <span className="h-2.5 w-2.5 rounded-full bg-zinc-300" />
         </div>
         <div className="min-w-0 flex-1 truncate rounded-md bg-white px-3 py-1 text-xs text-zinc-500 dark:bg-zinc-900 dark:text-zinc-400">
-          {frame?.url ?? 'about:blank'}
+          {displayUrl}
         </div>
         {isRunning && (
           <span className="flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
@@ -125,15 +151,17 @@ export default function BrowserPanel({
             {t('recording')}
           </span>
         )}
-        {frame?.title && hasScreenshot && (
-          <span className="hidden max-w-[9rem] truncate text-[10px] text-zinc-400 md:inline">
-            {frame.title}
-          </span>
-        )}
       </div>
 
       <div className="relative flex-1 overflow-hidden bg-zinc-200/70 dark:bg-zinc-900/80">
-        {!frame ? (
+        {showLiveMirror ? (
+          <img
+            key={liveFrame!.slice(0, 64)}
+            src={liveFrame!}
+            alt={t('extensionLiveView')}
+            className="h-full w-full object-contain object-top bg-white"
+          />
+        ) : !frame ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
             <p className="text-sm font-medium text-zinc-500">{t('browserPreview')}</p>
             <p className="max-w-xs text-xs text-zinc-400">{t('browserPreviewHint')}</p>
@@ -152,48 +180,21 @@ export default function BrowserPanel({
             <p className="max-w-xs text-xs text-zinc-400">{t('browserPreviewHint')}</p>
           </div>
         ) : (
-          <>
-            <div className="absolute inset-4 overflow-hidden rounded-lg bg-white">
-              <div className="flex h-10 items-center border-b border-zinc-100 px-4">
-                <div className="h-4 w-16 rounded bg-zinc-900" />
-                <div className="ml-auto flex gap-3">
-                  <div className="h-3 w-12 rounded bg-zinc-100" />
-                  <div className="h-3 w-12 rounded bg-zinc-100" />
-                  <div className="h-3 w-12 rounded bg-zinc-100" />
-                </div>
-              </div>
-              <div className="p-4">
-                <div className="mb-3 h-5 w-2/3 rounded bg-zinc-800" />
-                <div className="mb-2 h-3 w-full rounded bg-zinc-100" />
-                <div className="mb-2 h-3 w-5/6 rounded bg-zinc-100" />
-                <div className="mt-4 grid grid-cols-3 gap-2">
-                  <div className="aspect-square rounded-lg bg-zinc-100" />
-                  <div className="aspect-square rounded-lg bg-zinc-100" />
-                  <div className="aspect-square rounded-lg bg-zinc-100" />
-                </div>
-              </div>
-
-              {frame.cursor && (
-                <div
-                  className="pointer-events-none absolute h-4 w-4 transition-all duration-500"
-                  style={{
-                    left: `${frame.cursor.x}%`,
-                    top: `${frame.cursor.y}%`,
-                  }}
-                >
-                  <MousePointerIcon />
-                </div>
-              )}
-            </div>
-            {frame.highlight && (
-              <p className="absolute bottom-3 left-3 right-3 truncate rounded-md bg-black/55 px-2 py-1 text-[11px] text-white">
-                {frame.highlight}
-              </p>
-            )}
-          </>
+          <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
+            <p className="text-sm font-medium text-zinc-500">{t('browserPreview')}</p>
+            <p className="max-w-xs text-xs text-zinc-400">{t('extensionHint')}</p>
+          </div>
         )}
 
-        {phase !== 'closed' && (
+        {phase === 'recording' && !liveFrame && (
+          <div className="absolute inset-0 flex items-center justify-center bg-zinc-900/50 px-4">
+            <p className="max-w-xs rounded-xl bg-white/95 px-3 py-2 text-center text-xs text-zinc-700 shadow">
+              {t('extensionMirrorHint')}
+            </p>
+          </div>
+        )}
+
+        {phase !== 'closed' && phase !== 'recording' && (
           <div className="absolute inset-0 z-10 flex items-end justify-center bg-black/35 p-3 backdrop-blur-[1px]">
             <div className="w-full max-w-sm rounded-xl border border-zinc-200 bg-white p-3 shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
               {phase === 'checking' || phase === 'importing' ? (
@@ -239,6 +240,11 @@ export default function BrowserPanel({
                     {t('extensionReadyTitle')}
                   </p>
                   <p className="text-xs text-zinc-600 dark:text-zinc-300">{t('extensionReadyBody')}</p>
+                  {startUrl ? (
+                    <p className="truncate text-[11px] text-zinc-500">
+                      {t('extensionWillOpen')} {startUrl}
+                    </p>
+                  ) : null}
                   {error ? <p className="text-xs text-red-600">{error}</p> : null}
                   <div className="flex flex-wrap gap-2 pt-1">
                     <button
@@ -258,73 +264,73 @@ export default function BrowserPanel({
                   </div>
                 </div>
               ) : null}
-
-              {phase === 'recording' ? (
-                <div className="space-y-2">
-                  <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-                    {t('extensionRecordingTitle')}
-                  </p>
-                  <p className="text-xs text-zinc-600 dark:text-zinc-300">
-                    {t('extensionRecordingBody')}
-                  </p>
-                  <p className="text-xs font-medium text-zinc-800 dark:text-zinc-200">
-                    {tf('extensionStepCount', { count: stepCount })}
-                  </p>
-                  {error ? <p className="text-xs text-red-600">{error}</p> : null}
-                  <div className="flex flex-wrap gap-2 pt-1">
-                    <button
-                      type="button"
-                      onClick={() => void handleStopImport()}
-                      className="rounded-lg bg-[#0071e3] px-3 py-1.5 text-xs font-semibold text-white"
-                    >
-                      {t('extensionStopImport')}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleCancel}
-                      className="rounded-lg px-3 py-1.5 text-xs font-medium text-zinc-500"
-                    >
-                      {t('dismiss')}
-                    </button>
-                  </div>
-                </div>
-              ) : null}
             </div>
           </div>
         )}
       </div>
 
-      <div className="flex items-center gap-2 border-t border-zinc-100 px-3 py-2 dark:border-zinc-800">
-        <button
-          type="button"
-          disabled={disabled || isRunning || !onApplyRecording}
-          onClick={() => void openTakeControl()}
-          className="flex items-center gap-1.5 rounded-lg border border-zinc-200 px-2.5 py-1.5 text-xs font-medium text-zinc-600 transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
-        >
-          <Hand size={12} />
-          {t('takeControl')}
-        </button>
-        {hasScreenshot && (
-          <span className="text-[10px] text-zinc-400">{t('playwrightCapture')}</span>
-        )}
-        {onApplyRecording && !hasScreenshot && (
-          <span className="text-[10px] text-zinc-400">{t('extensionHint')}</span>
-        )}
-      </div>
-    </div>
-  )
-}
+      {phase === 'recording' && (
+        <div className="space-y-2 border-t border-red-200 bg-red-50 px-3 py-2.5 dark:border-red-900/50 dark:bg-red-950/40">
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <p className="text-xs font-semibold text-red-800 dark:text-red-200">
+                {t('extensionRecordingTitle')}
+              </p>
+              <p className="mt-0.5 text-[11px] text-red-800/80 dark:text-red-200/80">
+                {t('extensionRecordingBody')}
+              </p>
+            </div>
+            <span className="shrink-0 text-[11px] font-semibold text-red-700 dark:text-red-300">
+              {tf('extensionStepCount', { count: stepCount })}
+            </span>
+          </div>
+          {error ? <p className="text-xs text-red-700">{error}</p> : null}
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => void focusRecordingTab()}
+              className="inline-flex items-center gap-1 rounded-lg border border-red-300 bg-white px-2.5 py-1.5 text-xs font-medium text-red-800"
+            >
+              <ExternalLink size={12} />
+              {t('extensionFocusTab')}
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleStopImport()}
+              className="rounded-lg bg-[#0071e3] px-2.5 py-1.5 text-xs font-semibold text-white"
+            >
+              {t('extensionStopImport')}
+            </button>
+            <button
+              type="button"
+              onClick={handleCancel}
+              className="rounded-lg px-2.5 py-1.5 text-xs font-medium text-zinc-500"
+            >
+              {t('dismiss')}
+            </button>
+          </div>
+        </div>
+      )}
 
-function MousePointerIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-      <path
-        d="M5 3l14 9-6.5 1.5L11 20 5 3z"
-        fill="#1d1d1f"
-        stroke="white"
-        strokeWidth="1.5"
-        strokeLinejoin="round"
-      />
-    </svg>
+      {phase !== 'recording' && (
+        <div className="flex items-center gap-2 border-t border-zinc-100 px-3 py-2 dark:border-zinc-800">
+          <button
+            type="button"
+            disabled={disabled || isRunning || !onApplyRecording}
+            onClick={() => void openTakeControl()}
+            className="flex items-center gap-1.5 rounded-lg border border-zinc-200 px-2.5 py-1.5 text-xs font-medium text-zinc-600 transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          >
+            <Hand size={12} />
+            {t('takeControl')}
+          </button>
+          {hasScreenshot && (
+            <span className="text-[10px] text-zinc-400">{t('playwrightCapture')}</span>
+          )}
+          {onApplyRecording && !hasScreenshot && (
+            <span className="text-[10px] text-zinc-400">{t('extensionHint')}</span>
+          )}
+        </div>
+      )}
+    </div>
   )
 }
