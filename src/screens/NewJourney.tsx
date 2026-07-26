@@ -30,6 +30,9 @@ import {
 } from '../mock/data'
 import { requestDiscoveryAi } from '../lib/discoveryAi'
 import {
+  type RecordedBrowserStep,
+} from '../lib/extensionBridge'
+import {
   agentIntroForLocale,
   buildJourneyFromDiscovery,
   buildJourneyFromPrompt,
@@ -40,6 +43,7 @@ import {
   runStoppedMessage,
   type JourneyLaunchSession,
 } from '../lib/journeyLaunch'
+import { recordedStepsToJourneySteps, recordingTitle } from '../lib/recordedSteps'
 import { useLocale } from '../context/LocaleContext'
 import { runLiveJourney } from '../lib/journeyRunAi'
 import type { BrowserFrame, ChatMessage, JourneySchedule, JourneyStep } from '../types'
@@ -370,6 +374,50 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
       },
     ])
   }, [locale])
+
+  const handleApplyRecording = useCallback(
+    (recorded: RecordedBrowserStep[]) => {
+      const nextSteps = recordedStepsToJourneySteps(recorded)
+      if (nextSteps.length === 0) return
+
+      const title = recordingTitle(recorded, journeyName)
+      const last = [...recorded].reverse().find((s) => s.url || s.href)
+      const lastUrl = last?.href || last?.url || null
+
+      setJourneyName(title)
+      setSteps(nextSteps)
+      setIsComplete(true)
+      setIsRunning(false)
+      setFixActionsResolved(false)
+      setScheduleResolved(false)
+      setEditMode(false)
+      openPanel('steps')
+      openPanel('browser')
+
+      if (lastUrl) {
+        setBrowserFrame({
+          url: lastUrl,
+          title,
+          highlight: nextSteps[nextSteps.length - 1]?.label,
+        })
+      }
+
+      onHeaderChange?.({
+        title,
+        subtitle: tf('extensionStepCount', { count: nextSteps.length }),
+      })
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `agent-recording-${Date.now()}`,
+          role: 'agent',
+          content: tf('extensionImported', { count: nextSteps.length }),
+        },
+      ])
+    },
+    [journeyName, onHeaderChange, openPanel, tf],
+  )
 
   const runStepsWithPlaywright = useCallback(
     async (
@@ -1044,7 +1092,14 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
   const renderDetachedPanelContent = (id: DetachablePanelId) => {
     switch (id) {
       case 'browser':
-        return <BrowserPanel frame={browserFrame} isRunning={isRunning} embedded />
+        return (
+          <BrowserPanel
+            frame={browserFrame}
+            isRunning={isRunning}
+            embedded
+            onApplyRecording={handleApplyRecording}
+          />
+        )
       case 'monitoring':
         return renderMonitoringContent()
     }
@@ -1192,7 +1247,12 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
             onDetach={() => detachPanel('browser')}
             {...dragProps}
           >
-            <BrowserPanel frame={browserFrame} isRunning={isRunning} embedded />
+            <BrowserPanel
+              frame={browserFrame}
+              isRunning={isRunning}
+              embedded
+              onApplyRecording={handleApplyRecording}
+            />
           </WorkspacePanel>
         )
 

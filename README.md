@@ -29,6 +29,16 @@ Interactive **frontend-only** prototype for validating the business-user journey
 3. **Monitoring** — opens after the first run
 4. **Save modal** — signup prompt (Try → Save model)
 
+## Take control (Chrome extension — free / local)
+
+When a site blocks server-side Playwright (bot protection), record the journey in **your** Chrome:
+
+1. Chrome → `chrome://extensions` → **Developer mode** → **Load unpacked** → select the repo’s `extension/` folder  
+2. Open a journey workspace → Browser panel → **Take control**  
+3. **Start recording** → browse the real site in another tab → **Stop & import steps**
+
+Details: [`extension/README.md`](./extension/README.md). No Chrome Web Store review required for unpacked/dev mode.
+
 ## Playwright runner (real Browser screenshots)
 
 The Browser panel shows **real Playwright screenshots** during journey runs.

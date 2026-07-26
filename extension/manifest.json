@@ -1,0 +1,33 @@
+{
+  "manifest_version": 3,
+  "name": "ITRS DEM — Take Control",
+  "version": "0.1.0",
+  "description": "Record real browser journeys for the ITRS DEM prototype (dev / unpacked).",
+  "permissions": ["storage", "tabs", "scripting"],
+  "host_permissions": ["http://*/*", "https://*/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "ITRS DEM Take Control",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://localhost/*",
+        "http://127.0.0.1/*",
+        "https://*.vercel.app/*",
+        "https://mighumb.github.io/*"
+      ],
+      "js": ["content-bridge.js"],
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["content-recorder.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ]
+}

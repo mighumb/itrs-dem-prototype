@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ITRS DEM Take Control</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main>
+      <h1>ITRS DEM</h1>
+      <p id="status" class="status">Checking…</p>
+      <p id="hint" class="hint">
+        Open the DEM prototype, click Take control, then browse the site you want to monitor.
+      </p>
+      <div class="actions">
+        <button id="start" type="button">Start recording</button>
+        <button id="stop" type="button" class="secondary" disabled>Stop &amp; keep steps</button>
+      </div>
+      <p id="count" class="count">0 steps</p>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>
