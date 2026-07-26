@@ -1,9 +1,9 @@
 import { useEffect } from 'react'
 
 /**
- * Keep --app-height in sync with the visual viewport so the keyboard
- * shortens the shell from the bottom. Avoid fighting iOS with offsetTop
- * snaps (those caused the input jump-to-top / drop-back).
+ * Keep a stable --app-height (layout viewport) and expose --keyboard-inset
+ * so only the chat footer lifts above the keyboard. Resizing the whole
+ * shell (including TopHeader) was painting a second banner on iOS.
  */
 export function useVisualViewportHeight() {
   useEffect(() => {
@@ -13,14 +13,22 @@ export function useVisualViewportHeight() {
 
     const apply = () => {
       frame = 0
-      // Pin document scroll — iOS otherwise pans the focused field to the top.
       if (window.scrollY !== 0 || window.scrollX !== 0) {
         window.scrollTo(0, 0)
       }
-      const height = vv ? Math.round(vv.height) : window.innerHeight
-      root.style.setProperty('--app-height', `${height}px`)
-      // Keep top pinned; height alone lifts the footer above the keyboard.
+
+      const layoutHeight = window.innerHeight
+      root.style.setProperty('--app-height', `${layoutHeight}px`)
       root.style.setProperty('--app-offset-top', '0px')
+
+      if (!vv) {
+        root.style.setProperty('--keyboard-inset', '0px')
+        return
+      }
+
+      // How much of the layout viewport is covered by the keyboard (and browser UI).
+      const inset = Math.max(0, Math.round(layoutHeight - vv.height - vv.offsetTop))
+      root.style.setProperty('--keyboard-inset', `${inset}px`)
     }
 
     const sync = () => {
@@ -31,11 +39,13 @@ export function useVisualViewportHeight() {
     apply()
     vv?.addEventListener('resize', sync)
     vv?.addEventListener('scroll', sync)
+    window.addEventListener('resize', sync)
     window.addEventListener('orientationchange', sync)
     return () => {
       if (frame) cancelAnimationFrame(frame)
       vv?.removeEventListener('resize', sync)
       vv?.removeEventListener('scroll', sync)
+      window.removeEventListener('resize', sync)
       window.removeEventListener('orientationchange', sync)
     }
   }, [])

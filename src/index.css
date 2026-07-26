@@ -14,17 +14,21 @@
   color-scheme: light;
   --app-height: 100dvh;
   --app-offset-top: 0px;
+  --keyboard-inset: 0px;
 }
 
-/* Smooth keyboard resize — height only, no top snap. */
-.app-shell {
-  transition:
-    height 0.28s cubic-bezier(0.22, 1, 0.36, 1),
-    max-height 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+/*
+  Lift only the bottom chrome (composer / floating form) when the keyboard
+  opens — never resize the shell that contains TopHeader (that painted a
+  duplicate banner during the height transition on iOS).
+*/
+.keyboard-lift {
+  padding-bottom: var(--keyboard-inset, 0px);
+  transition: padding-bottom 0.28s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .app-shell {
+  .keyboard-lift {
     transition: none;
   }
 
