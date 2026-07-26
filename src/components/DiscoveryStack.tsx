@@ -1,9 +1,12 @@
 import { ChevronLeft, ChevronRight, Pencil, X } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useLocale } from '../context/LocaleContext'
 import type { DiscoveryQuestion, JourneyProposal } from '../mock/discovery'
 
 type StackMode = 'questions' | 'proposals'
+
+/** How much of the next clipped row stays visible as a scroll cue. */
+const PEEK_PX = 40
 
 interface DiscoveryStackProps {
   mode: StackMode
@@ -36,6 +39,9 @@ export default function DiscoveryStack({
 }: DiscoveryStackProps) {
   const { t } = useLocale()
   const [otherText, setOtherText] = useState('')
+  const [canScrollDown, setCanScrollDown] = useState(false)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const peekWrapRef = useRef<HTMLDivElement>(null)
   const question = questions[questionIndex]
   const total = mode === 'questions' ? questions.length : proposals.length
   const current = mode === 'questions' ? questionIndex + 1 : 1
@@ -43,12 +49,13 @@ export default function DiscoveryStack({
   const isCustomAnswer = Boolean(
     savedAnswer && question && !question.options.includes(savedAnswer),
   )
+  const proposalKey = proposals.map((p) => p.id).join('\0')
+  const optionKey = question?.options.join('\0') ?? ''
 
   // Restore custom free-text when navigating between questions.
   // Depend on the saved string for this question — never on the answers object
   // identity (default `answers = {}` / `?? {}` would wipe keystrokes every render).
   const savedForQuestion = question ? answers[question.id] : undefined
-  const optionKey = question?.options.join('\0') ?? ''
   useEffect(() => {
     if (mode !== 'questions' || !question) return
     if (savedForQuestion && !question.options.includes(savedForQuestion)) {
@@ -59,6 +66,72 @@ export default function DiscoveryStack({
     // question read from render where these primitive deps last changed
     // eslint-disable-next-line react-hooks/exhaustive-deps -- avoid object-identity resets while typing
   }, [mode, questionIndex, question?.id, savedForQuestion, optionKey])
+
+  const updateScrollCue = () => {
+    const el = scrollRef.current
+    if (!el) {
+      setCanScrollDown(false)
+      return
+    }
+    setCanScrollDown(el.scrollTop + el.clientHeight < el.scrollHeight - 2)
+  }
+
+  /**
+   * When the list overflows but the fold lands cleanly between rows, force a
+   * peek into the next row so “more below” is obvious without a second counter.
+   * Same cue for questions (options) and proposals. Height is applied on the
+   * wrap (scroll + fade) so the fade stays glued to the fold.
+   */
+  useLayoutEffect(() => {
+    const el = scrollRef.current
+    const wrap = peekWrapRef.current
+    if (!el || !wrap) return
+    let raf = 0
+
+    const applyPeek = () => {
+      cancelAnimationFrame(raf)
+      raf = requestAnimationFrame(() => {
+        const prev = wrap.style.maxHeight
+        wrap.style.maxHeight = ''
+        void wrap.offsetHeight
+
+        const items = Array.from(el.querySelectorAll<HTMLElement>('[data-stack-item]'))
+        if (items.length === 0 || el.scrollHeight <= el.clientHeight + 1) {
+          if (prev) wrap.style.maxHeight = ''
+          updateScrollCue()
+          return
+        }
+
+        const viewBottom = el.clientHeight
+        let next = ''
+        for (const item of items) {
+          const top = item.offsetTop
+          const bottom = top + item.offsetHeight
+          // Already cutting through a row — natural peek, keep layout.
+          if (top < viewBottom && bottom > viewBottom + 4) break
+          // Fold sits in the gap before this row — pull the fold into the row.
+          if (top >= viewBottom - 4) {
+            const desired = Math.max(PEEK_PX + 8, top + PEEK_PX)
+            if (desired < viewBottom) next = `${desired}px`
+            break
+          }
+        }
+
+        wrap.style.maxHeight = next
+        updateScrollCue()
+      })
+    }
+
+    applyPeek()
+    window.addEventListener('resize', applyPeek)
+    window.visualViewport?.addEventListener('resize', applyPeek)
+    return () => {
+      cancelAnimationFrame(raf)
+      window.removeEventListener('resize', applyPeek)
+      window.visualViewport?.removeEventListener('resize', applyPeek)
+      wrap.style.maxHeight = ''
+    }
+  }, [mode, questionIndex, question?.id, optionKey, proposalKey, title])
 
   return (
     <div className="animate-fade-in flex max-h-[min(calc(var(--app-height,100dvh)*0.42),22rem)] w-full flex-col overflow-hidden overscroll-contain rounded-2xl border border-zinc-200 bg-white shadow-[0_8px_30px_rgb(0,0,0,0.06)] md:max-h-[min(calc(var(--app-height,100dvh)*0.55),28rem)] dark:border-zinc-700 dark:bg-zinc-900 dark:shadow-black/40">
@@ -101,65 +174,87 @@ export default function DiscoveryStack({
         </button>
       </header>
 
-      <div className="min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-y-contain p-2">
-        {mode === 'questions' && question && (
-          <>
-            <p className="px-2 pb-2 pt-1 text-sm text-zinc-600 dark:text-zinc-300">{question.prompt}</p>
-            <div className="space-y-1">
-              {question.options.map((option, index) => {
-                const selected = answers[question.id] === option
-                return (
-                  <button
-                    key={option}
-                    type="button"
-                    onClick={() => onSelectOption?.(question.id, option)}
-                    className={`flex w-full cursor-pointer items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm transition ${
-                      selected
-                        ? 'bg-[#0071e3]/12 font-medium text-zinc-900 dark:bg-[#0071e3]/20 dark:text-zinc-100'
-                        : 'text-zinc-700 hover:bg-zinc-50 dark:text-zinc-300 dark:hover:bg-zinc-800/70'
-                    }`}
-                  >
-                    <span
-                      className={`w-4 shrink-0 text-xs ${
-                        selected ? 'text-[#0071e3]' : 'text-zinc-400'
+      <div ref={peekWrapRef} className="relative min-h-0 max-h-full flex-1">
+        <div
+          ref={scrollRef}
+          onScroll={updateScrollCue}
+          className="h-full touch-pan-y overflow-y-auto overscroll-y-contain p-2"
+        >
+          {mode === 'questions' && question && (
+            <>
+              <p className="px-2 pb-2 pt-1 text-sm text-zinc-600 dark:text-zinc-300">
+                {question.prompt}
+              </p>
+              <div className="space-y-1">
+                {question.options.map((option, index) => {
+                  const selected = answers[question.id] === option
+                  return (
+                    <button
+                      key={option}
+                      type="button"
+                      data-stack-item
+                      onClick={() => onSelectOption?.(question.id, option)}
+                      className={`flex w-full cursor-pointer items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm transition ${
+                        selected
+                          ? 'bg-[#0071e3]/12 font-medium text-zinc-900 dark:bg-[#0071e3]/20 dark:text-zinc-100'
+                          : 'text-zinc-700 hover:bg-zinc-50 dark:text-zinc-300 dark:hover:bg-zinc-800/70'
                       }`}
                     >
-                      {index + 1}.
-                    </span>
-                    <span className="min-w-0 flex-1">{option}</span>
-                    {selected && (
-                      <ChevronRight size={14} className="shrink-0 text-[#0071e3]/70" aria-hidden />
-                    )}
-                  </button>
-                )
-              })}
-            </div>
-          </>
-        )}
+                      <span
+                        className={`w-4 shrink-0 text-xs ${
+                          selected ? 'text-[#0071e3]' : 'text-zinc-400'
+                        }`}
+                      >
+                        {index + 1}.
+                      </span>
+                      <span className="min-w-0 flex-1">{option}</span>
+                      {selected && (
+                        <ChevronRight
+                          size={14}
+                          className="shrink-0 text-[#0071e3]/70"
+                          aria-hidden
+                        />
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
+            </>
+          )}
 
-        {mode === 'proposals' && (
-          <div className="space-y-1">
-            {proposals.map((proposal, index) => (
-              <button
-                key={proposal.id}
-                type="button"
-                onClick={() => onSelectProposal?.(proposal)}
-                className="flex w-full cursor-pointer items-start gap-2 rounded-xl px-3 py-2.5 text-left transition hover:bg-zinc-50 dark:hover:bg-zinc-800/70"
-              >
-                <span className="mt-0.5 w-4 shrink-0 text-xs text-zinc-400">{index + 1}.</span>
-                <span className="min-w-0 flex-1">
-                  <span className="block text-sm font-medium text-zinc-900 dark:text-zinc-100">
-                    {proposal.title}
+          {mode === 'proposals' && (
+            <div className="space-y-1">
+              {proposals.map((proposal, index) => (
+                <button
+                  key={proposal.id}
+                  type="button"
+                  data-stack-item
+                  onClick={() => onSelectProposal?.(proposal)}
+                  className="flex w-full cursor-pointer items-start gap-2 rounded-xl px-3 py-2.5 text-left transition hover:bg-zinc-50 dark:hover:bg-zinc-800/70"
+                >
+                  <span className="mt-0.5 w-4 shrink-0 text-xs text-zinc-400">
+                    {index + 1}.
                   </span>
-                  <span className="mt-0.5 block text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
-                    {proposal.description}
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                      {proposal.title}
+                    </span>
+                    <span className="mt-0.5 block text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
+                      {proposal.description}
+                    </span>
                   </span>
-                </span>
-                <ChevronRight size={14} className="mt-1 shrink-0 text-zinc-300" />
-              </button>
-            ))}
-          </div>
-        )}
+                  <ChevronRight size={14} className="mt-1 shrink-0 text-zinc-300" />
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        <div
+          aria-hidden
+          className={`pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-white to-transparent transition-opacity duration-200 dark:from-zinc-900 ${
+            canScrollDown ? 'opacity-100' : 'opacity-0'
+          }`}
+        />
       </div>
 
       <footer className="flex shrink-0 items-center gap-2 border-t border-zinc-100 px-3 py-2.5 dark:border-zinc-800">
