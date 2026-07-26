@@ -15,6 +15,10 @@
   --app-height: 100dvh;
   --app-offset-top: 0px;
   --keyboard-inset: 0px;
+  --app-header-content-height: 3.5rem;
+  --app-header-height: calc(
+    var(--app-header-content-height) + env(safe-area-inset-top, 0px)
+  );
 }
 
 /*
@@ -28,15 +32,27 @@
 }
 
 /*
-  Sticky TopHeader: conversation scrolls underneath. A soft fade under the
-  bar so messages dissolve instead of clipping hard against the header.
+  Fixed TopHeader: sticky fails on iOS Safari when html/body lock overflow-x
+  (scroll containment). Fixed keeps the bar pinned; an in-flow spacer
+  reserves height. Soft fade under the bar so chat dissolves underneath.
   Document scroll stays the root (native pull-to-refresh).
 */
 .app-top-header {
-  position: sticky;
+  position: fixed;
   top: 0;
+  left: 0;
+  right: 0;
   z-index: 40;
+  box-sizing: border-box;
+  min-height: var(--app-header-height);
+  padding-top: env(safe-area-inset-top, 0px);
   background-color: var(--color-surface);
+}
+
+.app-top-header-spacer {
+  flex-shrink: 0;
+  height: var(--app-header-height);
+  pointer-events: none;
 }
 
 .app-top-header::after {
@@ -85,7 +101,8 @@
 */
 html {
   background-color: var(--color-surface);
-  overflow-x: hidden;
+  /* clip avoids the sticky/scroll-containment trap of overflow-x: hidden */
+  overflow-x: clip;
   overscroll-behavior-x: none;
 }
 
@@ -96,7 +113,7 @@ body {
   -webkit-font-smoothing: antialiased;
   background-color: var(--color-surface);
   color: #1d1d1f;
-  overflow-x: hidden;
+  overflow-x: clip;
   overscroll-behavior-x: none;
   touch-action: pan-y;
 }
