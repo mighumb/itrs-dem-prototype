@@ -285,6 +285,31 @@ export function messageRequestsSiteWork(text: string): boolean {
   ) {
     return true
   }
+  // Bare brand / org / acronym — "FFF", "La FFF", "SNCF", "Club Med"
+  const words = t.split(/\s+/).filter(Boolean)
+  if (words.length <= 6) {
+    const letters = t.replace(/[^A-Za-zÀ-ü]/g, '')
+    if (
+      /^[A-ZÀ-Ü]{2,6}$/.test(letters) &&
+      !/^(OK|KO|LOL|MDR|WTF|FYI|ASAP|PDF|FAQ|IMO|BTW|IDK)$/i.test(letters)
+    ) {
+      return true
+    }
+    if (
+      /^(?:la|le|l['’]|les|the|el|die)\s+[A-Za-zÀ-ü][A-Za-zÀ-ü&'.-]{1,40}$/i.test(t)
+    ) {
+      return true
+    }
+    if (
+      words.length <= 3 &&
+      words.every((w) => /^[\p{L}&'.-]{2,}$/u.test(w)) &&
+      !/^(hi|hello|hey|bonjour|salut|coucou|test|essai|ok|oui|non|merci|thanks|aide|help|ping)$/i.test(
+        t,
+      )
+    ) {
+      return true
+    }
+  }
   return false
 }
 

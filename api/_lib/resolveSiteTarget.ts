@@ -21,10 +21,10 @@ const BRAND_RESOLVE_TIMEOUT_MS = 12_000
 
 function shouldTryBrandResolve(text: string): boolean {
   const t = text.trim()
-  if (!t || t.length < 3) return false
+  if (!t || t.length < 2) return false
   // Pure greetings / ultra-short asks — don't burn a search call
   if (
-    /^(hi|hello|hey|bonjour|salut|aide|help|coucou)([.!?]|$)/i.test(t) &&
+    /^(hi|hello|hey|bonjour|salut|aide|help|coucou|test|ok)([.!?]|$)/i.test(t) &&
     t.split(/\s+/).length <= 2
   ) {
     return false
@@ -45,7 +45,12 @@ function extractBrandishTokens(text: string): string[] {
   return leftover
     .split(/\s+/)
     .map((w) => w.replace(/^['’]+|['’]+$/g, ''))
-    .filter((w) => w.length >= 3)
+    // Acronyms like FFF / EDF are 3 letters; allow 2+ for short org codes.
+    .filter((w) => {
+      const compact = w.replace(/\./g, '')
+      if (/^[A-Za-zÀ-ü]{2,6}$/u.test(compact)) return true
+      return w.length >= 3
+    })
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
@@ -130,16 +135,17 @@ async function resolveBrandWithGemini(
       const model = genAI.getGenerativeModel({
         model: modelName,
         tools: [{ googleSearch: {} }] as never,
-        systemInstruction: `You resolve a brand, company, product, or website name to its official consumer homepage URL.
+        systemInstruction: `You resolve a brand, company, product, organization, or website name (including well-known acronyms) to its official consumer homepage URL.
 Rules:
-- Prefer the official brand website (not social networks, app stores, Wikipedia, news, or booking aggregators unless that IS the product).
+- Prefer the official brand/org website (not social networks, app stores, Wikipedia, news, or booking aggregators unless that IS the product).
+- Acronyms count: e.g. FFF → Fédération Française de Football → https://www.fff.fr ; SNCF → sncf.com / sncf-connect.com as appropriate for the market; EDF → edf.fr.
 - ${localeHint}
 - Reply with ONLY one line: either a single https URL, or the word NONE.
 - No markdown, no commentary.`,
       })
 
       const result = await model.generateContent(
-        `Official homepage URL for this site/brand (monitoring target): ${query}`,
+        `Official homepage URL for this site/brand/org/acronym (monitoring target): ${query}`,
       )
       const text = result.response.text().trim()
       const fromText = firstUrlFromText(text)
