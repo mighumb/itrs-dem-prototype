@@ -6,8 +6,6 @@ import SaveModal from './components/SaveModal'
 import ScheduleDrawer from './components/ScheduleDrawer'
 import Shell from './components/Shell'
 import TopHeader from './components/TopHeader'
-import PullToRefreshIndicator from './components/PullToRefreshIndicator'
-import { usePullToRefresh } from './hooks/usePullToRefresh'
 import { useVisualViewportHeight } from './hooks/useVisualViewportHeight'
 import { DEFAULT_SCHEDULE } from './mock/schedule'
 import type { JourneyLaunchSession } from './lib/journeyLaunch'
@@ -37,7 +35,6 @@ export default function App() {
   const journeyRef = useRef<NewJourneyHandle>(null)
   const pendingScheduleSource = useRef<'accept' | 'customize' | null>(null)
   useVisualViewportHeight()
-  const pullToRefresh = usePullToRefresh(true)
 
   const handleStart = (session: JourneyLaunchSession | string) => {
     const next: JourneyLaunchSession =
@@ -92,18 +89,9 @@ export default function App() {
 
   return (
     <div
-      className="fixed inset-x-0 top-0 flex w-full flex-col overflow-hidden overscroll-x-none"
-      style={{
-        height: 'var(--app-height, 100dvh)',
-        maxHeight: 'var(--app-height, 100dvh)',
-      }}
+      className="flex w-full flex-col"
+      style={{ minHeight: 'var(--app-height, 100dvh)' }}
     >
-      <PullToRefreshIndicator
-        pullPx={pullToRefresh.pullPx}
-        progress={pullToRefresh.progress}
-        refreshing={pullToRefresh.refreshing}
-        active={pullToRefresh.active}
-      />
       {!accountCreated && (
         <TopHeader
           onLogIn={() => openAuth('login')}
@@ -115,7 +103,7 @@ export default function App() {
         />
       )}
 
-      <div className="min-h-0 flex-1 overflow-hidden overscroll-x-none">
+      <div className="flex min-h-0 flex-1 flex-col">
         <Shell minimal={!accountCreated} onHome={handleGoHome}>
         {screen === 'home' && (
           <Home

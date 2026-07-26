@@ -21,7 +21,8 @@ export default function Shell({ children, minimal, onHome }: ShellProps) {
   const { t } = useLocale()
 
   if (minimal) {
-    return <div className="h-full min-h-0 overflow-hidden">{children}</div>
+    // Document scroll (not a nested overflow trap) so native pull-to-refresh works.
+    return <div className="flex min-h-full flex-1 flex-col">{children}</div>
   }
 
   return (

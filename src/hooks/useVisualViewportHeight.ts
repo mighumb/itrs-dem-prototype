@@ -1,9 +1,8 @@
 import { useEffect } from 'react'
 
 /**
- * Keep a stable --app-height (layout viewport) and expose --keyboard-inset
- * so only the chat footer lifts above the keyboard. Resizing the whole
- * shell (including TopHeader) was painting a second banner on iOS.
+ * Expose --app-height / --keyboard-inset for layout + keyboard lift.
+ * Do not force scrollTo(0) — that fights native browser pull-to-refresh.
  */
 export function useVisualViewportHeight() {
   useEffect(() => {
@@ -13,10 +12,6 @@ export function useVisualViewportHeight() {
 
     const apply = () => {
       frame = 0
-      if (window.scrollY !== 0 || window.scrollX !== 0) {
-        window.scrollTo(0, 0)
-      }
-
       const layoutHeight = window.innerHeight
       root.style.setProperty('--app-height', `${layoutHeight}px`)
       root.style.setProperty('--app-offset-top', '0px')
@@ -26,7 +21,6 @@ export function useVisualViewportHeight() {
         return
       }
 
-      // How much of the layout viewport is covered by the keyboard (and browser UI).
       const inset = Math.max(0, Math.round(layoutHeight - vv.height - vv.offsetTop))
       root.style.setProperty('--keyboard-inset', `${inset}px`)
     }
