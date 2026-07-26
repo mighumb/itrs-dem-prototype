@@ -135,10 +135,10 @@ async function resolveBrandWithGemini(
       const model = genAI.getGenerativeModel({
         model: modelName,
         tools: [{ googleSearch: {} }] as never,
-        systemInstruction: `You resolve a brand, company, product, organization, or website name (including well-known acronyms) to its official consumer homepage URL.
+        systemInstruction: `You resolve a brand, company, product, organization, or website name (including acronyms / abbreviations) to its official consumer homepage URL.
 Rules:
 - Prefer the official brand/org website (not social networks, app stores, Wikipedia, news, or booking aggregators unless that IS the product).
-- Acronyms count: e.g. FFF → Fédération Française de Football → https://www.fff.fr ; SNCF → sncf.com / sncf-connect.com as appropriate for the market; EDF → edf.fr.
+- Acronyms and abbreviations count: expand to the most likely official organization in the user's market, then that org's official homepage (use Search grounding). Prefer the local TLD when preferredLanguage/market implies it.
 - ${localeHint}
 - Reply with ONLY one line: either a single https URL, or the word NONE.
 - No markdown, no commentary.`,

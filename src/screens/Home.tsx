@@ -50,13 +50,22 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
   messagesRef.current = messages
 
   const rememberSnapshot = (ai: DiscoveryAiResult) => {
-    if (!ai.pageSnapshot && !ai.siteAnalysis) return
+    // Keep candidate URL even before crawl (awaiting confirmation after brand/acronym resolve).
+    if (!ai.pageSnapshot && !ai.siteAnalysis?.url) return
     setCtx((prev) => {
-      if (!prev) return prev
+      const url = ai.siteAnalysis?.url ?? prev?.url ?? null
+      const base = prev ?? createDiscoveryContext(url ?? ai.siteAnalysis?.title ?? 'site')
+      const awaitingConfirm = ai.siteAnalysis?.reason === 'awaiting_user_confirmation'
       return {
-        ...prev,
-        url: ai.siteAnalysis?.url ?? prev.url,
-        pageSnapshot: ai.pageSnapshot ?? prev.pageSnapshot ?? null,
+        ...base,
+        url,
+        pageSnapshot: awaitingConfirm
+          ? null
+          : ai.pageSnapshot ?? base.pageSnapshot ?? null,
+        seed:
+          url && ai.siteAnalysis?.title
+            ? `${ai.siteAnalysis.title} ${url}`
+            : url ?? base.seed,
       }
     })
   }

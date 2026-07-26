@@ -272,45 +272,74 @@ export function looksLikeHttpUrl(text: string): boolean {
   return /https?:\/\/[^\s]+/i.test(text) || /\b[a-z0-9-]+\.[a-z]{2,}(?:\/|\b)/i.test(text)
 }
 
-/** Client mirror of server gate: only send site evidence when this turn needs it. */
-export function messageRequestsSiteWork(text: string): boolean {
+const CHAT_NOISE_RE =
+  /^(hi|hello|hey|bonjour|salut|coucou|test|essai|ok|oui|non|merci|thanks|aide|help|ping)$/i
+const ACRONYM_NOISE_RE =
+  /^(OK|KO|LOL|MDR|WTF|FYI|ASAP|PDF|FAQ|IMO|BTW|IDK)$/i
+
+function hasExplicitSiteLocator(text: string): boolean {
   const t = text.trim()
-  if (!t) return false
-  if (/https?:\/\/[^\s]+/i.test(t)) return true
-  if (/\b(?:www\.)?[a-z0-9][a-z0-9-]*\.[a-z]{2,}(?:\/[^\s]*)?\b/i.test(t)) return true
+  return (
+    /https?:\/\/[^\s]+/i.test(t) ||
+    /\b(?:www\.)?[a-z0-9][a-z0-9-]*\.[a-z]{2,}(?:\/[^\s]*)?\b/i.test(t)
+  )
+}
+
+function hasMonitorVerbWithTarget(text: string): boolean {
+  return /\b(?:monitor(?:er|ing)?|surveill(?:er|ance)?|parcours(?:\s+(?:sur|pour))?|journey(?:\s+(?:on|for))?|check(?:er)?)\s+[\wÀ-ü][\wÀ-ü&'.-]{1,}/i.test(
+    text.trim(),
+  )
+}
+
+/** Short brand / acronym without URL — confirm before proposals (server mirrors this). */
+export function looksLikeAmbiguousBrandName(text: string): boolean {
+  const t = text.trim()
+  if (!t || hasExplicitSiteLocator(t) || hasMonitorVerbWithTarget(t)) return false
+  const words = t.split(/\s+/).filter(Boolean)
+  if (words.length > 6) return false
+  const letters = t.replace(/[^A-Za-zÀ-ü]/g, '')
+  if (/^[A-ZÀ-Ü]{2,6}$/.test(letters) && !ACRONYM_NOISE_RE.test(letters)) return true
+  if (/^(?:la|le|l['’]|les|the|el|die)\s+[A-Za-zÀ-ü][A-Za-zÀ-ü&'.-]{1,40}$/i.test(t)) {
+    return true
+  }
   if (
-    /\b(?:monitor(?:er|ing)?|surveill(?:er|ance)?|parcours(?:\s+(?:sur|pour))?|journey(?:\s+(?:on|for))?|check(?:er)?)\s+[\wÀ-ü][\wÀ-ü&'.-]{1,}/i.test(
+    words.length <= 3 &&
+    words.every((w) => /^[\p{L}&'.-]{2,}$/u.test(w)) &&
+    !CHAT_NOISE_RE.test(t)
+  ) {
+    return true
+  }
+  return false
+}
+
+/** User affirming a previously proposed site candidate. */
+export function looksLikeSiteConfirmation(text: string): boolean {
+  const t = text.trim()
+  if (!t || t.length > 80) return false
+  if (
+    /^(oui|ouais|yes|yep|yeah|yup|ok|okay|d['’]?accord|exact|exactement|sure|confirme(?:d)?|vas[- ]y|go|nickel|parfait)([.!]|$)/i.test(
       t,
     )
   ) {
     return true
   }
-  // Bare brand / org / acronym — "FFF", "La FFF", "SNCF", "Club Med"
-  const words = t.split(/\s+/).filter(Boolean)
-  if (words.length <= 6) {
-    const letters = t.replace(/[^A-Za-zÀ-ü]/g, '')
-    if (
-      /^[A-ZÀ-Ü]{2,6}$/.test(letters) &&
-      !/^(OK|KO|LOL|MDR|WTF|FYI|ASAP|PDF|FAQ|IMO|BTW|IDK)$/i.test(letters)
-    ) {
-      return true
-    }
-    if (
-      /^(?:la|le|l['’]|les|the|el|die)\s+[A-Za-zÀ-ü][A-Za-zÀ-ü&'.-]{1,40}$/i.test(t)
-    ) {
-      return true
-    }
-    if (
-      words.length <= 3 &&
-      words.every((w) => /^[\p{L}&'.-]{2,}$/u.test(w)) &&
-      !/^(hi|hello|hey|bonjour|salut|coucou|test|essai|ok|oui|non|merci|thanks|aide|help|ping)$/i.test(
-        t,
-      )
-    ) {
-      return true
-    }
+  if (
+    /^(oui|yes|ok)\b.{0,48}$/i.test(t) &&
+    /\b(c['’]?est\s+(?:ça|bien|bon|celui)|celui[- ]là|ce\s+site|that(?:'s|\s+is)\s+(?:it|right)|correct)\b/i.test(
+      t,
+    )
+  ) {
+    return true
   }
   return false
+}
+
+/** Client mirror of server gate: only send site evidence when this turn needs it. */
+export function messageRequestsSiteWork(text: string): boolean {
+  const t = text.trim()
+  if (!t) return false
+  if (hasExplicitSiteLocator(t) || hasMonitorVerbWithTarget(t)) return true
+  return looksLikeAmbiguousBrandName(t)
 }
 
 export async function requestDiscoveryAi(options: {
@@ -390,7 +419,8 @@ export async function requestDiscoveryAi(options: {
             mode === 'configure' ||
             mode === 'plan' ||
             mode === 'iterate' ||
-            messageRequestsSiteWork(userMessage)
+            messageRequestsSiteWork(userMessage) ||
+            (looksLikeSiteConfirmation(userMessage) && Boolean(context?.url))
           if (!context) {
             return { preferredLanguage, journeyName, currentSteps }
           }
@@ -411,7 +441,11 @@ export async function requestDiscoveryAi(options: {
             url: context.url,
             answers: context.answers,
             selectedProposalId: context.selectedProposalId,
-            pageSnapshot: context.pageSnapshot ?? null,
+            // On bare confirmation, force a fresh explore of the candidate URL.
+            pageSnapshot:
+              looksLikeSiteConfirmation(userMessage) && !messageRequestsSiteWork(userMessage)
+                ? null
+                : context.pageSnapshot ?? null,
             preferredLanguage,
             journeyName,
             currentSteps,

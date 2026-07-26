@@ -46,58 +46,101 @@ type DiscoveryAiRequest = {
   }
 }
 
-/** True when this turn should resolve/crawl a site — not on casual chat. */
-function messageRequestsSiteWork(text: string): boolean {
+const CHAT_NOISE_RE =
+  /^(hi|hello|hey|bonjour|salut|coucou|test|essai|ok|oui|non|merci|thanks|aide|help|ping)$/i
+const ACRONYM_NOISE_RE =
+  /^(OK|KO|LOL|MDR|WTF|FYI|ASAP|PDF|FAQ|IMO|BTW|IDK)$/i
+
+/** Explicit URL / domain — unambiguous monitoring target. */
+function hasExplicitSiteLocator(text: string): boolean {
   const t = text.trim()
-  if (!t) return false
-  if (/https?:\/\/[^\s]+/i.test(t)) return true
-  if (/\b(?:www\.)?[a-z0-9][a-z0-9-]*\.[a-z]{2,}(?:\/[^\s]*)?\b/i.test(t)) return true
-  // "monitor EasyJet", "surveiller Amazon", "parcours Club Med"
+  return (
+    /https?:\/\/[^\s]+/i.test(t) ||
+    /\b(?:www\.)?[a-z0-9][a-z0-9-]*\.[a-z]{2,}(?:\/[^\s]*)?\b/i.test(t)
+  )
+}
+
+/** "monitor EasyJet" / "surveiller Amazon" — clear monitoring intent + name. */
+function hasMonitorVerbWithTarget(text: string): boolean {
+  return /\b(?:monitor(?:er|ing)?|surveill(?:er|ance)?|parcours(?:\s+(?:sur|pour))?|journey(?:\s+(?:on|for))?|check(?:er)?)\s+[\wÀ-ü][\wÀ-ü&'.-]{1,}/i.test(
+    text.trim(),
+  )
+}
+
+/**
+ * Short brand / acronym / org name without URL — may be ambiguous
+ * (e.g. national federation initials). Resolve, then confirm before proposals.
+ */
+function looksLikeAmbiguousBrandName(text: string): boolean {
+  const t = text.trim()
+  if (!t || hasExplicitSiteLocator(t) || hasMonitorVerbWithTarget(t)) return false
+  const words = t.split(/\s+/).filter(Boolean)
+  if (words.length > 6) return false
+  const letters = t.replace(/[^A-Za-zÀ-ü]/g, '')
+  if (/^[A-ZÀ-Ü]{2,6}$/.test(letters) && !ACRONYM_NOISE_RE.test(letters)) return true
+  if (/^(?:la|le|l['’]|les|the|el|die)\s+[A-Za-zÀ-ü][A-Za-zÀ-ü&'.-]{1,40}$/i.test(t)) {
+    return true
+  }
   if (
-    /\b(?:monitor(?:er|ing)?|surveill(?:er|ance)?|parcours(?:\s+(?:sur|pour))?|journey(?:\s+(?:on|for))?|check(?:er)?)\s+[\wÀ-ü][\wÀ-ü&'.-]{1,}/i.test(
+    words.length <= 3 &&
+    words.every((w) => /^[\p{L}&'.-]{2,}$/u.test(w)) &&
+    !CHAT_NOISE_RE.test(t)
+  ) {
+    return true
+  }
+  return false
+}
+
+/** User affirming a previously proposed site candidate. */
+function looksLikeSiteConfirmation(text: string): boolean {
+  const t = text.trim()
+  if (!t || t.length > 80) return false
+  if (
+    /^(oui|ouais|yes|yep|yeah|yup|ok|okay|d['’]?accord|exact|exactement|sure|confirme(?:d)?|vas[- ]y|go|nickel|parfait)([.!]|$)/i.test(
       t,
     )
   ) {
     return true
   }
-  // Bare brand / org / acronym — "FFF", "La FFF", "SNCF", "Club Med"
-  // (without this, short names never resolve and the model only small-talks).
-  const words = t.split(/\s+/).filter(Boolean)
-  if (words.length <= 6) {
-    const letters = t.replace(/[^A-Za-zÀ-ü]/g, '')
-    // ALL-CAPS org acronyms (FFF, SNCF, EDF) — skip chat noise like OK/LOL.
-    if (
-      /^[A-ZÀ-Ü]{2,6}$/.test(letters) &&
-      !/^(OK|KO|LOL|MDR|WTF|FYI|ASAP|PDF|FAQ|IMO|BTW|IDK)$/i.test(letters)
-    ) {
-      return true
-    }
-    if (
-      /^(?:la|le|l['’]|les|the|el|die)\s+[A-Za-zÀ-ü][A-Za-zÀ-ü&'.-]{1,40}$/i.test(t)
-    ) {
-      return true
-    }
-    // 1–3 token proper-looking names (EasyJet, Club Med, Pierre & Vacances)
-    if (
-      words.length <= 3 &&
-      words.every((w) => /^[\p{L}&'.-]{2,}$/u.test(w)) &&
-      !/^(hi|hello|hey|bonjour|salut|coucou|test|essai|ok|oui|non|merci|thanks|aide|help|ping)$/i.test(
-        t,
-      )
-    ) {
-      return true
-    }
+  if (
+    /^(oui|yes|ok)\b.{0,48}$/i.test(t) &&
+    /\b(c['’]?est\s+(?:ça|bien|bon|celui)|celui[- ]là|ce\s+site|that(?:'s|\s+is)\s+(?:it|right)|correct)\b/i.test(
+      t,
+    )
+  ) {
+    return true
   }
   return false
+}
+
+/** True when this turn should resolve/crawl a site — not on casual chat. */
+function messageRequestsSiteWork(text: string): boolean {
+  const t = text.trim()
+  if (!t) return false
+  if (hasExplicitSiteLocator(t) || hasMonitorVerbWithTarget(t)) return true
+  return looksLikeAmbiguousBrandName(t)
 }
 
 function shouldAttachSiteEvidence(body: DiscoveryAiRequest): boolean {
   if (/\brelocalize_ui\b/.test(body.userMessage)) return false
   if (['propose', 'configure', 'plan', 'iterate'].includes(body.mode)) return true
   if (body.mode === 'bootstrap' || body.mode === 'chat') {
-    return messageRequestsSiteWork(body.userMessage)
+    if (messageRequestsSiteWork(body.userMessage)) return true
+    // Affirmation after we proposed a candidate URL — explore that site next.
+    if (looksLikeSiteConfirmation(body.userMessage) && body.context?.url) return true
   }
   return false
+}
+
+/** Resolve name → URL only; ask the user before crawling / proposing journeys. */
+function shouldConfirmBeforeExplore(
+  body: DiscoveryAiRequest,
+  target: ResolvedSiteTarget | null,
+): boolean {
+  if (body.mode !== 'bootstrap' && body.mode !== 'chat') return false
+  if (!looksLikeAmbiguousBrandName(body.userMessage)) return false
+  if (!target?.url || target.source !== 'brand_resolve') return false
+  return true
 }
 
 function buildUserPrompt(
@@ -109,6 +152,7 @@ function buildUserPrompt(
   const preferredLanguage =
     body.preferredLanguage ?? body.context?.preferredLanguage ?? 'en'
   const attachSite = shouldAttachSiteEvidence(body)
+  const confirmFirst = shouldConfirmBeforeExplore(body, target)
   const base = body.context ?? {}
 
   const context = attachSite
@@ -116,7 +160,9 @@ function buildUserPrompt(
         ...base,
         preferredLanguage,
         url: analysis?.url ?? target?.url ?? base.url ?? null,
-        pageSnapshot: analysis?.snapshot ?? base.pageSnapshot ?? null,
+        pageSnapshot: confirmFirst
+          ? null
+          : analysis?.snapshot ?? base.pageSnapshot ?? null,
         siteTarget: target
           ? {
               url: target.url,
@@ -134,7 +180,15 @@ function buildUserPrompt(
               status: analysis.status,
             }
           : null,
-        siteExplore: siteExplorePromptView(explore),
+        siteExplore: confirmFirst ? null : siteExplorePromptView(explore),
+        // Ambiguous acronym/name: candidate ready — confirm with user before proposals.
+        siteConfirmation: confirmFirst
+          ? {
+              needed: true,
+              candidateUrl: target?.url ?? null,
+              candidateLabel: target?.label ?? null,
+            }
+          : { needed: false },
       }
     : {
         // Conversational turn: no leftover seed/url/explore — avoids site hallucinations.
@@ -149,6 +203,7 @@ function buildUserPrompt(
         siteTarget: null,
         siteAnalysis: null,
         siteExplore: null,
+        siteConfirmation: { needed: false },
       }
 
   return JSON.stringify(
@@ -331,6 +386,11 @@ async function gatherSiteEvidence(
     return { analysis: null, explore: null }
   }
 
+  // Ambiguous brand/acronym: resolve URL only — confirm with the user before crawl.
+  if (shouldConfirmBeforeExplore(body, target)) {
+    return { analysis: null, explore: null }
+  }
+
   // Cached evidence from a prior turn — do not re-crawl.
   if (body.context?.pageSnapshot) {
     const url = body.context.url ?? target?.url ?? ''
@@ -485,17 +545,36 @@ function buildResultPayload(
   body: DiscoveryAiRequest,
   modelName: string,
   streamedStatuses: string[],
+  confirmFirst: boolean,
 ) {
+  // Hard gate: never ship journey proposals while still confirming the site.
+  const proposals =
+    confirmFirst || !Array.isArray(parsed.proposals) ? null : parsed.proposals
+  const questions = Array.isArray(parsed.questions) ? parsed.questions : null
+
   return {
     type: 'result' as const,
     message: typeof parsed.message === 'string' ? parsed.message : 'Here is what I suggest.',
     workTrace: normalizeWorkTrace(parsed.workTrace, analysis, target, explore, streamedStatuses),
-    questions: Array.isArray(parsed.questions) ? parsed.questions : null,
-    proposals: Array.isArray(parsed.proposals) ? parsed.proposals : null,
-    plan: parsed.plan && typeof parsed.plan === 'object' ? parsed.plan : null,
-    readyForPlan: Boolean(parsed.readyForPlan),
-    pageSnapshot: analysis?.snapshot ?? body.context?.pageSnapshot ?? null,
+    questions,
+    proposals,
+    plan: confirmFirst
+      ? null
+      : parsed.plan && typeof parsed.plan === 'object'
+        ? parsed.plan
+        : null,
+    readyForPlan: confirmFirst ? false : Boolean(parsed.readyForPlan),
+    pageSnapshot: confirmFirst
+      ? null
+      : analysis?.snapshot ?? body.context?.pageSnapshot ?? null,
     siteTarget: target,
+    siteConfirmation: confirmFirst
+      ? {
+          needed: true,
+          candidateUrl: target?.url ?? null,
+          candidateLabel: target?.label ?? null,
+        }
+      : { needed: false },
     siteAnalysis: analysis
       ? {
           ok: analysis.ok,
@@ -506,7 +585,18 @@ function buildResultPayload(
           exploreMethod: explore?.method ?? null,
           pagesVisited: explore?.pagesVisited ?? null,
         }
-      : null,
+      : target?.url
+        ? {
+            // Candidate from brand resolve — client keeps URL for the confirm turn.
+            ok: false,
+            url: target.url,
+            reason: confirmFirst ? 'awaiting_user_confirmation' : null,
+            title: target.label,
+            status: null,
+            exploreMethod: null,
+            pagesVisited: null,
+          }
+        : null,
     model: modelName,
   }
 }
@@ -545,6 +635,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       body,
       apiKeyEntries.map((entry) => entry.key),
     )
+    const confirmFirst = shouldConfirmBeforeExplore(body, target)
 
     ;({ analysis, explore } = await gatherSiteEvidence(body, target, sendStatus))
 
@@ -631,6 +722,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 body,
                 modelName,
                 streamedStatuses,
+                confirmFirst,
               ),
             )
             return res.end()
