@@ -407,16 +407,97 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
         subtitle: tf('extensionStepCount', { count: nextSteps.length }),
       })
 
+      const stepsJson = nextSteps.map((s, index) => ({
+        n: index + 1,
+        action: s.action,
+        label: s.label,
+        href: s.href ?? null,
+        targetHint: s.targetHint ?? null,
+      }))
+      const userPayload = [
+        locale === 'fr'
+          ? 'J’ai enregistré ce parcours dans Chrome (Take control). Voici le JSON des étapes — garde-les pour le Run :'
+          : 'I recorded this journey in Chrome (Take control). Here is the steps JSON — keep them for Run:',
+        '```json',
+        JSON.stringify({ title, url: lastUrl, steps: stepsJson }, null, 2),
+        '```',
+      ].join('\n')
+
+      const userMsg: ChatMessage = {
+        id: `user-recording-${Date.now()}`,
+        role: 'user',
+        content: userPayload,
+      }
       setMessages((prev) => [
         ...prev,
+        userMsg,
         {
           id: `agent-recording-${Date.now()}`,
           role: 'agent',
           content: tf('extensionImported', { count: nextSteps.length }),
         },
       ])
+
+      // Hand the recording to the Discovery agent (iterate) while keeping imported steps as source of truth.
+      chatAbortRef.current?.abort()
+      const abort = new AbortController()
+      chatAbortRef.current = abort
+      setAgentTyping(true)
+      setWorkStatus(null)
+      void (async () => {
+        try {
+          const history = [...messages, userMsg]
+          const ai = await requestDiscoveryAi({
+            mode: 'iterate',
+            userMessage: userPayload,
+            messages: history,
+            phase: 'workspace',
+            preferredLanguage: locale,
+            journeyName: title,
+            currentSteps: nextSteps.map((s) => ({
+              id: s.id,
+              label: s.label,
+              action: s.action,
+            })),
+            context: {
+              seed: initialPrompt || title,
+              url: lastUrl,
+              answers: {},
+              selectedProposalId: null,
+              selectedProposal: null,
+              pageSnapshot: null,
+            },
+            signal: abort.signal,
+            onStatus: (status) => setWorkStatus(status),
+          })
+          if (ai.aborted || abort.signal.aborted) return
+          if (ai.message?.trim()) {
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: `agent-recording-ai-${Date.now()}`,
+                role: 'agent',
+                content: ai.message,
+              },
+            ])
+          }
+          // Do not replace nextSteps with ai.plan — recorded steps stay authoritative for Run.
+        } finally {
+          if (chatAbortRef.current === abort) chatAbortRef.current = null
+          setAgentTyping(false)
+          setWorkStatus(null)
+        }
+      })()
     },
-    [journeyName, onHeaderChange, openPanel, tf],
+    [
+      journeyName,
+      onHeaderChange,
+      openPanel,
+      tf,
+      locale,
+      messages,
+      initialPrompt,
+    ],
   )
 
   const runStepsWithPlaywright = useCallback(
