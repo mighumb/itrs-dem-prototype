@@ -747,6 +747,11 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
         ref={inputRef}
         value={input}
         onChange={(e) => setInput(e.target.value)}
+        onFocus={() => {
+          // Stop iOS from panning the focused field to the top of the viewport;
+          // the shell height transition lifts the composer with the keyboard.
+          window.scrollTo(0, 0)
+        }}
         placeholder={inputPlaceholder}
         disabled={agentTyping}
         readOnly={agentTyping}

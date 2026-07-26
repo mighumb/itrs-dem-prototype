@@ -16,6 +16,23 @@
   --app-offset-top: 0px;
 }
 
+/* Smooth keyboard resize — height only, no top snap. */
+.app-shell {
+  transition:
+    height 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+    max-height 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-shell {
+    transition: none;
+  }
+
+  #mobile-nav-drawer {
+    transition: none !important;
+  }
+}
+
 .dark {
   color-scheme: dark;
   --color-surface: #0a0a0b;
