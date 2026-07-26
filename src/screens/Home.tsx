@@ -851,7 +851,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
       </div>
 
       <div
-        className="sticky z-10 flex w-full flex-col gap-2 bg-[var(--color-surface)] pt-2 pb-[max(1rem,env(safe-area-inset-bottom))] transition-[bottom] duration-280 ease-out"
+        className="sticky z-10 flex w-full flex-col gap-2 bg-[var(--color-surface)] pt-2 pb-[max(1rem,env(safe-area-inset-bottom))] transition-[bottom] duration-300 ease-out"
         style={{ bottom: 'var(--keyboard-inset, 0px)' }}
       >
         {showStack && phase === 'questionnaire' && (
