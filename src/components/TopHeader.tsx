@@ -20,9 +20,11 @@ const DRAWER_MOTION_MS = 280
 
 function BrandMark({
   theme,
+  size = 22,
   className = '',
 }: {
   theme: 'light' | 'dark'
+  size?: number
   className?: string
 }) {
   // Light UI → dark glyph; dark UI → light glyph (assets named for the mode they serve).
@@ -32,9 +34,10 @@ function BrandMark({
     <img
       src={src}
       alt=""
-      width={22}
-      height={21}
-      className={`h-[22px] w-[22px] shrink-0 ${className}`}
+      width={size}
+      height={size}
+      className={`shrink-0 ${className}`}
+      style={{ width: size, height: size }}
       draggable={false}
     />
   )
@@ -255,10 +258,10 @@ export default function TopHeader({
                 onClick={goHome}
                 title={t('home')}
                 aria-label={t('home')}
-                className="flex cursor-pointer items-center gap-2"
+                className="flex cursor-pointer items-center gap-2.5"
               >
-                <BrandMark theme={theme} />
-                <span className="text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
+                <BrandMark theme={theme} size={28} />
+                <span className="text-base font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
                   ITRS DEM
                 </span>
               </button>
@@ -360,10 +363,10 @@ export default function TopHeader({
                   type="button"
                   onClick={goHome}
                   title={t('home')}
-                  className="flex min-h-11 min-w-0 flex-1 cursor-pointer items-center gap-2"
+                  className="flex min-h-11 min-w-0 flex-1 cursor-pointer items-center gap-2.5"
                 >
-                  <BrandMark theme={theme} />
-                  <span className="truncate text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
+                  <BrandMark theme={theme} size={28} />
+                  <span className="truncate text-base font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
                     ITRS DEM
                   </span>
                 </button>
