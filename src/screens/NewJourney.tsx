@@ -1361,8 +1361,16 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
               <div ref={chatEndRef} />
             </div>
             <footer
-              className="sticky z-10 shrink-0 border-t border-zinc-100 bg-[var(--color-surface)] p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] transition-[bottom] duration-300 ease-out dark:border-zinc-800"
-              style={{ bottom: 'var(--keyboard-inset, 0px)' }}
+              className="sticky z-10 shrink-0 border-t border-zinc-100 bg-[var(--color-surface)] p-3 transition-[bottom] duration-300 ease-out dark:border-zinc-800"
+              style={{
+                bottom: 'var(--keyboard-inset, 0px)',
+                paddingBottom:
+                  'var(--dock-pad-bottom, max(0.75rem, env(safe-area-inset-bottom, 0px)))',
+              }}
+              onFocusCapture={() => {
+                window.scrollTo(0, 0)
+                requestAnimationFrame(() => window.scrollTo(0, 0))
+              }}
             >
               <form
                 className="relative"
@@ -1374,7 +1382,10 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
                 <input
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
-                  onFocus={() => window.scrollTo(0, 0)}
+                  onFocus={() => {
+                    window.scrollTo(0, 0)
+                    requestAnimationFrame(() => window.scrollTo(0, 0))
+                  }}
                   placeholder={t('placeholderWorkspace')}
                   disabled={agentTyping}
                   className="w-full rounded-xl border border-zinc-200 bg-zinc-50 py-2.5 pl-3 pr-10 text-base outline-none transition focus:border-[#0071e3] focus:bg-white focus:ring-2 focus:ring-[#0071e3]/20 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:bg-zinc-900"
