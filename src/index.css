@@ -54,7 +54,9 @@ body,
 #root {
   height: 100%;
   overflow: hidden;
-  overscroll-behavior: none;
+  /* Block sideways pan; vertical overscroll is handled by app pull-to-refresh. */
+  overscroll-behavior-x: none;
+  overscroll-behavior-y: none;
 }
 
 /* Explicit paint so Safari chrome fallback matches the UI surface. */
@@ -68,8 +70,8 @@ body {
   -webkit-font-smoothing: antialiased;
   background-color: var(--color-surface);
   color: #1d1d1f;
-  /* Nested panes own scroll — avoid document rubber-band / sideways pan. */
-  touch-action: manipulation;
+  /* Nested panes own scroll — keep horizontal pan locked. */
+  touch-action: pan-y;
 }
 
 .dark body {
