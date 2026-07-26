@@ -781,7 +781,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
 
   if (!inSession) {
     return (
-      <div className="keyboard-lift flex h-full min-h-0 touch-pan-y flex-col items-center justify-center overflow-y-auto overscroll-x-none px-6 py-16">
+      <div className="keyboard-lift flex min-h-full flex-col items-center justify-center px-6 py-16">
         <div className="w-full max-w-2xl animate-fade-in">
           {userName && userName !== 'there' ? (
             <p className="mb-3 text-center text-sm text-zinc-400 dark:text-zinc-500">
@@ -832,26 +832,28 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
   }
 
   return (
-    <div className="keyboard-lift flex h-full min-h-0 flex-col animate-fade-in">
-      {/* Messages scroll; form + composer in a footer. Keyboard lifts via --keyboard-inset
-          on this column only — TopHeader stays put (no second banner). */}
-      <div className="min-h-0 flex-1 touch-pan-y overflow-x-hidden overflow-y-auto overscroll-x-none">
-        <div className="mx-auto flex w-full max-w-2xl flex-col justify-end px-6 pt-8 pb-4" style={{ minHeight: '100%' }}>
-          <div className="space-y-4">
-            {messages.map((message) => (
-              <AgentMessage key={message.id} message={message} hideActions />
-            ))}
-            {agentTyping && (
-              <div className="px-1 pt-1">
-                <AgentWorkStatus status={workStatus} />
-              </div>
-            )}
-            <div ref={chatEndRef} />
+    <div
+      className="mx-auto flex w-full max-w-2xl flex-col animate-fade-in px-6 pt-8"
+      style={{ minHeight: 'calc(var(--app-height, 100dvh) - 3.5rem)' }}
+    >
+      {/* Document scroll (Amazon-style) so native browser pull-to-refresh can
+          rubber-band the whole page — no nested overflow trap, no custom loader. */}
+      <div className="mt-auto w-full space-y-4 pb-4">
+        {messages.map((message) => (
+          <AgentMessage key={message.id} message={message} hideActions />
+        ))}
+        {agentTyping && (
+          <div className="px-1 pt-1">
+            <AgentWorkStatus status={workStatus} />
           </div>
-        </div>
+        )}
+        <div ref={chatEndRef} />
       </div>
 
-      <div className="mx-auto flex w-full max-w-2xl shrink-0 flex-col gap-2 overflow-x-hidden bg-[var(--color-surface)] px-6 pt-2 pb-[max(1rem,env(safe-area-inset-bottom))]">
+      <div
+        className="sticky z-10 flex w-full flex-col gap-2 bg-[var(--color-surface)] pt-2 pb-[max(1rem,env(safe-area-inset-bottom))] transition-[bottom] duration-300 ease-out"
+        style={{ bottom: 'var(--keyboard-inset, 0px)' }}
+      >
         {showStack && phase === 'questionnaire' && (
           <DiscoveryStack
             mode="questions"
