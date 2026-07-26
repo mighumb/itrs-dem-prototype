@@ -819,8 +819,8 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
         value={input}
         onChange={(e) => setInput(e.target.value)}
         onFocus={() => {
-          // Stop iOS from panning the focused field to the top of the viewport;
-          // the shell height transition lifts the composer with the keyboard.
+          // Stop iOS from panning the focused field mid-viewport; sticky
+          // bottom + --keyboard-inset already pins the dock above the keyboard.
           window.scrollTo(0, 0)
         }}
         placeholder={inputPlaceholder}
@@ -925,8 +925,17 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
 
       <div
         ref={formDockRef}
-        className="sticky z-10 flex w-full flex-col gap-2 bg-[var(--color-surface)] pt-2 pb-[max(1rem,env(safe-area-inset-bottom))] transition-[bottom] duration-300 ease-out"
-        style={{ bottom: 'var(--keyboard-inset, 0px)' }}
+        className="sticky z-10 flex w-full flex-col gap-2 bg-[var(--color-surface)] pt-2 transition-[bottom] duration-300 ease-out"
+        style={{
+          bottom: 'var(--keyboard-inset, 0px)',
+          paddingBottom: 'var(--dock-pad-bottom, max(1rem, env(safe-area-inset-bottom, 0px)))',
+        }}
+        onFocusCapture={() => {
+          // iOS scrolls focused inputs into the upper visual viewport, which
+          // fights sticky+keyboard-inset and leaves a large gap above the keyboard.
+          window.scrollTo(0, 0)
+          requestAnimationFrame(() => window.scrollTo(0, 0))
+        }}
       >
         {showStack && phase === 'questionnaire' && (
           <DiscoveryStack

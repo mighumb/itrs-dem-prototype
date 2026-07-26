@@ -15,6 +15,7 @@
   --app-height: 100dvh;
   --app-offset-top: 0px;
   --keyboard-inset: 0px;
+  --dock-pad-bottom: max(1rem, env(safe-area-inset-bottom, 0px));
   --app-header-content-height: 3.5rem;
   --app-header-height: calc(
     var(--app-header-content-height) + env(safe-area-inset-top, 0px)

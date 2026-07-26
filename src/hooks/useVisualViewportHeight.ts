@@ -3,6 +3,10 @@ import { useEffect } from 'react'
 /**
  * Expose --app-height / --keyboard-inset for layout + keyboard lift.
  * Do not force scrollTo(0) — that fights native browser pull-to-refresh.
+ *
+ * Viewport uses interactive-widget=overlays-content so the layout viewport
+ * does NOT shrink with the keyboard; --keyboard-inset is the single lift for
+ * sticky composers. (resizes-content + inset was double-lifting on mobile.)
  */
 export function useVisualViewportHeight() {
   useEffect(() => {
@@ -18,11 +22,24 @@ export function useVisualViewportHeight() {
 
       if (!vv) {
         root.style.setProperty('--keyboard-inset', '0px')
+        root.style.setProperty(
+          '--dock-pad-bottom',
+          'max(1rem, env(safe-area-inset-bottom, 0px))',
+        )
+        root.classList.remove('keyboard-open')
         return
       }
 
-      const inset = Math.max(0, Math.round(layoutHeight - vv.height - vv.offsetTop))
+      // Overlap between layout viewport bottom and visual viewport bottom.
+      const raw = Math.max(0, Math.round(layoutHeight - vv.height - vv.offsetTop))
+      // Ignore small chrome jitter (URL bar); real keyboards are much taller.
+      const inset = raw < 120 ? 0 : raw
       root.style.setProperty('--keyboard-inset', `${inset}px`)
+      root.style.setProperty(
+        '--dock-pad-bottom',
+        inset > 0 ? '0.75rem' : 'max(1rem, env(safe-area-inset-bottom, 0px))',
+      )
+      root.classList.toggle('keyboard-open', inset > 0)
     }
 
     const sync = () => {
@@ -41,6 +58,7 @@ export function useVisualViewportHeight() {
       vv?.removeEventListener('scroll', sync)
       window.removeEventListener('resize', sync)
       window.removeEventListener('orientationchange', sync)
+      root.classList.remove('keyboard-open')
     }
   }, [])
 }

@@ -281,6 +281,11 @@ export default function DiscoveryStack({
             autoComplete="off"
             autoCorrect="off"
             spellCheck={false}
+            onFocus={() => {
+              // Keep the floating dock pinned; iOS focus-pan leaves a void above the keyboard.
+              window.scrollTo(0, 0)
+              requestAnimationFrame(() => window.scrollTo(0, 0))
+            }}
             placeholder={mode === 'proposals' ? t('other') : t('somethingElse')}
             className={`w-full rounded-xl border py-2.5 pl-8 pr-3 text-base outline-none transition placeholder:text-zinc-400 focus:border-[#0071e3] focus:bg-white dark:focus:bg-zinc-900 ${
               isCustomAnswer || (mode === 'questions' && otherText.trim())
