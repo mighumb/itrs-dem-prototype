@@ -14,6 +14,10 @@ interface TopHeaderProps {
 
 type DrawerView = 'main' | 'settings'
 
+/** One notch wider than the previous 16rem / 72vw cap. */
+const DRAWER_WIDTH = 'min(18.5rem, 80vw)'
+const DRAWER_MOTION_MS = 280
+
 function BrandMark({
   theme,
   className = '',
@@ -45,16 +49,41 @@ export default function TopHeader({
   journeySubtitle,
 }: TopHeaderProps) {
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const [drawerMounted, setDrawerMounted] = useState(false)
+  const [drawerEntered, setDrawerEntered] = useState(false)
   const [drawerView, setDrawerView] = useState<DrawerView>('main')
   const drawerTitleId = useId()
   const closeBtnRef = useRef<HTMLButtonElement>(null)
   const { theme, toggleTheme } = useTheme()
   const { t, locale, setLocale } = useLocale()
 
+  const openDrawer = () => {
+    setDrawerView('main')
+    setDrawerMounted(true)
+    setDrawerOpen(true)
+  }
+
   const closeDrawer = () => {
     setDrawerOpen(false)
+    setDrawerEntered(false)
     setDrawerView('main')
   }
+
+  // Enter: double-rAF so the closed transform paints before sliding in.
+  useEffect(() => {
+    if (!drawerOpen || !drawerMounted) return
+    const id = requestAnimationFrame(() => {
+      requestAnimationFrame(() => setDrawerEntered(true))
+    })
+    return () => cancelAnimationFrame(id)
+  }, [drawerOpen, drawerMounted])
+
+  // Exit: keep mounted until the slide-out finishes.
+  useEffect(() => {
+    if (drawerOpen || !drawerMounted) return
+    const timer = window.setTimeout(() => setDrawerMounted(false), DRAWER_MOTION_MS)
+    return () => window.clearTimeout(timer)
+  }, [drawerOpen, drawerMounted])
 
   useEffect(() => {
     if (!drawerOpen) return
@@ -167,10 +196,7 @@ export default function TopHeader({
           aria-label={t('menu')}
           aria-expanded={drawerOpen}
           aria-controls="mobile-nav-drawer"
-          onClick={() => {
-            setDrawerView('main')
-            setDrawerOpen(true)
-          }}
+          onClick={openDrawer}
         >
           <Menu size={20} />
         </button>
@@ -271,11 +297,18 @@ export default function TopHeader({
           edges. A full-bleed dark scrim would paint the tab bar black — so the
           panel stays the only painted fixed surface; dimming uses its box-shadow,
           and the dismiss hit-target to the right has no background. */}
-      {drawerOpen ? (
+      {drawerMounted ? (
         <>
           <button
             type="button"
-            className="fixed bottom-0 right-0 top-0 left-[min(16rem,72vw)] z-50 cursor-pointer md:hidden"
+            className={`fixed bottom-0 right-0 top-0 z-50 cursor-pointer md:hidden ${
+              drawerEntered ? 'pointer-events-auto' : 'pointer-events-none'
+            }`}
+            style={{
+              left: DRAWER_WIDTH,
+              opacity: drawerEntered ? 1 : 0,
+              transition: `opacity ${DRAWER_MOTION_MS}ms ease-out`,
+            }}
             aria-label={t('dismiss')}
             onClick={closeDrawer}
           />
@@ -284,8 +317,12 @@ export default function TopHeader({
             role="dialog"
             aria-modal="true"
             aria-labelledby={drawerTitleId}
-            className="fixed inset-y-0 left-0 z-50 flex w-[min(16rem,72vw)] flex-col bg-[var(--color-surface)] animate-fade-in md:hidden"
+            className={`fixed inset-y-0 left-0 z-50 flex flex-col bg-[var(--color-surface)] md:hidden ${
+              drawerEntered ? 'translate-x-0' : '-translate-x-full'
+            }`}
             style={{
+              width: DRAWER_WIDTH,
+              transition: `transform ${DRAWER_MOTION_MS}ms cubic-bezier(0.22, 1, 0.36, 1)`,
               boxShadow:
                 '4px 0 24px rgb(0 0 0 / 0.12), 0 0 0 100vmax rgb(0 0 0 / 0.4)',
             }}
