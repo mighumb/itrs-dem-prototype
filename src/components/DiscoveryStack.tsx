@@ -135,7 +135,7 @@ export default function DiscoveryStack({
 
   return (
     <div className="animate-fade-in flex max-h-[min(calc(var(--app-height,100dvh)*0.42),22rem)] w-full flex-col overflow-hidden overscroll-contain rounded-2xl border border-zinc-200 bg-white shadow-[0_8px_30px_rgb(0,0,0,0.06)] md:max-h-[min(calc(var(--app-height,100dvh)*0.55),28rem)] dark:border-zinc-700 dark:bg-zinc-900 dark:shadow-black/40">
-      <header className="flex shrink-0 items-center gap-2 border-b border-zinc-100 px-3.5 py-2.5 dark:border-zinc-800">
+      <header className="relative z-10 flex shrink-0 items-center gap-2 border-b border-zinc-100 bg-white px-3.5 py-2.5 dark:border-zinc-800 dark:bg-zinc-900">
         <p className="min-w-0 flex-1 truncate text-sm font-medium text-zinc-800 dark:text-zinc-100">
           {title}
         </p>
@@ -174,11 +174,14 @@ export default function DiscoveryStack({
         </button>
       </header>
 
-      <div ref={peekWrapRef} className="relative min-h-0 max-h-full flex-1">
+      <div
+        ref={peekWrapRef}
+        className="relative z-0 min-h-0 max-h-full flex-1 overflow-hidden"
+      >
         <div
           ref={scrollRef}
           onScroll={updateScrollCue}
-          className="h-full touch-pan-y overflow-y-auto overscroll-y-contain p-2"
+          className="h-full min-h-0 touch-pan-y overflow-x-hidden overflow-y-auto overscroll-y-contain p-2"
         >
           {mode === 'questions' && question && (
             <>
@@ -257,7 +260,7 @@ export default function DiscoveryStack({
         />
       </div>
 
-      <footer className="flex shrink-0 items-center gap-2 border-t border-zinc-100 px-3 py-2.5 dark:border-zinc-800">
+      <footer className="relative z-10 flex shrink-0 items-center gap-2 border-t border-zinc-100 bg-white px-3 py-2.5 dark:border-zinc-800 dark:bg-zinc-900">
         <div className="relative min-w-0 flex-1">
           <Pencil
             size={13}
