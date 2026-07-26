@@ -210,7 +210,7 @@ export default function TopHeader({
 
   return (
     <>
-      <header className="relative z-40 flex shrink-0 items-center gap-3 bg-[var(--color-surface)] px-4 py-3">
+      <header className="app-top-header relative z-40 flex shrink-0 items-center gap-3 bg-[var(--color-surface)] px-4 py-3">
         {/* —— Mobile left: burger (drawer overlays header; close lives in the panel) —— */}
         <button
           ref={menuBtnRef}
