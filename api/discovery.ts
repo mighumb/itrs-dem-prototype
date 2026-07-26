@@ -50,6 +50,14 @@ const CHAT_NOISE_RE =
   /^(hi|hello|hey|bonjour|salut|coucou|test|essai|ok|oui|non|merci|thanks|aide|help|ping)$/i
 const ACRONYM_NOISE_RE =
   /^(OK|KO|LOL|MDR|WTF|FYI|ASAP|PDF|FAQ|IMO|BTW|IDK)$/i
+/** Intent / confirm tokens that must never be treated as a brand name. */
+const BRAND_BLOCKLIST_RE =
+  /^(parcours|journey|journeys|site|sites|idées|ideas|aide|help|test|essai|chat|monitoring|surveillance|ok|oui|non|parfait|nickel|go|sure|exact|okay|merci|thanks|ping)$/i
+const INTENT_ONLY_RE =
+  /^(je\s+veux|j['’]aimerais|i\s+want|i['’]d\s+like|un\s+parcours|des\s+idées|des\s+parcours|construisons(?:\s+un\s+parcours)?|test\s+chat|aide[- ]moi|help\s+me|un\s+site|montre[- ]moi|des\s+idées)$/i
+/** Strip product intent so "Je veux Amazon" still keeps Amazon. */
+const INTENT_STOPWORD_RE =
+  /\b(je|j|tu|on|nous|vous|veux|voudrais|aimerais|besoin|faire|créer|cree|construire|construisons|build|create|make|start|commencer|surveiller|monitor(?:er|ing)?|parcours|journey|journeys|site|website|web|pour|avec|de|du|des|le|la|les|un|une|the|a|an|to|for|of|on|in|dans|please|svp|aide[- ]?moi|help\s+me|i\s+want|i'd\s+like|can\s+you|could\s+you|quel(?:le)?s?|what|which|aujourd['’]?hui|today)\b/gi
 
 /** Explicit URL / domain — unambiguous monitoring target. */
 function hasExplicitSiteLocator(text: string): boolean {
@@ -65,30 +73,6 @@ function hasMonitorVerbWithTarget(text: string): boolean {
   return /\b(?:monitor(?:er|ing)?|surveill(?:er|ance)?|parcours(?:\s+(?:sur|pour))?|journey(?:\s+(?:on|for))?|check(?:er)?)\s+[\wÀ-ü][\wÀ-ü&'.-]{1,}/i.test(
     text.trim(),
   )
-}
-
-/**
- * Short brand / acronym / org name without URL — may be ambiguous
- * (e.g. national federation initials). Resolve, then confirm before proposals.
- */
-function looksLikeAmbiguousBrandName(text: string): boolean {
-  const t = text.trim()
-  if (!t || hasExplicitSiteLocator(t) || hasMonitorVerbWithTarget(t)) return false
-  const words = t.split(/\s+/).filter(Boolean)
-  if (words.length > 6) return false
-  const letters = t.replace(/[^A-Za-zÀ-ü]/g, '')
-  if (/^[A-ZÀ-Ü]{2,6}$/.test(letters) && !ACRONYM_NOISE_RE.test(letters)) return true
-  if (/^(?:la|le|l['’]|les|the|el|die)\s+[A-Za-zÀ-ü][A-Za-zÀ-ü&'.-]{1,40}$/i.test(t)) {
-    return true
-  }
-  if (
-    words.length <= 3 &&
-    words.every((w) => /^[\p{L}&'.-]{2,}$/u.test(w)) &&
-    !CHAT_NOISE_RE.test(t)
-  ) {
-    return true
-  }
-  return false
 }
 
 /** User affirming a previously proposed site candidate. */
@@ -113,12 +97,57 @@ function looksLikeSiteConfirmation(text: string): boolean {
   return false
 }
 
+function brandishLeftover(text: string): string {
+  return text
+    .replace(INTENT_STOPWORD_RE, ' ')
+    .replace(/\s*&\s*/g, ' ')
+    .replace(/[^\p{L}\p{N}.'-]+/gu, ' ')
+    .trim()
+}
+
+/**
+ * Short brand / acronym / org name without URL — may be ambiguous
+ * (e.g. national federation initials). Resolve, then confirm before proposals.
+ */
+function looksLikeAmbiguousBrandName(text: string): boolean {
+  const t = text.trim()
+  if (!t || hasExplicitSiteLocator(t) || hasMonitorVerbWithTarget(t)) return false
+  if (looksLikeSiteConfirmation(t) || INTENT_ONLY_RE.test(t) || CHAT_NOISE_RE.test(t)) {
+    return false
+  }
+  const leftover = brandishLeftover(t)
+  if (!leftover) return false
+  const words = leftover.split(/\s+/).filter(Boolean)
+  if (words.length === 0 || words.length > 6) return false
+  if (words.every((w) => BRAND_BLOCKLIST_RE.test(w))) return false
+  const letters = leftover.replace(/[^A-Za-zÀ-ü]/g, '')
+  if (/^[A-ZÀ-Ü]{2,6}$/.test(letters) && !ACRONYM_NOISE_RE.test(letters)) return true
+  if (/^(?:la|le|l['’]|les|the|el|die)\s+[A-Za-zÀ-ü][A-Za-zÀ-ü'.-]{1,40}$/i.test(t)) {
+    return true
+  }
+  if (
+    words.length <= 3 &&
+    words.every((w) => /^[\p{L}'.-]{2,}$/u.test(w)) &&
+    !words.every((w) => BRAND_BLOCKLIST_RE.test(w))
+  ) {
+    return true
+  }
+  return false
+}
+
 /** True when this turn should resolve/crawl a site — not on casual chat. */
 function messageRequestsSiteWork(text: string): boolean {
   const t = text.trim()
   if (!t) return false
+  // Confirmations attach site via shouldAttachSiteEvidence — not as brand work.
+  if (looksLikeSiteConfirmation(t)) return false
   if (hasExplicitSiteLocator(t) || hasMonitorVerbWithTarget(t)) return true
   return looksLikeAmbiguousBrandName(t)
+}
+
+/** Message names a different/new site vs leftover context — ignore cached URL/snapshot. */
+function messageNamesNewSite(text: string): boolean {
+  return hasExplicitSiteLocator(text) || looksLikeAmbiguousBrandName(text)
 }
 
 function shouldAttachSiteEvidence(body: DiscoveryAiRequest): boolean {
@@ -346,7 +375,10 @@ async function resolveTargetOnly(
     return null
   }
 
-  if (body.context?.pageSnapshot) {
+  const newSite = messageNamesNewSite(body.userMessage)
+
+  // Cached snapshot is only safe when the user is still talking about that same site.
+  if (body.context?.pageSnapshot && !newSite) {
     const existing = body.context?.url ?? null
     return existing
       ? { url: existing, source: 'explicit_url', label: null, note: null }
@@ -372,7 +404,8 @@ async function resolveTargetOnly(
 
   return resolveSiteTarget(seedText, {
     apiKeys,
-    existingUrl: body.context?.url ?? null,
+    existingUrl: newSite ? null : (body.context?.url ?? null),
+    preferMessageOverExisting: newSite,
     preferredLanguage: body.preferredLanguage ?? body.context?.preferredLanguage ?? null,
   })
 }
@@ -467,11 +500,17 @@ async function groundAndMaybeDryRunPlan(options: {
   body: DiscoveryAiRequest
   requestStartedAt: number
   sendStatus: (text: string) => void
+  confirmFirst?: boolean
 }): Promise<Record<string, unknown>> {
-  const { explore, analysis, target, body, requestStartedAt, sendStatus } = options
+  const { explore, analysis, target, body, requestStartedAt, sendStatus, confirmFirst } = options
   let parsed = { ...options.parsed }
   const lang = body.preferredLanguage ?? body.context?.preferredLanguage ?? 'en'
   const budgetLeft = () => 55_000 - (Date.now() - requestStartedAt)
+
+  // Never dry-run (or keep a plan) while still confirming the site.
+  if (confirmFirst) {
+    return { ...parsed, plan: null, readyForPlan: false, proposals: null }
+  }
 
   if (!parsed.plan || typeof parsed.plan !== 'object' || !parsed.readyForPlan) {
     return parsed
@@ -557,23 +596,30 @@ function buildResultPayload(
     typeof parsed.formTitle === 'string' && parsed.formTitle.trim()
       ? parsed.formTitle.trim().slice(0, 80)
       : null
-  // Fallback titles when the model omits formTitle — must match the form purpose.
+  // Purpose-matched titles. On confirm-site, always override a wrong model title.
   let formTitle = rawFormTitle
-  if (!formTitle && (questions || proposals)) {
+  if (questions || proposals) {
     if (confirmFirst) {
       formTitle = fr ? 'Confirmer le site' : 'Confirm the site'
-    } else if (proposals) {
-      formTitle = fr ? 'Choisir un parcours' : 'Choose a journey'
-    } else if (body.mode === 'configure') {
-      formTitle = fr ? 'Configurer le parcours' : 'Configure this journey'
-    } else {
-      formTitle = fr ? 'Préciser ta demande' : 'Clarify your request'
+    } else if (!formTitle) {
+      if (proposals) {
+        formTitle = fr ? 'Choisir un parcours' : 'Choose a journey'
+      } else if (body.mode === 'configure') {
+        formTitle = fr ? 'Configurer le parcours' : 'Configure this journey'
+      } else {
+        formTitle = fr ? 'Préciser votre demande' : 'Clarify your request'
+      }
     }
   }
 
   return {
     type: 'result' as const,
-    message: typeof parsed.message === 'string' ? parsed.message : 'Here is what I suggest.',
+    message:
+      typeof parsed.message === 'string' && parsed.message.trim()
+        ? parsed.message
+        : fr
+          ? 'Voici ce que je propose.'
+          : 'Here is what I suggest.',
     workTrace: normalizeWorkTrace(parsed.workTrace, analysis, target, explore, streamedStatuses),
     formTitle: questions || proposals ? formTitle : null,
     questions,
@@ -730,6 +776,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               body,
               requestStartedAt,
               sendStatus,
+              confirmFirst,
             })
 
             writeNdjson(

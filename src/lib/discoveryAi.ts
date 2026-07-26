@@ -187,11 +187,14 @@ function finalizeDiscoveryResult(options: {
   source: 'gemini' | 'unavailable'
   mode?: DiscoveryAiMode
 }): DiscoveryAiResult {
+  const siteAnalysis = normalizeSiteAnalysis(options.siteAnalysis)
+  const awaitingConfirm = siteAnalysis?.reason === 'awaiting_user_confirmation'
   const questions = normalizeQuestions(options.questions)
-  let proposals = normalizeProposals(options.proposals)
+  let proposals = awaitingConfirm ? null : normalizeProposals(options.proposals)
   let message = options.message.trim()
 
-  if (!proposals && !questions) {
+  // Never turn "1. Oui / 2. Non" confirm copy into journey proposal cards.
+  if (!proposals && !questions && !awaitingConfirm) {
     proposals = recoverProposalsFromMessage(message, options.fallbackPrompt)
   }
 
@@ -199,17 +202,18 @@ function finalizeDiscoveryResult(options: {
     message = frameMessageForProposals(options.preferredLanguage, message)
   }
 
-  const siteAnalysis = normalizeSiteAnalysis(options.siteAnalysis)
   let formTitle = normalizeFormTitle(options.formTitle)
-  if ((questions || proposals) && !formTitle) {
-    if (siteAnalysis?.reason === 'awaiting_user_confirmation') {
+  if (questions || proposals) {
+    if (awaitingConfirm) {
       formTitle = t(options.preferredLanguage, 'confirmSite')
-    } else if (proposals) {
-      formTitle = t(options.preferredLanguage, 'chooseJourney')
-    } else if (options.mode === 'configure') {
-      formTitle = t(options.preferredLanguage, 'configureJourney')
-    } else {
-      formTitle = t(options.preferredLanguage, 'clarifyRequest')
+    } else if (!formTitle) {
+      if (proposals) {
+        formTitle = t(options.preferredLanguage, 'chooseJourney')
+      } else if (options.mode === 'configure') {
+        formTitle = t(options.preferredLanguage, 'configureJourney')
+      } else {
+        formTitle = t(options.preferredLanguage, 'clarifyRequest')
+      }
     }
   }
 
@@ -303,6 +307,12 @@ const CHAT_NOISE_RE =
   /^(hi|hello|hey|bonjour|salut|coucou|test|essai|ok|oui|non|merci|thanks|aide|help|ping)$/i
 const ACRONYM_NOISE_RE =
   /^(OK|KO|LOL|MDR|WTF|FYI|ASAP|PDF|FAQ|IMO|BTW|IDK)$/i
+const BRAND_BLOCKLIST_RE =
+  /^(parcours|journey|journeys|site|sites|idées|ideas|aide|help|test|essai|chat|monitoring|surveillance|ok|oui|non|parfait|nickel|go|sure|exact|okay|merci|thanks|ping)$/i
+const INTENT_ONLY_RE =
+  /^(je\s+veux|j['’]aimerais|i\s+want|i['’]d\s+like|un\s+parcours|des\s+idées|des\s+parcours|construisons(?:\s+un\s+parcours)?|test\s+chat|aide[- ]moi|help\s+me|un\s+site|montre[- ]moi|des\s+idées)$/i
+const INTENT_STOPWORD_RE =
+  /\b(je|j|tu|on|nous|vous|veux|voudrais|aimerais|besoin|faire|créer|cree|construire|construisons|build|create|make|start|commencer|surveiller|monitor(?:er|ing)?|parcours|journey|journeys|site|website|web|pour|avec|de|du|des|le|la|les|un|une|the|a|an|to|for|of|on|in|dans|please|svp|aide[- ]?moi|help\s+me|i\s+want|i'd\s+like|can\s+you|could\s+you|quel(?:le)?s?|what|which|aujourd['’]?hui|today)\b/gi
 
 function hasExplicitSiteLocator(text: string): boolean {
   const t = text.trim()
@@ -316,27 +326,6 @@ function hasMonitorVerbWithTarget(text: string): boolean {
   return /\b(?:monitor(?:er|ing)?|surveill(?:er|ance)?|parcours(?:\s+(?:sur|pour))?|journey(?:\s+(?:on|for))?|check(?:er)?)\s+[\wÀ-ü][\wÀ-ü&'.-]{1,}/i.test(
     text.trim(),
   )
-}
-
-/** Short brand / acronym without URL — confirm before proposals (server mirrors this). */
-export function looksLikeAmbiguousBrandName(text: string): boolean {
-  const t = text.trim()
-  if (!t || hasExplicitSiteLocator(t) || hasMonitorVerbWithTarget(t)) return false
-  const words = t.split(/\s+/).filter(Boolean)
-  if (words.length > 6) return false
-  const letters = t.replace(/[^A-Za-zÀ-ü]/g, '')
-  if (/^[A-ZÀ-Ü]{2,6}$/.test(letters) && !ACRONYM_NOISE_RE.test(letters)) return true
-  if (/^(?:la|le|l['’]|les|the|el|die)\s+[A-Za-zÀ-ü][A-Za-zÀ-ü&'.-]{1,40}$/i.test(t)) {
-    return true
-  }
-  if (
-    words.length <= 3 &&
-    words.every((w) => /^[\p{L}&'.-]{2,}$/u.test(w)) &&
-    !CHAT_NOISE_RE.test(t)
-  ) {
-    return true
-  }
-  return false
 }
 
 /** User affirming a previously proposed site candidate. */
@@ -361,10 +350,46 @@ export function looksLikeSiteConfirmation(text: string): boolean {
   return false
 }
 
+function brandishLeftover(text: string): string {
+  return text
+    .replace(INTENT_STOPWORD_RE, ' ')
+    .replace(/\s*&\s*/g, ' ')
+    .replace(/[^\p{L}\p{N}.'-]+/gu, ' ')
+    .trim()
+}
+
+/** Short brand / acronym without URL — confirm before proposals (server mirrors this). */
+export function looksLikeAmbiguousBrandName(text: string): boolean {
+  const t = text.trim()
+  if (!t || hasExplicitSiteLocator(t) || hasMonitorVerbWithTarget(t)) return false
+  if (looksLikeSiteConfirmation(t) || INTENT_ONLY_RE.test(t) || CHAT_NOISE_RE.test(t)) {
+    return false
+  }
+  const leftover = brandishLeftover(t)
+  if (!leftover) return false
+  const words = leftover.split(/\s+/).filter(Boolean)
+  if (words.length === 0 || words.length > 6) return false
+  if (words.every((w) => BRAND_BLOCKLIST_RE.test(w))) return false
+  const letters = leftover.replace(/[^A-Za-zÀ-ü]/g, '')
+  if (/^[A-ZÀ-Ü]{2,6}$/.test(letters) && !ACRONYM_NOISE_RE.test(letters)) return true
+  if (/^(?:la|le|l['’]|les|the|el|die)\s+[A-Za-zÀ-ü][A-Za-zÀ-ü'.-]{1,40}$/i.test(t)) {
+    return true
+  }
+  if (
+    words.length <= 3 &&
+    words.every((w) => /^[\p{L}'.-]{2,}$/u.test(w)) &&
+    !words.every((w) => BRAND_BLOCKLIST_RE.test(w))
+  ) {
+    return true
+  }
+  return false
+}
+
 /** Client mirror of server gate: only send site evidence when this turn needs it. */
 export function messageRequestsSiteWork(text: string): boolean {
   const t = text.trim()
   if (!t) return false
+  if (looksLikeSiteConfirmation(t)) return false
   if (hasExplicitSiteLocator(t) || hasMonitorVerbWithTarget(t)) return true
   return looksLikeAmbiguousBrandName(t)
 }

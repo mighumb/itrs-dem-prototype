@@ -107,7 +107,7 @@ export default function JourneyTimeline({
   if (steps.length === 0) {
     return (
       <div className="flex h-full flex-col items-center justify-center px-4 text-center text-sm text-zinc-400">
-        Steps will appear here as the agent builds your journey.
+        {t('stepsWillAppear')}
       </div>
     )
   }
@@ -349,7 +349,7 @@ export default function JourneyTimeline({
                     )}
                     {isRunning && (
                       <p className="mt-0.5 text-[10px] text-[#0071e3] animate-pulse-soft">
-                        Running…
+                        {t('running')}
                       </p>
                     )}
                   </div>

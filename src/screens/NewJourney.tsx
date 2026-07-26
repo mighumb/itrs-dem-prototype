@@ -64,11 +64,17 @@ interface NewJourneyProps {
 const STEP_DELAY = 1400
 const TYPING_DELAY = 600
 
-function planToJourneySteps(plan: DiscoveryPlan, previous: JourneyStep[], siteUrl?: string | null): JourneyStep[] {
+function planToJourneySteps(
+  plan: DiscoveryPlan,
+  previous: JourneyStep[],
+  siteUrl?: string | null,
+  locale: 'en' | 'fr' = 'en',
+): JourneyStep[] {
   const built = buildJourneyFromDiscovery({
     plan,
     prompt: plan.prompt,
     siteUrl: siteUrl ?? null,
+    locale,
   }).steps
   return built.map((step, index) => {
     const prev = previous[index]
@@ -122,10 +128,12 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
         plan: session.plan,
         prompt: session.prompt,
         siteUrl: session.siteUrl,
+        locale,
       })
     }
-    return buildJourneyFromPrompt(session.prompt, session.siteUrl)
-  }, [session])
+    return buildJourneyFromPrompt(session.prompt, session.siteUrl, locale)
+  }, [session, locale])
+  const [journeyName, setJourneyName] = useState(journey.name)
   const [messages, setMessages] = useState<ChatMessage[]>(() =>
     session.messages.length > 0 ? session.messages : [agentIntroForLocale(locale)],
   )
@@ -133,6 +141,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
   const [browserFrame, setBrowserFrame] = useState<BrowserFrame | null>(null)
   const [isRunning, setIsRunning] = useState(false)
   const [isComplete, setIsComplete] = useState(false)
+
   const [scheduleResolved, setScheduleResolved] = useState(false)
   const [fixActionsResolved, setFixActionsResolved] = useState(false)
   const [openPanels, setOpenPanels] = useState<Set<WorkspacePanelId>>(
@@ -155,6 +164,18 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
   const isRunningRef = useRef(false)
   const lastFailedStepRef = useRef<RunFailureInfo | null>(null)
   const fixContinueInFlightRef = useRef(false)
+
+  useEffect(() => {
+    setJourneyName(journey.name)
+  }, [journey.name])
+
+  // Abort in-flight Playwright / chat when leaving the workspace.
+  useEffect(() => {
+    return () => {
+      runAbortRef.current?.abort()
+      chatAbortRef.current?.abort()
+    }
+  }, [])
 
   useEffect(() => {
     scheduleResolvedRef.current = scheduleResolved
@@ -231,10 +252,10 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
 
   useEffect(() => {
     onHeaderChange?.({
-      title: isComplete ? journey.name : t('newJourney'),
-      subtitle: isComplete ? undefined : isRunning ? t('running') : t('starting'),
+      title: isComplete ? journeyName : t('newJourney'),
+      subtitle: isRunning ? t('running') : isComplete ? undefined : t('starting'),
     })
-  }, [isComplete, isRunning, journey.name, onHeaderChange, t])
+  }, [isComplete, isRunning, journeyName, onHeaderChange, t])
 
   const {
     order: panelOrder,
@@ -954,12 +975,16 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
         }
 
         if (ai.plan && (ai.readyForPlan || ai.plan.steps.length > 0)) {
-          const nextSteps = planToJourneySteps(ai.plan, steps, seedUrl)
+          const nextSteps = planToJourneySteps(ai.plan, steps, seedUrl, locale)
           setSteps(nextSteps)
           setFixActionsResolved(false)
           setScheduleResolved(false)
           if (ai.plan.title) {
-            onHeaderChange?.({ title: ai.plan.title, subtitle: ai.plan.summary })
+            setJourneyName(ai.plan.title)
+            onHeaderChange?.({
+              title: ai.plan.title,
+              subtitle: isRunning ? t('running') : ai.plan.summary,
+            })
           }
           setMessages((prev) => [
             ...prev.filter((m) => m.id !== 'done-2' && m.id !== RUN_OUTCOME_MESSAGE_ID),
@@ -999,6 +1024,8 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
       session.siteUrl,
       onHeaderChange,
       onRequestNewJourney,
+      isRunning,
+      t,
     ],
   )
 
@@ -1006,7 +1033,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
     <MonitoringColumn
       embedded
       isUnsaved={!isMonitored}
-      journeyName={journey.name}
+      journeyName={journeyName}
       steps={steps}
       monitoring={journey.monitoring}
       onClose={panelClose('monitoring')}
@@ -1058,7 +1085,10 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
               )}
               <div ref={chatEndRef} />
             </div>
-            <footer className="shrink-0 border-t border-zinc-100 p-3 dark:border-zinc-800">
+            <footer
+              className="sticky z-10 shrink-0 border-t border-zinc-100 bg-[var(--color-surface)] p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] transition-[bottom] duration-300 ease-out dark:border-zinc-800"
+              style={{ bottom: 'var(--keyboard-inset, 0px)' }}
+            >
               <form
                 className="relative"
                 onSubmit={(e) => {
@@ -1069,9 +1099,10 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
                 <input
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
+                  onFocus={() => window.scrollTo(0, 0)}
                   placeholder={t('placeholderWorkspace')}
                   disabled={agentTyping}
-                  className="w-full rounded-xl border border-zinc-200 bg-zinc-50 py-2.5 pl-3 pr-10 text-sm outline-none transition focus:border-[#0071e3] focus:bg-white focus:ring-2 focus:ring-[#0071e3]/20 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:bg-zinc-900"
+                  className="w-full rounded-xl border border-zinc-200 bg-zinc-50 py-2.5 pl-3 pr-10 text-base outline-none transition focus:border-[#0071e3] focus:bg-white focus:ring-2 focus:ring-[#0071e3]/20 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:bg-zinc-900"
                 />
                 <button
                   type="submit"
@@ -1232,7 +1263,9 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
                     ? 'bg-emerald-400'
                     : step.status === 'running'
                       ? 'bg-[#0071e3] animate-pulse-soft'
-                      : 'bg-zinc-200'
+                      : step.status === 'failed'
+                        ? 'bg-red-400'
+                        : 'bg-zinc-200'
                 }`}
               />
             ))}

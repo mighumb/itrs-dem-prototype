@@ -161,10 +161,11 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
   // Chat history (including plans) stays as written.
   useEffect(() => {
     if (prevLocaleRef.current === locale) return
-    prevLocaleRef.current = locale
 
     const session = sessionRef.current
+    // Don't consume the locale change while the agent is busy — retry when idle.
     if (session.agentTyping) return
+    prevLocaleRef.current = locale
 
     const needsProposals = session.phase === 'proposals' && session.proposals.length > 0
     const needsQuestions = session.phase === 'questionnaire' && session.questions.length > 0
@@ -205,8 +206,8 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
         if (ai.formTitle) setFormTitle(ai.formTitle)
       }
     })
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- only react to locale changes
-  }, [locale])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- locale + idle retry after typing
+  }, [locale, agentTyping])
 
   const historyPlus = (...extra: ChatMessage[]) => [...messagesRef.current, ...extra]
 
@@ -374,7 +375,9 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
     setPhase('conversation')
 
     if (configuring && nextCtx.selectedProposal) {
-      const blocks = answered.map((q) => `Q : ${q.prompt}\nR : ${nextCtx.answers[q.id]}`)
+      const blocks = answered.map(
+        (q) => `${t('answerQ')} : ${q.prompt}\n${t('answerR')} : ${nextCtx.answers[q.id]}`,
+      )
       const summary = blocks.join('\n\n')
       const userMsg: ChatMessage = {
         id: uid('user'),
@@ -403,7 +406,9 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
     }
 
     // Only post answers to the chat once the whole form is complete.
-    const blocks = answered.map((q) => `Q : ${q.prompt}\nR : ${nextCtx.answers[q.id]}`)
+    const blocks = answered.map(
+      (q) => `${t('answerQ')} : ${q.prompt}\n${t('answerR')} : ${nextCtx.answers[q.id]}`,
+    )
     const extra: ChatMessage[] = []
     if (blocks.length > 0) {
       const userMsg: ChatMessage = {
@@ -454,7 +459,11 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
       setQuestionIndex(questionIndex + 1)
       return
     }
-    // Last question skipped without validating the form → silent dismiss (no agent turn).
+    // Last question skipped: commit whatever was answered; only dismiss if nothing to keep.
+    if (ctx && questions.some((q) => Boolean(ctx.answers[q.id]))) {
+      void commitQuestionnaireAndPropose(ctx)
+      return
+    }
     handleCloseStack()
   }
 
@@ -501,8 +510,27 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
         signal,
         onStatus,
       })
-      if (ai.aborted) return
+      if (ai.aborted) {
+        setConfiguring(false)
+        return
+      }
       rememberSnapshot(ai)
+
+      if (ai.plan && (ai.readyForPlan || ai.plan.steps.length > 0)) {
+        setConfiguring(false)
+        const formatted = formatPlanMessage(ai.plan)
+        const content =
+          ai.message.includes('1.') || ai.message.includes('1)')
+            ? ai.message
+            : ai.message
+              ? `${ai.message}\n\n${formatted}`
+              : formatted
+        pushAgentReply(content)
+        setPlan(ai.plan)
+        setPhase('planning')
+        return
+      }
+
       if (ai.questions && ai.questions.length > 0) {
         setQuestions(ai.questions)
         setFormTitle(ai.formTitle)
@@ -520,6 +548,9 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
   const replyWithAiChat = async (text: string, history: ChatMessage[]) => {
     // Iterating away from a settled plan hides Run/Lancer until a full plan is shown again.
     setPlan(null)
+    setProposals([])
+    setQuestions([])
+    setFormTitle(null)
     setPhase('conversation')
     await withTyping(async (signal, onStatus) => {
       const ai = await requestDiscoveryAi({
@@ -624,7 +655,10 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
         signal,
         onStatus,
       })
-      if (ai.aborted) return
+      if (ai.aborted) {
+        setConfiguring(false)
+        return
+      }
       rememberSnapshot(ai)
 
       if (ai.plan && (ai.readyForPlan || ai.plan.steps.length > 0)) {

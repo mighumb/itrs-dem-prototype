@@ -84,7 +84,7 @@ export default function App() {
     setAuthOpen(false)
     setSaveOpen(false)
     setAccountCreated(true)
-    setScreen('home')
+    // Stay on the current screen — saving a journey must not eject to Home.
   }
 
   return (
@@ -92,7 +92,7 @@ export default function App() {
       className="flex w-full flex-col"
       style={{ minHeight: 'var(--app-height, 100dvh)' }}
     >
-      {!accountCreated && (
+      {(!accountCreated || screen === 'new-journey') && (
         <TopHeader
           onLogIn={() => openAuth('login')}
           onSignUp={() => openAuth('signup')}

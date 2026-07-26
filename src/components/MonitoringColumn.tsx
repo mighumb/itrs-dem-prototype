@@ -18,7 +18,7 @@ export default function MonitoringColumn({
   isUnsaved,
   journeyName,
   steps,
-  monitoring,
+  monitoring: _monitoring,
   onClose,
   onSave,
   embedded,
@@ -30,9 +30,9 @@ export default function MonitoringColumn({
   const failedCount = previewSteps.filter((s) => s.status === 'failed').length
   const kpi = computeRunMonitoringKpi(steps, locale)
   const showAlert = failedCount > 0
-  const alertTitle = monitoring.alertTitle ?? t('stepFailureDetected')
-  const alertMessage =
-    monitoring.alertMessage ?? tf('stepsFailedInRun', { count: failedCount })
+  // Always localize alert chrome — journey templates may carry EN placeholders.
+  const alertTitle = t('stepFailureDetected')
+  const alertMessage = tf('stepsFailedInRun', { count: failedCount })
 
   useEffect(() => {
     if (!previewSteps.some((step) => step.id === selectedStepId)) {

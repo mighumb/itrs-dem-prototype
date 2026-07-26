@@ -208,32 +208,78 @@ export async function resolveSiteTarget(
     apiKeys?: string[] | null
     existingUrl?: string | null
     preferredLanguage?: 'en' | 'fr' | null
+    /** When true, ignore leftover context.url and resolve from this message only. */
+    preferMessageOverExisting?: boolean
   } = {},
 ): Promise<ResolvedSiteTarget> {
-  const explicit =
-    (options.existingUrl && extractHttpUrl(options.existingUrl)) || extractHttpUrl(userText)
-
-  if (explicit) {
-    const hadProtocol = /https?:\/\//i.test(userText) || /https?:\/\//i.test(options.existingUrl ?? '')
+  // Always prefer an explicit URL/domain typed in THIS message.
+  const fromMessage = extractHttpUrl(userText)
+  if (fromMessage) {
+    const hadProtocol = /https?:\/\//i.test(userText)
     return {
-      url: explicit,
+      url: fromMessage,
       source: hadProtocol ? 'explicit_url' : 'bare_domain',
       label: null,
-      note: hadProtocol ? null : `Normalized domain to ${explicit}`,
+      note: hadProtocol ? null : `Normalized domain to ${fromMessage}`,
     }
   }
 
+  const brandTokens = extractBrandishTokens(userText)
   const keys = [
     ...(options.apiKeys ?? []),
     ...(options.apiKey ? [options.apiKey] : []),
   ].filter((key, index, all) => Boolean(key) && all.indexOf(key) === index)
 
-  if (keys.length === 0 || !shouldTryBrandResolve(userText)) {
-    return { url: null, source: 'none', label: null, note: null }
+  // New brand/name in the message → resolve it; do not glue the previous site.
+  if (
+    brandTokens.length > 0 &&
+    keys.length > 0 &&
+    shouldTryBrandResolve(userText) &&
+    (options.preferMessageOverExisting || !options.existingUrl)
+  ) {
+    let lastNote: string | null = null
+    let lastLabel: string | null = null
+    for (const apiKey of keys) {
+      const resolved = await withTimeout(
+        resolveBrandWithGemini(brandTokens.join(' '), apiKey, options.preferredLanguage),
+        BRAND_RESOLVE_TIMEOUT_MS,
+        {
+          url: null,
+          label: null,
+          note: 'Brand resolve timed out — continuing without a resolved URL',
+        },
+      )
+      if (resolved.url) {
+        return {
+          url: resolved.url,
+          source: 'brand_resolve',
+          label: resolved.label,
+          note: resolved.note,
+        }
+      }
+      lastNote = resolved.note
+      lastLabel = resolved.label
+    }
+    return {
+      url: null,
+      source: 'none',
+      label: lastLabel,
+      note: lastNote,
+    }
   }
 
-  const brandTokens = extractBrandishTokens(userText)
-  if (brandTokens.length === 0) {
+  const existing = options.existingUrl ? extractHttpUrl(options.existingUrl) : null
+  if (existing && !options.preferMessageOverExisting) {
+    const hadProtocol = /https?:\/\//i.test(options.existingUrl ?? '')
+    return {
+      url: existing,
+      source: hadProtocol ? 'explicit_url' : 'bare_domain',
+      label: null,
+      note: null,
+    }
+  }
+
+  if (keys.length === 0 || !shouldTryBrandResolve(userText) || brandTokens.length === 0) {
     return { url: null, source: 'none', label: null, note: null }
   }
 

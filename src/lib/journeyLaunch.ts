@@ -1,3 +1,4 @@
+import { t, tf, type Locale } from '../i18n/messages'
 import type { DiscoveryPlan } from '../mock/discovery'
 import type {
   BrowserFrame,
@@ -37,11 +38,11 @@ function normalizeAction(action: string, label: string): string {
   return action.trim() || 'Click'
 }
 
-function genericMonitoring(name: string): JourneyMonitoringPreview {
+function genericMonitoring(name: string, locale: Locale = 'en'): JourneyMonitoringPreview {
   return {
-    kpi: { availability: '—', totalTime: '—', failingSteps: '0 issues' },
-    alertTitle: 'Step failure detected',
-    alertMessage: `One or more steps failed while monitoring ${name}.`,
+    kpi: { availability: '—', totalTime: '—', failingSteps: t(locale, 'zeroIssues') },
+    alertTitle: t(locale, 'stepFailureDetected'),
+    alertMessage: tf(locale, 'stepsFailedInRun', { count: 1, name }),
   }
 }
 
@@ -71,8 +72,9 @@ export function buildJourneyFromDiscovery(options: {
   plan: DiscoveryPlan
   prompt: string
   siteUrl?: string | null
+  locale?: Locale
 }): JourneyTemplate {
-  const { plan, prompt, siteUrl } = options
+  const { plan, prompt, siteUrl, locale = 'en' } = options
   const seedUrl =
     siteUrl ??
     extractUrlFromText(plan.prompt) ??
@@ -110,7 +112,9 @@ export function buildJourneyFromDiscovery(options: {
       action: 'Navigate',
       target: seedUrl,
       href: seedUrl,
-      label: first.label.match(/https?:\/\//i) ? first.label : `Open ${seedUrl}`,
+      label: first.label.match(/https?:\/\//i)
+        ? first.label
+        : tf(locale, 'openUrl', { url: seedUrl }),
     }
   }
 
@@ -121,7 +125,7 @@ export function buildJourneyFromDiscovery(options: {
     name,
     steps,
     browserFrames: framesForSteps(steps, seedUrl),
-    monitoring: genericMonitoring(name),
+    monitoring: genericMonitoring(name, locale),
   }
 }
 
@@ -129,14 +133,18 @@ export function buildJourneyFromDiscovery(options: {
  * Minimal journey when only a prompt/URL is known (no Discovery plan yet).
  * Playwright still targets that site — never a hard-coded demo brand.
  */
-export function buildJourneyFromPrompt(prompt: string, siteUrl?: string | null): JourneyTemplate {
+export function buildJourneyFromPrompt(
+  prompt: string,
+  siteUrl?: string | null,
+  locale: Locale = 'en',
+): JourneyTemplate {
   const url = siteUrl ?? extractUrlFromText(prompt)
   const name = url ? hostnameLabel(url) : prompt.trim().slice(0, 48) || 'Journey'
   const steps: Omit<JourneyStep, 'status'>[] = url
     ? [
         {
           id: 'prompt-1',
-          label: `Open ${url}`,
+          label: tf(locale, 'openUrl', { url }),
           action: 'Navigate',
           duration: '3.5s',
           target: url,
@@ -144,7 +152,7 @@ export function buildJourneyFromPrompt(prompt: string, siteUrl?: string | null):
         },
         {
           id: 'prompt-2',
-          label: 'Verify page loaded',
+          label: t(locale, 'verifyPageLoaded'),
           action: 'Verify',
           duration: '500ms',
           target: 'body',
@@ -158,7 +166,7 @@ export function buildJourneyFromPrompt(prompt: string, siteUrl?: string | null):
     name,
     steps,
     browserFrames: framesForSteps(steps, url),
-    monitoring: genericMonitoring(name),
+    monitoring: genericMonitoring(name, locale),
   }
 }
 
