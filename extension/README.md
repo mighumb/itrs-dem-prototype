@@ -29,6 +29,8 @@ Useful when sites block server-side Playwright (e.g. adidas.fr).
 | **ITRS Browser panel** | Red recording strip + step count + live screenshot mirror |
 | **Extension popup** | `Recording…` + step count |
 
+If you accidentally close the Chrome tab: in the ITRS panel click **Show / reopen recording tab** — it reopens at the last URL and **keeps** steps already captured.
+
 ## Notes
 
 - Interact in the **Chrome tab** (real site). The panel is a **mirror**, not a second interactive engine (free / no cloud browser).

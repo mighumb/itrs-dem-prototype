@@ -19,6 +19,7 @@ type BridgeRequestType =
   | 'get_state'
   | 'get_frame'
   | 'focus_recording_tab'
+  | 'reopen_recording_tab'
   | 'clear_steps'
 
 type BridgeResponse = {
@@ -137,7 +138,13 @@ export async function getExtensionFrame(): Promise<{
   }
 }
 
+/** Focus the recording tab, or reopen it at the last URL (keeps recorded steps). */
 export async function focusRecordingTab(): Promise<boolean> {
-  const res = await requestExtension('focus_recording_tab', { timeoutMs: 1500 })
+  const res = await requestExtension('focus_recording_tab', { timeoutMs: 2500 })
+  return Boolean(res.ok)
+}
+
+export async function reopenRecordingTab(): Promise<boolean> {
+  const res = await requestExtension('reopen_recording_tab', { timeoutMs: 2500 })
   return Boolean(res.ok)
 }

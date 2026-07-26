@@ -78,18 +78,53 @@ async function openRecordingTab(url) {
   return tab
 }
 
-async function focusRecordingTab() {
-  if (!recordingTabId) return false
-  try {
-    const tab = await chrome.tabs.get(recordingTabId)
-    if (tab.windowId != null) {
-      await chrome.windows.update(tab.windowId, { focused: true })
-    }
-    await chrome.tabs.update(recordingTabId, { active: true })
-    return true
-  } catch {
-    return false
+function resolveResumeUrl(state) {
+  if (lastFrameUrl && /^https?:\/\//i.test(lastFrameUrl)) return lastFrameUrl
+  if (typeof state?.openUrl === 'string' && /^https?:\/\//i.test(state.openUrl)) {
+    return state.openUrl
   }
+  const steps = Array.isArray(state?.steps) ? state.steps : []
+  for (let i = steps.length - 1; i >= 0; i--) {
+    const candidate = steps[i]?.href || steps[i]?.url
+    if (typeof candidate === 'string' && /^https?:\/\//i.test(candidate)) {
+      return candidate
+    }
+  }
+  return 'https://www.google.com/'
+}
+
+/** Focus the recording tab, or reopen it at the last URL without clearing steps. */
+async function focusOrReopenRecordingTab() {
+  if (recordingTabId != null) {
+    try {
+      const tab = await chrome.tabs.get(recordingTabId)
+      if (tab?.id != null) {
+        if (tab.windowId != null) {
+          await chrome.windows.update(tab.windowId, { focused: true })
+        }
+        await chrome.tabs.update(recordingTabId, { active: true })
+        return { ok: true, reopened: false, url: tab.url || lastFrameUrl }
+      }
+    } catch {
+      recordingTabId = null
+    }
+  }
+
+  const state = await getState()
+  if (!state.recording) {
+    return { ok: false, reopened: false, error: 'not_recording' }
+  }
+
+  const url = resolveResumeUrl(state)
+  await openRecordingTab(url)
+  lastFrameUrl = url
+  startCaptureLoop()
+  const tabId = recordingTabId
+  setTimeout(() => {
+    if (tabId == null) return
+    void chrome.tabs.update(tabId, { active: true }).catch(() => undefined)
+  }, 350)
+  return { ok: true, reopened: true, url }
 }
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -156,9 +191,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return
       }
 
-      if (message.type === 'focus_recording_tab') {
-        const focused = await focusRecordingTab()
-        sendResponse({ ok: focused })
+      if (
+        message.type === 'focus_recording_tab' ||
+        message.type === 'reopen_recording_tab'
+      ) {
+        const result = await focusOrReopenRecordingTab()
+        sendResponse(result)
         return
       }
 

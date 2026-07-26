@@ -93,7 +93,7 @@ export const messages = {
     extensionMirrorHint:
       'Focus the Chrome tab with the red REC bar to see the live view here, then keep browsing there.',
     extensionLiveView: 'Live view of recording tab',
-    extensionFocusTab: 'Show recording tab',
+    extensionFocusTab: 'Show / reopen recording tab',
     extensionStepCount: '{count} step(s) captured',
     extensionStopImport: 'Stop & import steps',
     extensionStartFailed: 'Could not reach the extension. Is it enabled on this page?',
@@ -359,7 +359,7 @@ export const messages = {
     extensionMirrorHint:
       'Mettez au premier plan l’onglet Chrome avec la barre REC rouge pour voir la vue live ici, puis continuez à naviguer là-bas.',
     extensionLiveView: 'Vue live de l’onglet d’enregistrement',
-    extensionFocusTab: 'Afficher l’onglet d’enregistrement',
+    extensionFocusTab: 'Afficher / rouvrir l’onglet',
     extensionStepCount: '{count} étape(s) capturée(s)',
     extensionStopImport: 'Arrêter et importer',
     extensionStartFailed: 'Extension inaccessible. Est-elle activée sur cette page ?',
