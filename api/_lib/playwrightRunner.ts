@@ -30,13 +30,22 @@ export type RunnerEvent =
       title: string
       screenshotDataUrl: string
     }
-  | { type: 'step_done'; index: number; id: string }
+  | {
+      type: 'step_done'
+      index: number
+      id: string
+      durationMs: number
+      url: string
+      title: string
+      screenshotDataUrl?: string
+    }
   | {
       type: 'step_failed'
       index: number
       id: string
       label: string
       error: string
+      durationMs: number
       url?: string
       title?: string
       screenshotDataUrl?: string
@@ -361,11 +370,13 @@ export async function runJourneyWithPlaywright(options: {
       await onEvent({ type: 'step_start', index: i, id: step.id, label: step.label })
       await onEvent({ type: 'status', text: `Running step ${i + 1}: ${step.label}` })
 
+      const stepStartedAt = Date.now()
       try {
         await executeStep(page, step, seedUrl)
         throwIfAborted()
         await new Promise((resolve) => setTimeout(resolve, 250))
         const frame = await captureFrame(page)
+        const durationMs = Date.now() - stepStartedAt
         await onEvent({
           type: 'step_frame',
           index: i,
@@ -373,10 +384,19 @@ export async function runJourneyWithPlaywright(options: {
           label: step.label,
           ...frame,
         })
-        await onEvent({ type: 'step_done', index: i, id: step.id })
+        await onEvent({
+          type: 'step_done',
+          index: i,
+          id: step.id,
+          durationMs,
+          url: frame.url,
+          title: frame.title,
+          screenshotDataUrl: frame.screenshotDataUrl,
+        })
       } catch (error) {
         ok = false
         const message = error instanceof Error ? error.message : 'Step failed'
+        const durationMs = Date.now() - stepStartedAt
         let frame: Partial<RunnerFrame> = {}
         try {
           frame = await captureFrame(page)
@@ -389,6 +409,7 @@ export async function runJourneyWithPlaywright(options: {
           id: step.id,
           label: step.label,
           error: message,
+          durationMs,
           url: frame.url,
           title: frame.title,
           screenshotDataUrl: frame.screenshotDataUrl,

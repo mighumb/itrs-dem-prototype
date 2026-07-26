@@ -46,7 +46,15 @@ import {
 import { recordedStepsToJourneySteps, recordingTitle } from '../lib/recordedSteps'
 import { useLocale } from '../context/LocaleContext'
 import { runLiveJourney } from '../lib/journeyRunAi'
-import type { BrowserFrame, ChatMessage, JourneySchedule, JourneyStep } from '../types'
+import { upsertLastRunStep } from '../lib/runMonitoring'
+import type {
+  BrowserFrame,
+  ChatMessage,
+  JourneySchedule,
+  JourneyStep,
+  LastRunSnapshot,
+  LastRunStepMetric,
+} from '../types'
 import { scheduleSummary } from '../types'
 import type { DiscoveryPlan } from '../mock/discovery'
 
@@ -159,6 +167,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
   const [input, setInput] = useState('')
   const [agentTyping, setAgentTyping] = useState(false)
   const [workStatus, setWorkStatus] = useState<string | null>(null)
+  const [lastRun, setLastRun] = useState<LastRunSnapshot | null>(null)
   const chatEndRef = useRef<HTMLDivElement>(null)
   const startedRef = useRef(false)
   const runIdRef = useRef(0)
@@ -167,6 +176,30 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
   const chatAbortRef = useRef<AbortController | null>(null)
   const isRunningRef = useRef(false)
   const lastFailedStepRef = useRef<RunFailureInfo | null>(null)
+  const lastRunStepsRef = useRef<LastRunStepMetric[]>([])
+  const lastRunModeRef = useRef<'playwright' | 'simulated'>('playwright')
+
+  const beginLastRunCapture = useCallback((mode: 'playwright' | 'simulated', keepUntilIndex?: number) => {
+    lastRunModeRef.current = mode
+    if (typeof keepUntilIndex === 'number') {
+      lastRunStepsRef.current = lastRunStepsRef.current.filter((s) => s.index < keepUntilIndex)
+    } else {
+      lastRunStepsRef.current = []
+    }
+    setLastRun(null)
+  }, [])
+
+  const commitLastRun = useCallback(() => {
+    setLastRun({
+      mode: lastRunModeRef.current,
+      finishedAt: Date.now(),
+      steps: [...lastRunStepsRef.current],
+    })
+  }, [])
+
+  const recordLastRunStep = useCallback((metric: LastRunStepMetric) => {
+    lastRunStepsRef.current = upsertLastRunStep(lastRunStepsRef.current, metric)
+  }, [])
   const fixContinueInFlightRef = useRef(false)
 
   useEffect(() => {
@@ -573,6 +606,20 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
             }
             if (event.type === 'step_done') {
               const absolute = startIndex + event.index
+              const label =
+                slice[event.index]?.label ??
+                stepsToRun[absolute]?.label ??
+                event.id
+              recordLastRunStep({
+                stepId: event.id,
+                index: absolute,
+                label,
+                status: 'done',
+                durationMs: event.durationMs,
+                url: event.url,
+                title: event.title,
+                screenshotDataUrl: event.screenshotDataUrl,
+              })
               setSteps((prev) =>
                 prev.map((s, idx) =>
                   idx === (options?.replaceSteps ? absolute : event.index)
@@ -580,6 +627,20 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
                     : s,
                 ),
               )
+            }
+            if (event.type === 'step_failed') {
+              const absolute = startIndex + event.index
+              recordLastRunStep({
+                stepId: event.id,
+                index: absolute,
+                label: event.label,
+                status: 'failed',
+                durationMs: event.durationMs,
+                url: event.url,
+                title: event.title,
+                error: event.error,
+                screenshotDataUrl: event.screenshotDataUrl,
+              })
             }
             if (event.type === 'status') {
               // Keep agent quiet during live capture — browser panel is the signal.
@@ -629,7 +690,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
         }
       }
     },
-    [initialPrompt],
+    [initialPrompt, recordLastRunStep],
   )
 
   const runSimulatedSteps = useCallback(
@@ -638,6 +699,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
       journeySteps: Array<Omit<JourneyStep, 'status'>>,
       options?: { announceFallback?: boolean },
     ): Promise<RunFailureInfo | null> => {
+      lastRunModeRef.current = 'simulated'
       if (options?.announceFallback) {
         setMessages((prev) => [
           ...prev,
@@ -656,12 +718,25 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
         const template = journeySteps[i]!
         setSteps((prev) => [...prev, { ...template, status: 'running' }])
         setBrowserFrame(journey.browserFrames[i] ?? null)
+        const stepStartedAt = Date.now()
 
         await delay(STEP_DELAY)
         if (runIdRef.current !== runId) return null
 
         const failed = failureIndex === i
         const stepStatus = failed ? ('failed' as const) : ('done' as const)
+        const frame = journey.browserFrames[i]
+        recordLastRunStep({
+          stepId: template.id,
+          index: i,
+          label: template.label,
+          status: stepStatus,
+          durationMs: Date.now() - stepStartedAt,
+          url: frame?.url,
+          title: frame?.title,
+          error: failed ? 'Simulated step failure' : undefined,
+          screenshotDataUrl: frame?.screenshotDataUrl,
+        })
         setSteps((prev) =>
           prev.map((s, idx) => (idx === i ? { ...s, status: stepStatus } : s)),
         )
@@ -694,7 +769,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
 
       return failedStep
     },
-    [journey.browserFrames, locale],
+    [journey.browserFrames, locale, recordLastRunStep, tf],
   )
 
   const runSimulation = useCallback(async () => {
@@ -704,6 +779,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
     setEditMode(false)
     setSteps([])
     setBrowserFrame(null)
+    beginLastRunCapture('playwright')
 
     // Discovery already carried the conversation — don't re-inject the prompt as a new user turn.
     const hasDiscoveryHistory = session.messages.length > 0
@@ -738,6 +814,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
     let failedStep = live.failedStep
     if (!live.usedLive) {
       setSteps([])
+      beginLastRunCapture('simulated')
       failedStep = await runSimulatedSteps(runId, journeySteps, { announceFallback: true })
     } else if (failedStep) {
       setMessages((prev) => [
@@ -761,6 +838,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
 
     if (runIdRef.current !== runId) return
 
+    commitLastRun()
     setIsRunning(false)
     setIsComplete(true)
     setEditMode(false)
@@ -776,6 +854,8 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
     runStepsWithPlaywright,
     runSimulatedSteps,
     session.messages.length,
+    beginLastRunCapture,
+    commitLastRun,
   ])
 
   const runContinueAfterFix = useCallback(
@@ -790,6 +870,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
       setIsRunning(true)
       setBrowserFrame(null)
       setFixActionsResolved(true)
+      beginLastRunCapture('playwright', startIndex)
 
       const remaining = stepsSnapshot.length - startIndex
       setMessages((prev) => [
@@ -816,6 +897,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
 
       let failedStep = live.failedStep
       if (!live.usedLive) {
+        lastRunModeRef.current = 'simulated'
         // Runner unavailable — fall back to local simulation, still advancing
         // the panel step-by-step so UI state stays aligned with the timeline.
         for (let i = startIndex; i < stepsSnapshot.length; i++) {
@@ -824,12 +906,24 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
             prev.map((s, idx) => (idx === i ? { ...s, status: 'running' } : s)),
           )
           setBrowserFrame(getBrowserFrameForStep(step, i))
+          const stepStartedAt = Date.now()
           await delay(STEP_DELAY)
           if (runIdRef.current !== runId) {
             fixContinueInFlightRef.current = false
             isRunningRef.current = false
             return
           }
+          const frame = getBrowserFrameForStep(step, i)
+          recordLastRunStep({
+            stepId: step.id,
+            index: i,
+            label: step.label,
+            status: 'done',
+            durationMs: Date.now() - stepStartedAt,
+            url: frame?.url,
+            title: frame?.title,
+            screenshotDataUrl: frame?.screenshotDataUrl,
+          })
           setSteps((prev) =>
             prev.map((s, idx) => (idx === i ? { ...s, status: 'done' } : s)),
           )
@@ -858,13 +952,24 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
       if (!failedStep) lastFailedStepRef.current = null
       fixContinueInFlightRef.current = false
       isRunningRef.current = false
+      commitLastRun()
       setIsRunning(false)
       setEditMode(false)
       setFixActionsResolved(!failedStep)
       openPanel('monitoring')
       setMessages((prev) => applyPostRunMessages(prev, journey, failedStep, { locale }))
     },
-    [journey, locale, openPanel, hidePanel, runStepsWithPlaywright, tf],
+    [
+      journey,
+      locale,
+      openPanel,
+      hidePanel,
+      runStepsWithPlaywright,
+      tf,
+      beginLastRunCapture,
+      commitLastRun,
+      recordLastRunStep,
+    ],
   )
 
   const runReplay = useCallback(async () => {
@@ -878,6 +983,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
     setIsRunning(true)
     setFixActionsResolved(false)
     setBrowserFrame(null)
+    beginLastRunCapture('playwright')
 
     setMessages((prev) => [
       ...withoutTransientRunMessages(prev),
@@ -893,6 +999,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
 
     let failedStep = live.failedStep
     if (!live.usedLive) {
+      beginLastRunCapture('simulated')
       setSteps(stepsToRun.map((s) => ({ ...s, status: 'pending' as const })))
       const failureIndex = pickRandomFailureIndex(stepsToRun.length)
       for (let i = 0; i < stepsToRun.length; i++) {
@@ -901,9 +1008,22 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
           prev.map((s, idx) => (idx === i ? { ...s, status: 'running' } : s)),
         )
         setBrowserFrame(getBrowserFrameForStep(step, i))
+        const stepStartedAt = Date.now()
         await delay(STEP_DELAY)
         if (runIdRef.current !== runId) return
         const failed = failureIndex === i
+        const frame = getBrowserFrameForStep(step, i)
+        recordLastRunStep({
+          stepId: step.id,
+          index: i,
+          label: step.label,
+          status: failed ? 'failed' : 'done',
+          durationMs: Date.now() - stepStartedAt,
+          url: frame?.url,
+          title: frame?.title,
+          error: failed ? 'Simulated step failure' : undefined,
+          screenshotDataUrl: frame?.screenshotDataUrl,
+        })
         setSteps((prev) =>
           prev.map((s, idx) =>
             idx === i ? { ...s, status: failed ? 'failed' : 'done' } : s,
@@ -919,11 +1039,24 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
 
     if (runIdRef.current !== runId) return
 
+    commitLastRun()
     setIsRunning(false)
     setEditMode(false)
     openPanel('monitoring')
     setMessages((prev) => applyPostRunMessages(prev, journey, failedStep, { locale }))
-  }, [isRunning, steps, journey, openPanel, hidePanel, runStepsWithPlaywright])
+  }, [
+    isRunning,
+    steps,
+    journey,
+    openPanel,
+    hidePanel,
+    runStepsWithPlaywright,
+    beginLastRunCapture,
+    commitLastRun,
+    recordLastRunStep,
+    tf,
+    locale,
+  ])
 
   const handleRunStop = useCallback(() => {
     if (isRunning) {
@@ -1163,8 +1296,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
       embedded
       isUnsaved={!isMonitored}
       journeyName={journeyName}
-      steps={steps}
-      monitoring={journey.monitoring}
+      lastRun={lastRun}
       onClose={panelClose('monitoring')}
       onSave={onSave}
     />
