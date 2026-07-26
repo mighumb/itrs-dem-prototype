@@ -89,7 +89,7 @@ export default function App() {
 
   return (
     <div
-      className="app-shell fixed inset-x-0 top-0 flex w-full flex-col overflow-hidden overscroll-none"
+      className="fixed inset-x-0 top-0 flex w-full flex-col overflow-hidden overscroll-none"
       style={{
         height: 'var(--app-height, 100dvh)',
         maxHeight: 'var(--app-height, 100dvh)',
