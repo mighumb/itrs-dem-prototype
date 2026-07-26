@@ -42,6 +42,8 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
   const [proposals, setProposals] = useState<JourneyProposal[]>([])
   const [plan, setPlan] = useState<DiscoveryPlan | null>(null)
   const [configuring, setConfiguring] = useState(false)
+  /** Floating-form chrome title — driven by the AI ask, not a fixed default. */
+  const [formTitle, setFormTitle] = useState<string | null>(null)
   const chatEndRef = useRef<HTMLDivElement>(null)
   const formDockRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -195,10 +197,12 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
 
       if (needsProposals && ai.proposals && ai.proposals.length > 0) {
         setProposals(ai.proposals)
+        if (ai.formTitle) setFormTitle(ai.formTitle)
       }
       if (needsQuestions && ai.questions && ai.questions.length > 0) {
         // Preserve answers keyed by id when ids stay stable.
         setQuestions(ai.questions)
+        if (ai.formTitle) setFormTitle(ai.formTitle)
       }
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only react to locale changes
@@ -269,6 +273,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
     setPlan(null)
     setQuestionIndex(0)
     setQuestions([])
+    setFormTitle(null)
     setConfiguring(false)
 
     // Leave the idle landing immediately so the chat layout + work status appear
@@ -307,6 +312,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
 
       if (ai.proposals && ai.proposals.length > 0) {
         setProposals(ai.proposals)
+        setFormTitle(ai.formTitle)
         setPhase('proposals')
         pushAgentReply(ai.message)
         return
@@ -315,6 +321,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
       // Only show floating form when Gemini returned questions — never inject mocks.
       if (ai.questions && ai.questions.length > 0) {
         setQuestions(ai.questions)
+        setFormTitle(ai.formTitle)
         setQuestionIndex(0)
         setPhase('questionnaire')
         pushAgentReply(ai.message)
@@ -345,6 +352,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
       // Only open the floating form when Gemini returned real proposals — no mock fallback.
       if (ai.proposals && ai.proposals.length > 0) {
         setProposals(ai.proposals)
+        setFormTitle(ai.formTitle)
         setPhase('proposals')
         pushAgentReply(ai.message || t('journeysSuggested'))
         return
@@ -362,6 +370,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
     // Snapshot before dismissing — React state clear must not wipe the answer summary.
     const answered = questions.filter((q) => Boolean(nextCtx.answers[q.id]))
     setQuestions([])
+    setFormTitle(null)
     setPhase('conversation')
 
     if (configuring && nextCtx.selectedProposal) {
@@ -454,6 +463,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
     setConfiguring(false)
     setQuestions([])
     setProposals([])
+    setFormTitle(null)
     setPhase('conversation')
   }
 
@@ -467,6 +477,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
     setCtx(nextCtx)
     setProposals([])
     setPlan(null)
+    setFormTitle(null)
     setConfiguring(true)
     setQuestionIndex(0)
     setPhase('conversation')
@@ -494,6 +505,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
       rememberSnapshot(ai)
       if (ai.questions && ai.questions.length > 0) {
         setQuestions(ai.questions)
+        setFormTitle(ai.formTitle)
         setQuestionIndex(0)
         setPhase('questionnaire')
         pushAgentReply(ai.message)
@@ -537,6 +549,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
 
       if (ai.proposals && ai.proposals.length > 0) {
         setProposals(ai.proposals)
+        setFormTitle(ai.formTitle)
         setPhase('proposals')
         pushAgentReply(ai.message)
         return
@@ -544,6 +557,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
 
       if (ai.questions && ai.questions.length > 0) {
         setQuestions(ai.questions)
+        setFormTitle(ai.formTitle)
         setQuestionIndex(0)
         setPhase('questionnaire')
         pushAgentReply(ai.message)
@@ -591,6 +605,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
     setConfiguring(true)
     setQuestionIndex(0)
     setQuestions([])
+    setFormTitle(null)
     setPhase('conversation')
 
     const userMsg: ChatMessage = { id: uid('user'), role: 'user', content: display }
@@ -629,6 +644,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
 
       if (ai.questions && ai.questions.length > 0) {
         setQuestions(ai.questions)
+        setFormTitle(ai.formTitle)
         setQuestionIndex(0)
         setPhase('questionnaire')
         pushAgentReply(ai.message)
@@ -699,6 +715,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
 
         if (ai.proposals && ai.proposals.length > 0) {
           setProposals(ai.proposals)
+          setFormTitle(ai.formTitle)
           setPhase('proposals')
           pushAgentReply(ai.message)
           return
@@ -706,6 +723,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
 
         if (ai.questions && ai.questions.length > 0) {
           setQuestions(ai.questions)
+          setFormTitle(ai.formTitle)
           setQuestionIndex(0)
           setPhase('questionnaire')
           pushAgentReply(ai.message)
@@ -878,7 +896,10 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
         {showStack && phase === 'questionnaire' && (
           <DiscoveryStack
             mode="questions"
-            title={configuring ? t('configureJourney') : t('refineJourney')}
+            title={
+              formTitle ??
+              (configuring ? t('configureJourney') : t('clarifyRequest'))
+            }
             questions={questions}
             questionIndex={questionIndex}
             answers={ctx?.answers}
@@ -893,7 +914,7 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
         {showStack && phase === 'proposals' && (
           <DiscoveryStack
             mode="proposals"
-            title={t('chooseJourney')}
+            title={formTitle ?? t('chooseJourney')}
             proposals={proposals}
             onClose={handleCloseStack}
             onSelectProposal={(proposal) => void handleSelectProposal(proposal)}

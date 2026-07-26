@@ -20,6 +20,8 @@ export type SiteAnalysisInfo = {
 export interface DiscoveryAiResult {
   message: string
   workTrace: string[] | null
+  /** Floating-form chrome title — must match what the form is asking. */
+  formTitle: string | null
   questions: DiscoveryQuestion[] | null
   proposals: JourneyProposal[] | null
   plan: DiscoveryPlan | null
@@ -162,9 +164,17 @@ function frameMessageForProposals(locale: Locale, existing: string): string {
 }
 
 /** Normalize + recover proposals/questions so the floating clickable UI can open. */
+function normalizeFormTitle(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null
+  const title = raw.trim().replace(/\s+/g, ' ')
+  if (title.length < 2) return null
+  return title.slice(0, 80)
+}
+
 function finalizeDiscoveryResult(options: {
   message: string
   workTrace: unknown
+  formTitle: unknown
   questions: unknown
   proposals: unknown
   plan: unknown
@@ -175,6 +185,7 @@ function finalizeDiscoveryResult(options: {
   fallbackPrompt: string
   preferredLanguage: 'en' | 'fr'
   source: 'gemini' | 'unavailable'
+  mode?: DiscoveryAiMode
 }): DiscoveryAiResult {
   const questions = normalizeQuestions(options.questions)
   let proposals = normalizeProposals(options.proposals)
@@ -188,14 +199,29 @@ function finalizeDiscoveryResult(options: {
     message = frameMessageForProposals(options.preferredLanguage, message)
   }
 
+  const siteAnalysis = normalizeSiteAnalysis(options.siteAnalysis)
+  let formTitle = normalizeFormTitle(options.formTitle)
+  if ((questions || proposals) && !formTitle) {
+    if (siteAnalysis?.reason === 'awaiting_user_confirmation') {
+      formTitle = t(options.preferredLanguage, 'confirmSite')
+    } else if (proposals) {
+      formTitle = t(options.preferredLanguage, 'chooseJourney')
+    } else if (options.mode === 'configure') {
+      formTitle = t(options.preferredLanguage, 'configureJourney')
+    } else {
+      formTitle = t(options.preferredLanguage, 'clarifyRequest')
+    }
+  }
+
   return {
     message: message || geminiUnavailable(options.preferredLanguage).message,
     workTrace: normalizeWorkTrace(options.workTrace),
+    formTitle: questions || proposals ? formTitle : null,
     questions,
     proposals,
     plan: normalizePlan(options.plan, options.fallbackPrompt),
     readyForPlan: Boolean(options.readyForPlan),
-    siteAnalysis: normalizeSiteAnalysis(options.siteAnalysis),
+    siteAnalysis,
     pageSnapshot: typeof options.pageSnapshot === 'string' ? options.pageSnapshot : null,
     source: options.source,
     model: typeof options.model === 'string' ? options.model : null,
@@ -257,6 +283,7 @@ function geminiUnavailable(preferredLanguage: Locale): DiscoveryAiResult {
   return {
     message: t(preferredLanguage, 'assistantUnavailable'),
     workTrace: null,
+    formTitle: null,
     questions: null,
     proposals: null,
     plan: null,
@@ -372,6 +399,7 @@ export async function requestDiscoveryAi(options: {
   const abortedResult = (): DiscoveryAiResult => ({
     message: '',
     workTrace: null,
+    formTitle: null,
     questions: null,
     proposals: null,
     plan: null,
@@ -514,6 +542,7 @@ export async function requestDiscoveryAi(options: {
       return finalizeDiscoveryResult({
         message,
         workTrace: resultData.workTrace,
+        formTitle: resultData.formTitle,
         questions: resultData.questions,
         proposals: resultData.proposals,
         plan: resultData.plan,
@@ -524,6 +553,7 @@ export async function requestDiscoveryAi(options: {
         fallbackPrompt,
         preferredLanguage,
         source: message ? 'gemini' : 'unavailable',
+        mode,
       })
     }
 
@@ -541,6 +571,7 @@ export async function requestDiscoveryAi(options: {
     return finalizeDiscoveryResult({
       message,
       workTrace: data.workTrace,
+      formTitle: data.formTitle,
       questions: data.questions,
       proposals: data.proposals,
       plan: data.plan,
@@ -551,6 +582,7 @@ export async function requestDiscoveryAi(options: {
       fallbackPrompt,
       preferredLanguage,
       source: message ? 'gemini' : 'unavailable',
+      mode,
     })
   } catch (error) {
     if (

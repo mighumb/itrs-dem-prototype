@@ -551,11 +551,31 @@ function buildResultPayload(
   const proposals =
     confirmFirst || !Array.isArray(parsed.proposals) ? null : parsed.proposals
   const questions = Array.isArray(parsed.questions) ? parsed.questions : null
+  const lang = body.preferredLanguage ?? body.context?.preferredLanguage ?? 'en'
+  const fr = lang === 'fr'
+  const rawFormTitle =
+    typeof parsed.formTitle === 'string' && parsed.formTitle.trim()
+      ? parsed.formTitle.trim().slice(0, 80)
+      : null
+  // Fallback titles when the model omits formTitle — must match the form purpose.
+  let formTitle = rawFormTitle
+  if (!formTitle && (questions || proposals)) {
+    if (confirmFirst) {
+      formTitle = fr ? 'Confirmer le site' : 'Confirm the site'
+    } else if (proposals) {
+      formTitle = fr ? 'Choisir un parcours' : 'Choose a journey'
+    } else if (body.mode === 'configure') {
+      formTitle = fr ? 'Configurer le parcours' : 'Configure this journey'
+    } else {
+      formTitle = fr ? 'Préciser ta demande' : 'Clarify your request'
+    }
+  }
 
   return {
     type: 'result' as const,
     message: typeof parsed.message === 'string' ? parsed.message : 'Here is what I suggest.',
     workTrace: normalizeWorkTrace(parsed.workTrace, analysis, target, explore, streamedStatuses),
+    formTitle: questions || proposals ? formTitle : null,
     questions,
     proposals,
     plan: confirmFirst
