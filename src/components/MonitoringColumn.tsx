@@ -78,50 +78,66 @@ export default function MonitoringColumn({
           />
         </div>
 
-        <div className="rounded-xl border border-zinc-200/80 bg-zinc-50/50 p-3 dark:border-zinc-700/80 dark:bg-zinc-800/40">
+        <div className="@container rounded-xl border border-zinc-200/80 bg-zinc-50/50 p-3 dark:border-zinc-700/80 dark:bg-zinc-800/40">
           {runSteps.length === 0 ? (
             <p className="py-4 text-center text-xs text-zinc-400">{t('noExecutedSteps')}</p>
           ) : (
-            <div className="flex gap-2 overflow-x-auto pb-1">
+            <div className="flex gap-[clamp(0.4rem,1.8cqw,0.75rem)] overflow-x-auto pb-1">
               {runSteps.map((step) => {
                 const isSelected = step.stepId === selectedStepId
                 const isFailed = step.status === 'failed'
                 const stepNumber = step.index + 1
+                const shortLabel = step.label.split(/\s+/).filter(Boolean).slice(0, 2).join(' ')
 
                 return (
                   <button
                     key={step.stepId}
                     type="button"
                     onClick={() => setSelectedStepId(step.stepId)}
-                    className={`flex w-[4.5rem] shrink-0 cursor-pointer flex-col items-center gap-1.5 rounded-lg border p-2 text-center transition ${
+                    className={`flex w-[clamp(7.5rem,42cqw,14rem)] shrink-0 cursor-pointer flex-col gap-[clamp(0.3rem,1.4cqw,0.55rem)] rounded-lg border p-[clamp(0.3rem,1.2cqw,0.5rem)] text-left transition ${
                       isSelected
                         ? 'border-[#0071e3] bg-[#0071e3]/8 ring-2 ring-[#0071e3]/25'
                         : isFailed
                           ? 'border-red-200 bg-red-50/60 hover:border-red-300'
-                          : 'border-zinc-100 bg-zinc-50 hover:border-zinc-300 hover:bg-white dark:border-zinc-700 dark:bg-zinc-800/60 dark:hover:border-zinc-600 dark:hover:bg-zinc-800'
+                          : 'border-zinc-200/80 bg-white hover:border-zinc-300 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:border-zinc-600'
                     }`}
                   >
-                    <span
-                      className={`flex h-6 w-6 items-center justify-center rounded-md text-[10px] font-bold ${
-                        isFailed
-                          ? 'bg-red-100 text-red-600'
-                          : isSelected
-                            ? 'bg-[#0071e3] text-white'
-                            : 'bg-emerald-100 text-emerald-700'
+                    <div
+                      className={`relative aspect-video w-full overflow-hidden rounded-md bg-zinc-200/80 dark:bg-zinc-800 ${
+                        isFailed ? 'ring-1 ring-red-300' : ''
                       }`}
                     >
-                      {isFailed ? '!' : stepNumber}
-                    </span>
-                    <span
-                      className={`line-clamp-2 text-[9px] leading-tight ${
-                        isSelected ? 'font-medium text-[#0071e3]' : 'text-zinc-500'
-                      }`}
-                    >
-                      {step.label.split(' ').slice(0, 2).join(' ')}
-                    </span>
-                    <span className="text-[9px] tabular-nums text-zinc-400">
-                      {formatDurationMs(step.durationMs)}
-                    </span>
+                      {step.screenshotDataUrl ? (
+                        <img
+                          src={step.screenshotDataUrl}
+                          alt=""
+                          className="h-full w-full object-cover object-top"
+                        />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center text-[clamp(0.6rem,2.4cqw,0.75rem)] text-zinc-400">
+                          —
+                        </div>
+                      )}
+                      {isFailed && (
+                        <span className="absolute right-[clamp(0.2rem,1cqw,0.35rem)] top-[clamp(0.2rem,1cqw,0.35rem)] flex h-[clamp(1rem,4cqw,1.25rem)] w-[clamp(1rem,4cqw,1.25rem)] items-center justify-center rounded-md bg-red-500 text-[clamp(0.55rem,2.2cqw,0.7rem)] font-bold text-white">
+                          !
+                        </span>
+                      )}
+                    </div>
+                    <div className="min-w-0 px-0.5 text-center">
+                      <p
+                        className={`truncate text-[clamp(0.65rem,2.6cqw,0.8rem)] font-medium leading-tight ${
+                          isSelected ? 'text-[#0071e3]' : 'text-zinc-700 dark:text-zinc-200'
+                        }`}
+                      >
+                        <span className="tabular-nums">{stepNumber}</span>
+                        <span className="mx-1 text-zinc-300 dark:text-zinc-600">·</span>
+                        {shortLabel}
+                      </p>
+                      <p className="mt-0.5 text-[clamp(0.6rem,2.3cqw,0.72rem)] tabular-nums text-zinc-400">
+                        {formatDurationMs(step.durationMs)}
+                      </p>
+                    </div>
                   </button>
                 )
               })}
@@ -216,15 +232,19 @@ function StepDetailPanel({ step }: { step: LastRunStepMetric }) {
         </p>
       )}
 
-      {step.screenshotDataUrl && (
-        <div className="mt-3 overflow-hidden rounded-lg border border-zinc-100 dark:border-zinc-700">
+      <div className="mt-3 overflow-hidden rounded-lg border border-zinc-100 bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800">
+        {step.screenshotDataUrl ? (
           <img
             src={step.screenshotDataUrl}
             alt={t('browserScreenshotAlt')}
-            className="max-h-40 w-full object-cover object-top"
+            className="aspect-video w-full object-cover object-top"
           />
-        </div>
-      )}
+        ) : (
+          <div className="flex aspect-video w-full items-center justify-center text-xs text-zinc-400">
+            —
+          </div>
+        )}
+      </div>
     </div>
   )
 }
