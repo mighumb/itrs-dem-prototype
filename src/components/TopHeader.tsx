@@ -215,13 +215,13 @@ export default function TopHeader({
         <button
           ref={menuBtnRef}
           type="button"
-          className="flex cursor-pointer items-center justify-center rounded-lg p-1.5 text-zinc-700 transition hover:bg-zinc-200/80 md:hidden dark:text-zinc-200 dark:hover:bg-zinc-800"
+          className="flex h-11 w-11 cursor-pointer items-center justify-center rounded-lg text-zinc-700 transition hover:bg-zinc-200/80 md:hidden dark:text-zinc-200 dark:hover:bg-zinc-800"
           aria-label={t('menu')}
           aria-expanded={drawerOpen}
           aria-controls="mobile-nav-drawer"
           onClick={toggleDrawer}
         >
-          <Menu size={20} />
+          <Menu size={26} />
         </button>
 
         {/* —— Desktop left: brand → Home —— */}
