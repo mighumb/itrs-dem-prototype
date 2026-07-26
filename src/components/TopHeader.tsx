@@ -210,7 +210,7 @@ export default function TopHeader({
 
   return (
     <>
-      <header className="app-top-header relative z-40 flex shrink-0 items-center gap-3 bg-[var(--color-surface)] px-4 py-3">
+      <header className="app-top-header z-40 flex items-center gap-3 bg-[var(--color-surface)] px-4 py-3">
         {/* —— Mobile left: burger (drawer overlays header; close lives in the panel) —— */}
         <button
           ref={menuBtnRef}
@@ -314,6 +314,8 @@ export default function TopHeader({
           {t('bookDemo')}
         </button>
       </header>
+      {/* In-flow stand-in: fixed header is out of document flow. */}
+      <div className="app-top-header-spacer" aria-hidden="true" />
 
       {/* —— Mobile drawer: full-height overlay above the header —— */}
       {drawerMounted ? (

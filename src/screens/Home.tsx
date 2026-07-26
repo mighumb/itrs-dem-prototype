@@ -905,11 +905,12 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
   return (
     <div
       className="mx-auto flex w-full max-w-2xl flex-col px-6 pt-8"
-      style={{ minHeight: 'calc(var(--app-height, 100dvh) - 3.5rem)' }}
+      style={{
+        minHeight: 'calc(var(--app-height, 100dvh) - var(--app-header-height, 3.5rem))',
+      }}
     >
       {/* Document scroll (Amazon-style) so native browser pull-to-refresh can
-          rubber-band the whole page — no nested overflow trap, no custom loader.
-          No transform animation on this root: it would break position:sticky. */}
+          rubber-band the whole page — no nested overflow trap, no custom loader. */}
       <div className="mt-auto w-full space-y-4 pb-4">
         {messages.map((message) => (
           <AgentMessage key={message.id} message={message} hideActions />
