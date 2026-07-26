@@ -52,10 +52,9 @@ export default function TopHeader({
   const [drawerMounted, setDrawerMounted] = useState(false)
   const [drawerEntered, setDrawerEntered] = useState(false)
   const [drawerView, setDrawerView] = useState<DrawerView>('main')
-  const [headerHeight, setHeaderHeight] = useState(56)
   const drawerTitleId = useId()
-  const headerRef = useRef<HTMLElement>(null)
   const menuBtnRef = useRef<HTMLButtonElement>(null)
+  const closeBtnRef = useRef<HTMLButtonElement>(null)
   const { theme, toggleTheme } = useTheme()
   const { t, locale, setLocale } = useLocale()
 
@@ -75,16 +74,6 @@ export default function TopHeader({
     if (drawerOpen) closeDrawer()
     else openDrawer()
   }
-
-  useEffect(() => {
-    const el = headerRef.current
-    if (!el || typeof ResizeObserver === 'undefined') return
-    const sync = () => setHeaderHeight(Math.round(el.getBoundingClientRect().height))
-    sync()
-    const ro = new ResizeObserver(sync)
-    ro.observe(el)
-    return () => ro.disconnect()
-  }, [])
 
   // Enter: double-rAF so the closed transform paints before sliding in.
   useEffect(() => {
@@ -106,7 +95,6 @@ export default function TopHeader({
     if (!drawerOpen) return
     const prev = document.body.style.overflow
     document.body.style.overflow = 'hidden'
-    menuBtnRef.current?.focus()
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return
       if (drawerView === 'settings') {
@@ -121,6 +109,20 @@ export default function TopHeader({
       document.removeEventListener('keydown', onKey)
     }
   }, [drawerOpen, drawerView])
+
+  useEffect(() => {
+    if (!drawerEntered) return
+    closeBtnRef.current?.focus()
+  }, [drawerEntered])
+
+  // Return focus to the burger after the panel unmounts from a close.
+  const wasDrawerMountedRef = useRef(false)
+  useEffect(() => {
+    if (wasDrawerMountedRef.current && !drawerMounted) {
+      menuBtnRef.current?.focus()
+    }
+    wasDrawerMountedRef.current = drawerMounted
+  }, [drawerMounted])
 
   const goHome = () => {
     closeDrawer()
@@ -205,21 +207,18 @@ export default function TopHeader({
 
   return (
     <>
-      <header
-        ref={headerRef}
-        className="relative z-[60] flex shrink-0 items-center gap-3 bg-[var(--color-surface)] px-4 py-3"
-      >
-        {/* —— Mobile left: burger ↔ close (header stays; drawer slides underneath) —— */}
+      <header className="relative z-40 flex shrink-0 items-center gap-3 bg-[var(--color-surface)] px-4 py-3">
+        {/* —— Mobile left: burger (drawer overlays header; close lives in the panel) —— */}
         <button
           ref={menuBtnRef}
           type="button"
           className="flex cursor-pointer items-center justify-center rounded-lg p-1.5 text-zinc-700 transition hover:bg-zinc-200/80 md:hidden dark:text-zinc-200 dark:hover:bg-zinc-800"
-          aria-label={drawerOpen ? t('dismiss') : t('menu')}
+          aria-label={t('menu')}
           aria-expanded={drawerOpen}
           aria-controls="mobile-nav-drawer"
           onClick={toggleDrawer}
         >
-          {drawerOpen ? <X size={20} /> : <Menu size={20} />}
+          <Menu size={20} />
         </button>
 
         {/* —— Desktop left: brand → Home —— */}
@@ -313,20 +312,15 @@ export default function TopHeader({
         </button>
       </header>
 
-      {/* —— Mobile drawer ——
-          Slides under the existing TopHeader (no second brand bar).
-          Safari 26+ : avoid a full-bleed painted scrim — dim via panel box-shadow;
-          dismiss hit-target to the right has no background. */}
+      {/* —— Mobile drawer: full-height overlay above the header —— */}
       {drawerMounted ? (
-        <>
+        <div className="fixed inset-0 z-[70] md:hidden" aria-hidden={!drawerEntered}>
           <button
             type="button"
-            className={`fixed bottom-0 right-0 z-50 cursor-pointer md:hidden ${
+            className={`absolute inset-0 cursor-pointer bg-black/40 ${
               drawerEntered ? 'pointer-events-auto' : 'pointer-events-none'
             }`}
             style={{
-              top: headerHeight,
-              left: DRAWER_WIDTH,
               opacity: drawerEntered ? 1 : 0,
               transition: `opacity ${DRAWER_MOTION_MS}ms ease-out`,
             }}
@@ -338,34 +332,52 @@ export default function TopHeader({
             role="dialog"
             aria-modal="true"
             aria-labelledby={drawerTitleId}
-            className={`fixed bottom-0 left-0 z-50 flex flex-col bg-[var(--color-surface)] md:hidden ${
+            className={`absolute inset-y-0 left-0 flex flex-col bg-[var(--color-surface)] shadow-[4px_0_24px_rgb(0_0_0_/_0.18)] will-change-transform ${
               drawerEntered ? 'translate-x-0' : '-translate-x-full'
             }`}
             style={{
-              top: headerHeight,
               width: DRAWER_WIDTH,
               transition: `transform ${DRAWER_MOTION_MS}ms cubic-bezier(0.22, 1, 0.36, 1)`,
-              boxShadow:
-                '4px 0 24px rgb(0 0 0 / 0.12), 0 0 0 100vmax rgb(0 0 0 / 0.4)',
             }}
           >
             <p id={drawerTitleId} className="sr-only">
               {drawerView === 'settings' ? t('settings') : t('menu')}
             </p>
 
-            {drawerView === 'settings' ? (
-              <div className="flex items-center px-4 pt-3">
+            <div className="flex items-center justify-between gap-2 px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-2">
+              {drawerView === 'settings' ? (
                 <button
                   type="button"
                   onClick={() => setDrawerView('main')}
                   aria-label={t('back')}
-                  className="flex min-h-11 min-w-0 cursor-pointer items-center gap-1.5 text-[18px] font-semibold text-zinc-900 dark:text-zinc-100"
+                  className="flex min-h-11 min-w-0 flex-1 cursor-pointer items-center gap-1.5 text-[18px] font-semibold text-zinc-900 dark:text-zinc-100"
                 >
                   <ChevronLeft size={22} className="shrink-0 text-zinc-500" aria-hidden />
                   <span className="truncate">{t('settings')}</span>
                 </button>
-              </div>
-            ) : null}
+              ) : (
+                <button
+                  type="button"
+                  onClick={goHome}
+                  title={t('home')}
+                  className="flex min-h-11 min-w-0 flex-1 cursor-pointer items-center gap-2"
+                >
+                  <BrandMark theme={theme} />
+                  <span className="truncate text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
+                    ITRS DEM
+                  </span>
+                </button>
+              )}
+              <button
+                ref={closeBtnRef}
+                type="button"
+                onClick={closeDrawer}
+                aria-label={t('dismiss')}
+                className="flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-lg text-zinc-700 transition hover:bg-zinc-200/80 dark:text-zinc-200 dark:hover:bg-zinc-800"
+              >
+                <X size={20} />
+              </button>
+            </div>
 
             {drawerView === 'main' ? (
               <div className="mt-auto flex flex-col gap-1.5 p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
@@ -409,7 +421,7 @@ export default function TopHeader({
               </div>
             )}
           </nav>
-        </>
+        </div>
       ) : null}
     </>
   )
