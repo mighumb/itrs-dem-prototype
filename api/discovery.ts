@@ -16,6 +16,7 @@ import { DISCOVERY_SYSTEM_PROMPT } from './_lib/discoverySystemPrompt.js'
 import {
   answersIncludeSiteDecline,
   hasExplicitSiteLocator,
+  hostnameMatchesBrandTokens,
   looksLikeAmbiguousBrandName,
   looksLikeSiteConfirmation,
   looksLikeSiteDecline,
@@ -93,6 +94,9 @@ function shouldConfirmBeforeExplore(
   if (body.mode !== 'bootstrap' && body.mode !== 'chat') return false
   if (!looksLikeAmbiguousBrandName(body.userMessage)) return false
   if (!target?.url || target.source !== 'brand_resolve') return false
+  // Named brand already locked in the hostname (aliexpress → aliexpress.com):
+  // skip the sibling-marketplace quiz and explore that site.
+  if (hostnameMatchesBrandTokens(target.url, body.userMessage)) return false
   return true
 }
 
