@@ -13,7 +13,7 @@ const ACRONYM_NOISE_RE =
 
 /** Intent / confirm tokens that must never be treated as a brand name. */
 const BRAND_BLOCKLIST_RE =
-  /^(parcours|journey|journeys|site|sites|idées|ideas|aide|help|test|essai|chat|monitoring|surveillance|ok|oui|non|parfait|nickel|go|sure|exact|okay|merci|thanks|ping|achat|produit|commande|livraison|panier|order|purchase|buy|product|delivery|checkout)$/i
+  /^(parcours|journey|journeys|site|sites|idées|ideas|aide|help|test|essai|chat|monitoring|surveillance|ok|oui|non|parfait|nickel|go|sure|exact|okay|merci|thanks|ping|achat|produit|commande|livraison|panier|order|purchase|buy|product|delivery|checkout|et|ou|and|or)$/i
 
 const INTENT_ONLY_RE =
   /^(je\s+veux|j['’]aimerais|i\s+want|i['’]d\s+like|un\s+parcours|des\s+idées|des\s+parcours|construisons(?:\s+un\s+parcours)?|test\s+chat|aide[- ]moi|help\s+me|un\s+site|montre[- ]moi|des\s+idées)$/i
@@ -23,7 +23,7 @@ const INTENT_ONLY_RE =
  * « achat d'un produit {marque} jusqu'à la livraison » keeps only the brand token.
  */
 const INTENT_STOPWORD_RE =
-  /\b(je|j|tu|on|nous|vous|veux|voudrais|aimerais|besoin|faire|créer|cree|construire|construisons|build|create|make|start|commencer|surveiller|monitor(?:er|ing)?|parcours|journey|journeys|site|website|web|pour|avec|de|du|des|le|la|les|un|une|the|a|an|to|for|of|on|in|dans|please|svp|aide[- ]?moi|help\s+me|i\s+want|i'd\s+like|can\s+you|could\s+you|quel(?:le)?s?|what|which|aujourd['’]?hui|today|achat|acheter|produit|produits|commande|commandes|livraison|livrer|panier|checkout|cart|order|orders|purchase|buy|buying|product|products|delivery|until|jusqu(?:['’]?à)?|vers|avant|après|complete|complet|complète|full)\b/gi
+  /\b(je|j|tu|on|nous|vous|veux|voudrais|aimerais|besoin|faire|créer|cree|construire|construisons|build|create|make|start|commencer|surveiller|monitor(?:er|ing)?|parcours|journey|journeys|site|website|web|pour|avec|de|du|des|le|la|les|un|une|et|ou|and|or|then|puis|the|a|an|to|for|of|on|in|dans|please|svp|aide[- ]?moi|help\s+me|i\s+want|i'd\s+like|can\s+you|could\s+you|quel(?:le)?s?|what|which|aujourd['’]?hui|today|achat|acheter|produit|produits|commande|commandes|livraison|livrer|panier|checkout|cart|order|orders|purchase|buy|buying|product|products|delivery|until|jusqu(?:['’]?à)?|vers|avant|après|complete|complet|complète|full)\b/gi
 
 /** Explicit URL / domain — unambiguous monitoring target. */
 export function hasExplicitSiteLocator(text: string): boolean {
