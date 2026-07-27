@@ -5,6 +5,7 @@ import type {
   JourneyTemplate,
   StepMonitoringMetrics,
 } from '../types'
+import { templateActions } from '../types'
 import { tf, type Locale } from '../i18n/messages'
 
 /** Homepage sample cards — company + short journey title (not full step-by-step prompts). */
@@ -142,10 +143,11 @@ export function getBrowserFrameForStep(step: JourneyStep, index: number): Browse
 }
 
 export function buildJourneyReadyMessage(journey: JourneyTemplate, locale: Locale = 'en'): ChatMessage {
+  const actionCount = templateActions(journey).length
   return {
     id: 'done-1',
     role: 'agent',
-    content: tf(locale, 'journeyReady', { name: journey.name, count: journey.steps.length }),
+    content: tf(locale, 'journeyReady', { name: journey.name, count: actionCount }),
   }
 }
 
@@ -165,6 +167,8 @@ export function buildScheduleMessage(locale: Locale = 'en'): ChatMessage {
 export interface RunFailureInfo {
   stepIndex: number
   stepLabel: string
+  /** Parent stage title when known (Stages → Actions model). */
+  stageTitle?: string
 }
 
 export const RUN_OUTCOME_MESSAGE_ID = 'run-outcome'
@@ -173,11 +177,12 @@ export function ensureFullJourneySteps(
   currentSteps: JourneyStep[],
   journey: JourneyTemplate,
 ): JourneyStep[] {
-  if (currentSteps.length >= journey.steps.length) return currentSteps
+  const templateSteps = templateActions(journey)
+  if (currentSteps.length >= templateSteps.length) return currentSteps
 
   const merged = [...currentSteps]
-  for (let i = currentSteps.length; i < journey.steps.length; i++) {
-    merged.push({ ...journey.steps[i], status: 'pending' })
+  for (let i = currentSteps.length; i < templateSteps.length; i++) {
+    merged.push({ ...templateSteps[i]!, status: 'pending' })
   }
   return merged
 }
@@ -236,11 +241,17 @@ export function buildRunOutcomeMessage(
     }
   }
 
-  const stepNumber = failedStep.stepIndex + 1
+  const stage = failedStep.stageTitle?.trim()
+  const action = failedStep.stepLabel
   return {
     id: RUN_OUTCOME_MESSAGE_ID,
     role: 'agent',
-    content: tf(locale, 'runStoppedAt', { n: stepNumber, label: failedStep.stepLabel }),
+    content: stage
+      ? tf(locale, 'runStoppedAtStageAction', { stage, action })
+      : tf(locale, 'runStoppedAt', {
+          n: failedStep.stepIndex + 1,
+          label: action,
+        }),
     actions: [{ id: 'fix-auto-continue', label: tf(locale, 'fixAndContinue', {}), variant: 'primary' }],
   }
 }
@@ -264,7 +275,7 @@ export function applyPostRunMessages(
     next = [...next, buildScheduleMessage(locale)]
   }
 
-  return [...next, buildRunOutcomeMessage(failedStep, journey.steps.length, locale)]
+  return [...next, buildRunOutcomeMessage(failedStep, templateActions(journey).length, locale)]
 }
 
 /** Drop transient run messages so agent chat matches the latest run only. */

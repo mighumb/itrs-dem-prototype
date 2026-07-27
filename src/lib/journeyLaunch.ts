@@ -3,10 +3,12 @@ import type { DiscoveryPlan } from '../mock/discovery'
 import type {
   BrowserFrame,
   ChatMessage,
+  JourneyAction,
   JourneyMonitoringPreview,
-  JourneyStep,
   JourneyTemplate,
+  JourneyTemplateStage,
 } from '../types'
+import { actionsToStages } from './journeyStages'
 
 /** Full Discovery → workspace handoff (not just a prompt string). */
 export type JourneyLaunchSession = {
@@ -110,14 +112,24 @@ export function journeyNameFromSeed(
   return trimmed.slice(0, 48) || (locale === 'fr' ? 'Parcours' : 'Journey')
 }
 
-function framesForSteps(
-  steps: Omit<JourneyStep, 'status'>[],
+function framesForActions(
+  actions: Omit<JourneyAction, 'status'>[],
   seedUrl: string | null,
 ): BrowserFrame[] {
-  return steps.map((step) => ({
-    url: step.target?.startsWith('http') ? step.target : (seedUrl ?? 'about:blank'),
-    title: step.label,
-    highlight: step.label,
+  return actions.map((action) => ({
+    url: action.target?.startsWith('http') ? action.target : (seedUrl ?? 'about:blank'),
+    title: action.label,
+    highlight: action.label,
+  }))
+}
+
+function stagesFromActions(
+  actions: Omit<JourneyAction, 'status'>[],
+): JourneyTemplateStage[] {
+  return actionsToStages(actions).map((stage) => ({
+    id: stage.id,
+    title: stage.title,
+    actions: stage.actions.map(({ status: _status, ...action }) => action),
   }))
 }
 
@@ -137,7 +149,7 @@ export function buildJourneyFromDiscovery(options: {
     extractUrlFromText(prompt) ??
     extractUrlFromText(plan.steps.map((s) => s.label).join(' '))
 
-  const steps: Omit<JourneyStep, 'status'>[] = plan.steps.map((step, index) => {
+  const actions: Omit<JourneyAction, 'status'>[] = plan.steps.map((step, index) => {
     const action = normalizeAction(step.action, step.label)
     const urlInStep =
       step.href ??
@@ -161,9 +173,13 @@ export function buildJourneyFromDiscovery(options: {
   })
 
   // Guarantee at least one Navigate target when we know the site URL.
-  if (seedUrl && steps.length > 0 && !steps.some((s) => s.action === 'Navigate' && (s.target || s.href))) {
-    const first = steps[0]!
-    steps[0] = {
+  if (
+    seedUrl &&
+    actions.length > 0 &&
+    !actions.some((s) => s.action === 'Navigate' && (s.target || s.href))
+  ) {
+    const first = actions[0]!
+    actions[0] = {
       ...first,
       action: 'Navigate',
       target: seedUrl,
@@ -181,8 +197,8 @@ export function buildJourneyFromDiscovery(options: {
   return {
     id: 'discovery-plan',
     name,
-    steps,
-    browserFrames: framesForSteps(steps, seedUrl),
+    stages: stagesFromActions(actions),
+    browserFrames: framesForActions(actions, seedUrl),
     monitoring: genericMonitoring(name, locale),
   }
 }
@@ -198,7 +214,7 @@ export function buildJourneyFromPrompt(
 ): JourneyTemplate {
   const url = siteUrl ?? extractUrlFromText(prompt)
   const name = journeyNameFromSeed(prompt, url, locale)
-  const steps: Omit<JourneyStep, 'status'>[] = url
+  const actions: Omit<JourneyAction, 'status'>[] = url
     ? [
         {
           id: 'prompt-1',
@@ -222,8 +238,8 @@ export function buildJourneyFromPrompt(
   return {
     id: 'prompt-journey',
     name,
-    steps,
-    browserFrames: framesForSteps(steps, url),
+    stages: stagesFromActions(actions),
+    browserFrames: framesForActions(actions, url),
     monitoring: genericMonitoring(name, locale),
   }
 }
