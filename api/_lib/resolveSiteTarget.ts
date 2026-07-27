@@ -1,7 +1,10 @@
 import { GoogleGenerativeAI } from '@google/generative-ai'
 import { geminiModelCandidates } from './geminiModels.js'
 import { analyzePublicSite, extractHttpUrl, type SiteAnalysisResult } from './analyzeSite.js'
-import { looksLikeSocialChat } from './discoverySiteIntent.js'
+import {
+  extractBrandishTokens,
+  looksLikeSocialChat,
+} from './discoverySiteIntent.js'
 
 export type ResolvedSiteTarget = {
   /** URL we will/tried to inspect */
@@ -13,10 +16,6 @@ export type ResolvedSiteTarget = {
   /** Human-readable note for workTrace / transparency */
   note: string | null
 }
-
-/** Product / intent vocabulary — never treat these leftovers as a brand to Search. */
-const INTENT_STOPWORD_RE =
-  /\b(je|j|tu|il|on|nous|vous|ils|me|moi|mon|ma|mes|ton|ta|tes|son|sa|ses|veux|voudrais|aimerais|aimerai|souhaite|souhaiterais|besoin|faire|fais|fait|faisons|faites|font|créer|cree|creer|crée|crées|créons|créez|créent|créé|créée|construire|construis|construit|construisons|construisez|construisent|créons|build|building|builds|built|create|creating|creates|created|make|making|makes|made|start|starting|starts|started|commencer|commence|commençons|lance(?:r|z)?|lançons|préparer|prépare|préparons|setup|set\s*up|let'?s|lets|surveiller|monitor(?:er|ing)?|parcours|journey|journeys|flow|flows|scenario|scénario|tunnel|checkout|cart|panier|site|website|web|app|application|pour|avec|de|du|des|le|la|les|un|une|the|a|an|to|for|of|on|in|dans|please|svp|merci|aide[- ]?moi|help\s+me|i\s+want|i'd\s+like|i\s+would\s+like|can\s+you|could\s+you|quel(?:le)?s?|what|which|how|comment|aujourd['’]?hui|today)\b/gi
 
 const BRAND_RESOLVE_TIMEOUT_MS = 12_000
 
@@ -38,22 +37,19 @@ function shouldTryBrandResolve(text: string): boolean {
   return extractBrandishTokens(t).length > 0
 }
 
-function extractBrandishTokens(text: string): string[] {
-  const leftover = text
-    .replace(INTENT_STOPWORD_RE, ' ')
-    .replace(/[^\p{L}\p{N}.-]+/gu, ' ')
-    .trim()
-
-  if (!leftover) return []
-  return leftover
-    .split(/\s+/)
-    .map((w) => w.replace(/^['’]+|['’]+$/g, ''))
-    // Acronyms like FFF / EDF are 3 letters; allow 2+ for short org codes.
-    .filter((w) => {
-      const compact = w.replace(/\./g, '')
-      if (/^[A-Za-zÀ-ü]{2,6}$/u.test(compact)) return true
-      return w.length >= 3
-    })
+/** Prefer hosts that literally contain a user-named brand token. */
+function brandHostScore(url: string, brandTokens: string[]): number {
+  try {
+    const host = new URL(url).hostname.toLowerCase().replace(/^www\./, '')
+    let score = 0
+    for (const token of brandTokens) {
+      const compact = token.toLowerCase().replace(/[^a-z0-9]/g, '')
+      if (compact.length >= 3 && host.includes(compact)) score += 100
+    }
+    return score
+  } catch {
+    return 0
+  }
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
@@ -116,10 +112,11 @@ function urlsFromGrounding(response: {
 }
 
 async function resolveBrandWithGemini(
-  query: string,
+  brandTokens: string[],
   apiKey: string,
   preferredLanguage?: 'en' | 'fr' | null,
 ): Promise<{ url: string | null; label: string | null; note: string | null }> {
+  const query = brandTokens.join(' ')
   const genAI = new GoogleGenerativeAI(apiKey)
   const modelCandidates = geminiModelCandidates('free')
 
@@ -142,6 +139,7 @@ async function resolveBrandWithGemini(
 Rules:
 - Prefer the official brand/org website (not social networks, app stores, Wikipedia, news, or booking aggregators unless that IS the product).
 - Acronyms and abbreviations count: expand to the most likely official organization in the user's market, then that org's official homepage (use Search grounding). Prefer the local TLD when preferredLanguage/market implies it.
+- If the query names a specific brand, return THAT brand's official site — never a sibling, parent-group, or "related" property the user did not name.
 - ${localeHint}
 - Reply with ONLY one line: either a single https URL, or the word NONE.
 - No markdown, no commentary.`,
@@ -158,13 +156,20 @@ Rules:
         ...(fromText ? [{ url: fromText, title: null as string | null }] : []),
         ...grounded,
       ]
-        .sort(
-          (a, b) =>
-            localeUrlScore(b.url, preferredLanguage) - localeUrlScore(a.url, preferredLanguage),
-        )
-        .slice(0, 3)
+        .map((c) => ({
+          ...c,
+          brand: brandHostScore(c.url, brandTokens),
+          locale: localeUrlScore(c.url, preferredLanguage),
+        }))
+        .sort((a, b) => b.brand - a.brand || b.locale - a.locale)
+        .slice(0, 6)
 
-      for (const candidate of candidates) {
+      // Prefer candidates whose host contains the named brand; do not fall through
+      // to a reachable alternate host just because it answered first.
+      const brandMatched = candidates.filter((c) => c.brand > 0)
+      const tryList = brandMatched.length > 0 ? brandMatched : candidates
+
+      for (const candidate of tryList) {
         // Quick reachability check — prefer a URL that actually responds
         const probe = await analyzePublicSite(candidate.url)
         if (probe.ok) {
@@ -176,7 +181,9 @@ Rules:
         }
       }
 
-      if (fromText) {
+      // Incomplete probe is OK only when the host still contains the named brand.
+      // Never fall back to an alternate host that does not match the brand tokens.
+      if (fromText && brandHostScore(fromText, brandTokens) > 0) {
         return {
           url: fromText,
           label: null,
@@ -244,7 +251,7 @@ export async function resolveSiteTarget(
     let lastLabel: string | null = null
     for (const apiKey of keys) {
       const resolved = await withTimeout(
-        resolveBrandWithGemini(brandTokens.join(' '), apiKey, options.preferredLanguage),
+        resolveBrandWithGemini(brandTokens, apiKey, options.preferredLanguage),
         BRAND_RESOLVE_TIMEOUT_MS,
         {
           url: null,
@@ -290,7 +297,7 @@ export async function resolveSiteTarget(
   let lastLabel: string | null = null
   for (const apiKey of keys) {
     const resolved = await withTimeout(
-      resolveBrandWithGemini(brandTokens.join(' '), apiKey, options.preferredLanguage),
+      resolveBrandWithGemini(brandTokens, apiKey, options.preferredLanguage),
       BRAND_RESOLVE_TIMEOUT_MS,
       {
         url: null,

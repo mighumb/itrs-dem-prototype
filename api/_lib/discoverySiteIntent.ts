@@ -13,13 +13,17 @@ const ACRONYM_NOISE_RE =
 
 /** Intent / confirm tokens that must never be treated as a brand name. */
 const BRAND_BLOCKLIST_RE =
-  /^(parcours|journey|journeys|site|sites|idées|ideas|aide|help|test|essai|chat|monitoring|surveillance|ok|oui|non|parfait|nickel|go|sure|exact|okay|merci|thanks|ping)$/i
+  /^(parcours|journey|journeys|site|sites|idées|ideas|aide|help|test|essai|chat|monitoring|surveillance|ok|oui|non|parfait|nickel|go|sure|exact|okay|merci|thanks|ping|achat|produit|commande|livraison|panier|order|purchase|buy|product|delivery|checkout)$/i
 
 const INTENT_ONLY_RE =
   /^(je\s+veux|j['’]aimerais|i\s+want|i['’]d\s+like|un\s+parcours|des\s+idées|des\s+parcours|construisons(?:\s+un\s+parcours)?|test\s+chat|aide[- ]moi|help\s+me|un\s+site|montre[- ]moi|des\s+idées)$/i
 
+/**
+ * Strip product / journey vocabulary so a sentence like
+ * « achat d'un produit {marque} jusqu'à la livraison » keeps only the brand token.
+ */
 const INTENT_STOPWORD_RE =
-  /\b(je|j|tu|on|nous|vous|veux|voudrais|aimerais|besoin|faire|créer|cree|construire|construisons|build|create|make|start|commencer|surveiller|monitor(?:er|ing)?|parcours|journey|journeys|site|website|web|pour|avec|de|du|des|le|la|les|un|une|the|a|an|to|for|of|on|in|dans|please|svp|aide[- ]?moi|help\s+me|i\s+want|i'd\s+like|can\s+you|could\s+you|quel(?:le)?s?|what|which|aujourd['’]?hui|today)\b/gi
+  /\b(je|j|tu|on|nous|vous|veux|voudrais|aimerais|besoin|faire|créer|cree|construire|construisons|build|create|make|start|commencer|surveiller|monitor(?:er|ing)?|parcours|journey|journeys|site|website|web|pour|avec|de|du|des|le|la|les|un|une|the|a|an|to|for|of|on|in|dans|please|svp|aide[- ]?moi|help\s+me|i\s+want|i'd\s+like|can\s+you|could\s+you|quel(?:le)?s?|what|which|aujourd['’]?hui|today|achat|acheter|produit|produits|commande|commandes|livraison|livrer|panier|checkout|cart|order|orders|purchase|buy|buying|product|products|delivery|until|jusqu(?:['’]?à)?|vers|avant|après|complete|complet|complète|full)\b/gi
 
 /** Explicit URL / domain — unambiguous monitoring target. */
 export function hasExplicitSiteLocator(text: string): boolean {
@@ -114,6 +118,24 @@ function brandishLeftover(text: string): string {
     .trim()
 }
 
+/**
+ * Brand / org tokens left after stripping journey vocabulary.
+ * Exported so server brand-resolve Search uses the same leftovers.
+ */
+export function extractBrandishTokens(text: string): string[] {
+  const leftover = brandishLeftover(text)
+  if (!leftover) return []
+  return leftover
+    .split(/\s+/)
+    .map((w) => w.replace(/^['’]+|['’]+$/g, ''))
+    .filter((w) => {
+      if (!w || BRAND_BLOCKLIST_RE.test(w)) return false
+      const compact = w.replace(/\./g, '')
+      if (/^[A-Za-zÀ-ü]{2,6}$/u.test(compact)) return true
+      return w.length >= 3
+    })
+}
+
 /** Short brand / acronym / org name without URL — resolve, then confirm before proposals. */
 export function looksLikeAmbiguousBrandName(text: string): boolean {
   const t = text.trim()
@@ -126,24 +148,43 @@ export function looksLikeAmbiguousBrandName(text: string): boolean {
   ) {
     return false
   }
-  const leftover = brandishLeftover(t)
-  if (!leftover) return false
-  const words = leftover.split(/\s+/).filter(Boolean)
-  if (words.length === 0 || words.length > 6) return false
-  if (words.every((w) => BRAND_BLOCKLIST_RE.test(w))) return false
+  const words = extractBrandishTokens(t)
+  // After stopword stripping, a journey sentence collapses to the brand
+  // (« … {marque} … livraison » → ["marque"]). Cap keeps multi-word orgs.
+  if (words.length === 0 || words.length > 4) return false
+  const leftover = words.join(' ')
   const letters = leftover.replace(/[^A-Za-zÀ-ü]/g, '')
   if (/^[A-ZÀ-Ü]{2,6}$/.test(letters) && !ACRONYM_NOISE_RE.test(letters)) return true
   if (/^(?:la|le|l['’]|les|the|el|die)\s+[A-Za-zÀ-ü][A-Za-zÀ-ü'.-]{1,40}$/i.test(t)) {
     return true
   }
-  if (
-    words.length <= 3 &&
-    words.every((w) => /^[\p{L}'.-]{2,}$/u.test(w)) &&
-    !words.every((w) => BRAND_BLOCKLIST_RE.test(w))
-  ) {
+  if (words.every((w) => /^[\p{L}'.-]{2,}$/u.test(w))) {
     return true
   }
   return false
+}
+
+/** True when a resolved hostname literally contains a user-named brand token. */
+export function hostnameMatchesBrandTokens(
+  urlOrHost: string | null | undefined,
+  text: string,
+): boolean {
+  if (!urlOrHost) return false
+  const tokens = extractBrandishTokens(text)
+  if (tokens.length === 0) return false
+  let host = urlOrHost.trim().toLowerCase()
+  try {
+    if (/^https?:\/\//i.test(host)) {
+      host = new URL(host).hostname
+    }
+  } catch {
+    return false
+  }
+  host = host.replace(/^www\./, '')
+  return tokens.some((token) => {
+    const compact = token.toLowerCase().replace(/[^a-z0-9]/g, '')
+    return compact.length >= 3 && host.includes(compact)
+  })
 }
 
 /** True when this turn should resolve/crawl a site — not on casual chat. */
