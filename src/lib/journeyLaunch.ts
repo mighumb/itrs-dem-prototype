@@ -46,12 +46,68 @@ function genericMonitoring(name: string, locale: Locale = 'en'): JourneyMonitori
   }
 }
 
-function hostnameLabel(url: string): string {
+/** Hostname (or short label) for a site URL — used in "title - url" chrome. */
+export function shortSiteLabel(url: string | null | undefined): string | null {
+  if (!url || url === 'about:blank') return null
   try {
-    return new URL(url).hostname.replace(/^www\./, '')
+    return new URL(url).hostname.replace(/^www\./, '') || null
   } catch {
-    return url
+    const trimmed = url.trim()
+    return trimmed || null
   }
+}
+
+function looksLikeBareUrlOrHost(value: string): boolean {
+  const v = value.trim()
+  if (!v) return true
+  if (/^https?:\/\//i.test(v)) return true
+  // bare hostname like amazon.fr / www.amazon.fr
+  if (/^(?:www\.)?[a-z0-9-]+(?:\.[a-z0-9-]+)+$/i.test(v)) return true
+  return false
+}
+
+/**
+ * Workspace / header title: "Journey name - site".
+ * Never show a bare URL as the only title.
+ */
+export function formatJourneyTitle(
+  name: string,
+  url?: string | null,
+  locale: Locale = 'en',
+): string {
+  const site = shortSiteLabel(url)
+  const generic = locale === 'fr' ? 'Parcours' : 'Journey'
+  let clean = name.trim() || generic
+
+  if (looksLikeBareUrlOrHost(clean)) {
+    clean = generic
+  }
+
+  // Avoid "Parcours - amazon.fr - amazon.fr" if name already ends with site
+  if (site && clean.toLowerCase().endsWith(` - ${site.toLowerCase()}`)) {
+    return clean
+  }
+  if (site) return `${clean} - ${site}`
+  return clean
+}
+
+/** Prefer a human prompt as the journey name; fall back to hostname only if needed. */
+export function journeyNameFromSeed(
+  prompt: string,
+  url?: string | null,
+  locale: Locale = 'en',
+): string {
+  const trimmed = prompt.trim()
+  const site = url ?? extractUrlFromText(trimmed)
+  const withoutUrl = trimmed.replace(/https?:\/\/[^\s<>"']+/gi, '').replace(/\s+/g, ' ').trim()
+  if (withoutUrl.length >= 3 && !looksLikeBareUrlOrHost(withoutUrl)) {
+    return withoutUrl.slice(0, 72)
+  }
+  if (site) {
+    // Keep a real name slot — display layer adds " - host"
+    return locale === 'fr' ? 'Parcours' : 'Journey'
+  }
+  return trimmed.slice(0, 48) || (locale === 'fr' ? 'Parcours' : 'Journey')
 }
 
 function framesForSteps(
@@ -118,7 +174,9 @@ export function buildJourneyFromDiscovery(options: {
     }
   }
 
-  const name = plan.title || (seedUrl ? hostnameLabel(seedUrl) : 'Journey')
+  const name =
+    (plan.title && !looksLikeBareUrlOrHost(plan.title) ? plan.title.trim() : null) ||
+    journeyNameFromSeed(prompt, seedUrl, locale)
 
   return {
     id: 'discovery-plan',
@@ -139,7 +197,7 @@ export function buildJourneyFromPrompt(
   locale: Locale = 'en',
 ): JourneyTemplate {
   const url = siteUrl ?? extractUrlFromText(prompt)
-  const name = url ? hostnameLabel(url) : prompt.trim().slice(0, 48) || 'Journey'
+  const name = journeyNameFromSeed(prompt, url, locale)
   const steps: Omit<JourneyStep, 'status'>[] = url
     ? [
         {

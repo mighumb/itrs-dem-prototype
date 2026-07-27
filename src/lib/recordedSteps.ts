@@ -51,12 +51,34 @@ function normalizeAction(action: string): string {
 }
 
 export function recordingTitle(recorded: RecordedBrowserStep[], fallback = 'Recorded journey'): string {
+  const trimmed = fallback.trim()
+  // Keep an existing human journey name (not a bare host/URL).
+  if (
+    trimmed &&
+    trimmed !== 'Recorded journey' &&
+    !/^https?:\/\//i.test(trimmed) &&
+    !/^(?:www\.)?[a-z0-9-]+(?:\.[a-z0-9-]+)+$/i.test(trimmed)
+  ) {
+    return trimmed.slice(0, 72)
+  }
+
+  const nav = recorded.find((s) => s.action === 'Navigate' && (s.href || s.url))
+  const pageTitle = nav?.label?.trim() || nav?.targetHint?.trim()
+  if (
+    pageTitle &&
+    !/^https?:\/\//i.test(pageTitle) &&
+    pageTitle.length >= 3 &&
+    !/^(?:www\.)?[a-z0-9-]+(?:\.[a-z0-9-]+)+$/i.test(pageTitle)
+  ) {
+    return pageTitle.slice(0, 72)
+  }
+
+  return trimmed || 'Recorded journey'
+}
+
+/** Site URL from a recording (for "title - url" chrome). */
+export function recordingSiteUrl(recorded: RecordedBrowserStep[]): string | null {
   const nav = recorded.find((s) => s.action === 'Navigate' && (s.href || s.url))
   const url = nav?.href || nav?.url
-  if (!url) return fallback
-  try {
-    return new URL(url).hostname.replace(/^www\./, '')
-  } catch {
-    return fallback
-  }
+  return typeof url === 'string' && /^https?:\/\//i.test(url) ? url : null
 }
