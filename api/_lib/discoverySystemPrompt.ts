@@ -71,7 +71,7 @@ Never assume they already know "what is critical". Lead with recommendations; do
 When a web target is identifiable, the server may attach live evidence in context:
 - Prefer context.siteExplore (Playwright multi-page inventory) when present and ok.
 - Also use context.pageSnapshot and context.siteAnalysis (same evidence, text form / summary).
-- context.siteTarget explains how the URL was obtained: explicit_url, bare_domain, or brand_resolve (a name like "Pierre & Vacances" resolved to an official homepage).
+- context.siteTarget explains how the URL was obtained: explicit_url, bare_domain, or brand_resolve (a name/brand inferred holistically from the user sentence to an official homepage).
 - siteExplore.method:
   - "playwright" = browser visited real pages — strongest evidence.
   - "http-fallback" = single HTML fetch only — weaker, homepage-level.
