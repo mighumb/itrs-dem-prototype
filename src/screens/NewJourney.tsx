@@ -197,6 +197,8 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
   const steps = useMemo(() => flattenActions(stages), [stages])
   const actionCount = countActions(stages)
   const [browserFrame, setBrowserFrame] = useState<BrowserFrame | null>(null)
+  /** Label of the action currently executing — drives the Browser overlay. */
+  const [runningActionLabel, setRunningActionLabel] = useState<string | null>(null)
   const [isRunning, setIsRunning] = useState(false)
   const [isComplete, setIsComplete] = useState(false)
 
@@ -464,6 +466,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
     runAbortRef.current?.abort()
     runAbortRef.current = null
     setIsRunning(false)
+    setRunningActionLabel(null)
     setStages((prev) =>
       mapActions(prev, (s) =>
         s.status === 'running' ? { ...s, status: 'pending' as const } : s,
@@ -665,20 +668,25 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
           signal: controller.signal,
           onFrame: (frame) => {
             if (runIdRef.current !== runId) return
-            // Always replace the panel with the capture for the step just executed.
+            // Capture for the step that just finished — keep it frozen until the next one.
             setBrowserFrame(frame)
+            setRunningActionLabel(null)
           },
           onEvent: (event) => {
             if (runIdRef.current !== runId) return
             if (event.type === 'step_start') {
               const absolute = startIndex + event.index
-              // Drop the previous step's screenshot so the panel never lags behind
-              // the step currently running (common after re-runs / agent fixes).
-              setBrowserFrame({
-                url: 'about:blank',
-                title: event.label,
-                highlight: event.label,
-              })
+              // Keep the previous screenshot frozen; only update chrome + overlay label.
+              setRunningActionLabel(event.label)
+              setBrowserFrame((prev) =>
+                prev
+                  ? { ...prev, title: event.label, highlight: event.label }
+                  : {
+                      url: 'about:blank',
+                      title: event.label,
+                      highlight: event.label,
+                    },
+              )
               setStages((prev) => {
                 let flat = flattenActions(prev)
                 if (flat.length === 0) {
@@ -724,6 +732,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
             }
             if (event.type === 'step_failed') {
               const absolute = startIndex + event.index
+              setRunningActionLabel(null)
               recordLastRunStep({
                 stepId: event.id,
                 index: absolute,
@@ -831,13 +840,23 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
           )
           return stagesFromFlat(prev, next, locale)
         })
-        setBrowserFrame(journey.browserFrames[i] ?? null)
+        setRunningActionLabel(template.label)
+        setBrowserFrame((prev) => {
+          const next = journey.browserFrames[i] ?? null
+          if (!next) return prev
+          // Keep prior screenshot frozen when the mock frame has none.
+          if (!next.screenshotDataUrl && prev?.screenshotDataUrl) {
+            return { ...next, screenshotDataUrl: prev.screenshotDataUrl }
+          }
+          return next
+        })
         const stepStartedAt = Date.now()
 
         await delay(STEP_DELAY)
         if (runIdRef.current !== runId) return null
 
         const frame = journey.browserFrames[i]
+        setRunningActionLabel(null)
         recordLastRunStep({
           stepId: template.id,
           index: i,
@@ -880,6 +899,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
     // Preserve stage structure from the template (1 action = 1 stage by default).
     setStages(hydrateStages(journey))
     setBrowserFrame(null)
+    setRunningActionLabel(null)
     beginLastRunCapture('playwright')
 
     // Discovery already carried the conversation — don't re-inject the prompt as a new user turn.
@@ -949,6 +969,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
 
     commitLastRun()
     setIsRunning(false)
+    setRunningActionLabel(null)
     setIsComplete(true)
     setEditMode(false)
     setFixActionsResolved(false)
@@ -988,6 +1009,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
       hidePanel('monitoring')
       setIsRunning(true)
       setBrowserFrame(null)
+      setRunningActionLabel(null)
       setFixActionsResolved(true)
       beginLastRunCapture('playwright', startIndex)
 
@@ -1027,7 +1049,15 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
             )
             return stagesFromFlat(prev, flat, locale)
           })
-          setBrowserFrame(getBrowserFrameForStep(step, i))
+          setRunningActionLabel(step.label)
+          setBrowserFrame((prev) => {
+            const next = getBrowserFrameForStep(step, i)
+            if (!next) return prev
+            if (!next.screenshotDataUrl && prev?.screenshotDataUrl) {
+              return { ...next, screenshotDataUrl: prev.screenshotDataUrl }
+            }
+            return next
+          })
           const stepStartedAt = Date.now()
           await delay(STEP_DELAY)
           if (runIdRef.current !== runId) {
@@ -1036,6 +1066,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
             return
           }
           const frame = getBrowserFrameForStep(step, i)
+          setRunningActionLabel(null)
           recordLastRunStep({
             stepId: step.id,
             index: i,
@@ -1084,6 +1115,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
       isRunningRef.current = false
       commitLastRun()
       setIsRunning(false)
+      setRunningActionLabel(null)
       setEditMode(false)
       setFixActionsResolved(!failedStep)
       openPanel('monitoring')
@@ -1113,6 +1145,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
     setIsRunning(true)
     setFixActionsResolved(false)
     setBrowserFrame(null)
+    setRunningActionLabel(null)
     beginLastRunCapture('playwright')
 
     setMessages((prev) => [
@@ -1138,6 +1171,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
 
     commitLastRun()
     setIsRunning(false)
+    setRunningActionLabel(null)
     setEditMode(false)
     openPanel('monitoring')
     setMessages((prev) => applyPostRunMessages(prev, journey, failedStep, { locale }))
@@ -1413,6 +1447,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
           <BrowserPanel
             frame={browserFrame}
             isRunning={isRunning}
+            runningActionLabel={runningActionLabel}
             embedded
             startUrl={recordingStartUrl}
             onApplyRecording={handleApplyRecording}
@@ -1574,6 +1609,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
             <BrowserPanel
               frame={browserFrame}
               isRunning={isRunning}
+              runningActionLabel={runningActionLabel}
               embedded
               startUrl={recordingStartUrl}
               onApplyRecording={handleApplyRecording}
