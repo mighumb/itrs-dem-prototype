@@ -62,17 +62,17 @@ export default function MonitoringColumn({
   }
 
   const footer = isUnsaved ? (
-    <div className="shrink-0 border-t border-amber-200/70 bg-amber-50 px-3 py-3 dark:border-amber-900/40 dark:bg-amber-950/40">
-      <p className="mb-2 text-[11px] leading-snug text-amber-900 dark:text-amber-100">
-        {t('signUpToUnlockMonitoringBanner')}
+    <div className="shrink-0 border-t border-amber-200/60 bg-amber-50 px-3 py-2.5 dark:border-amber-900/40 dark:bg-amber-950/40">
+      <p className="text-[11px] leading-snug text-amber-900 dark:text-amber-100">
+        <button
+          type="button"
+          onClick={onSave}
+          className="cursor-pointer font-medium text-[#0071e3] hover:underline"
+        >
+          {t('signUpLink')}
+        </button>{' '}
+        {t('signUpToUnlockMonitoring')}
       </p>
-      <button
-        type="button"
-        onClick={onSave}
-        className="w-full cursor-pointer rounded-lg bg-[#0071e3] px-3 py-2 text-xs font-semibold text-white transition hover:bg-[#0077ed]"
-      >
-        {t('createAccountStartMonitoring')}
-      </button>
     </div>
   ) : (
     <div className="flex shrink-0 items-start gap-2 border-t border-emerald-200/60 bg-emerald-50 px-3 py-2.5 text-[11px] text-emerald-800 dark:border-emerald-900/40 dark:bg-emerald-950/40 dark:text-emerald-200">
