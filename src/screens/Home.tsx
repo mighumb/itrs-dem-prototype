@@ -8,8 +8,10 @@ import { useLocale } from '../context/LocaleContext'
 import { HOME_ROTATING_TARGETS } from '../i18n/messages'
 import {
   answersIncludeSiteDecline,
+  looksLikeSiteConfirmation,
   looksLikeSiteDecline,
   requestDiscoveryAi,
+  summarizeStatedJourneyIntent,
   type DiscoveryAiResult,
 } from '../lib/discoveryAi'
 import type { JourneyLaunchSession } from '../lib/journeyLaunch'
@@ -653,6 +655,14 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
         ? { ...ctx, url: null, pageSnapshot: null, seed: '', answers: {} }
         : null
       setSiteConfirmPending(false)
+      setCtx(chatCtx)
+    } else if (
+      chatCtx &&
+      summarizeStatedJourneyIntent(text) &&
+      !looksLikeSiteConfirmation(text)
+    ) {
+      // User revised the journey in chat — refresh seed so later proposes follow the new ask.
+      chatCtx = { ...chatCtx, seed: text.trim() }
       setCtx(chatCtx)
     }
 

@@ -110,17 +110,20 @@ function buildUserPrompt(
   const confirmFirst = shouldConfirmBeforeExplore(body, target)
   const base = body.context ?? {}
   const seed = typeof base.seed === 'string' ? base.seed.trim() : ''
-  const statedJourneyIntent =
-    summarizeStatedJourneyIntent(seed) ??
-    summarizeStatedJourneyIntent(body.userMessage)
+  // Latest user turn wins when they revise the journey; seed is the default otherwise.
+  const fromLatest = summarizeStatedJourneyIntent(body.userMessage)
+  const fromSeed = summarizeStatedJourneyIntent(seed)
+  const statedJourneyIntent = fromLatest ?? fromSeed
+  const intentSource = fromLatest ? 'latest' : fromSeed ? 'seed' : null
 
   const context = attachSite
     ? {
         ...base,
         preferredLanguage,
         seed: seed || base.seed || null,
-        /** Original ask — proposals MUST honor this when set (not generic templates). */
+        /** Original/latest journey ask — proposals MUST honor this when set. */
         statedJourneyIntent,
+        statedJourneyIntentSource: intentSource,
         url: analysis?.url ?? target?.url ?? base.url ?? null,
         pageSnapshot: confirmFirst
           ? null
@@ -169,8 +172,10 @@ function buildUserPrompt(
         siteConfirmation: { needed: false },
       }
 
-  // After a bare "oui", keep the original journey ask visible to the model.
+  // After a bare "oui", keep the seed journey ask visible; if they revised in this
+  // message, statedJourneyIntent already comes from the latest turn.
   const userMessage =
+    !fromLatest &&
     statedJourneyIntent &&
     looksLikeSiteConfirmation(body.userMessage) &&
     !confirmFirst
