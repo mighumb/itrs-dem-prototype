@@ -139,7 +139,7 @@ export default function JourneyTimeline({
           <button
             type="button"
             onClick={() => {
-              const stage = createEmptyStage(t('newStage'))
+              const stage = createEmptyStage(tf('stageN', { n: 1 }))
               onStagesChange?.([stage])
               setSelectedStageId(stage.id)
             }}
@@ -169,7 +169,7 @@ export default function JourneyTimeline({
 
   const addStage = () => {
     if (!onStagesChange) return
-    const stage = createEmptyStage(t('newStage'))
+    const stage = createEmptyStage(tf('stageN', { n: stages.length + 1 }))
     onStagesChange([...stages, stage])
     setSelectedStageId(stage.id)
     setSelectedActionId(null)
@@ -492,7 +492,7 @@ export default function JourneyTimeline({
                     <ChevronDown size={14} className="shrink-0 text-zinc-400" />
                   )}
                   <div className="min-w-0 flex-1">
-                    <span className="block truncate text-xs font-semibold text-zinc-900 dark:text-zinc-100">
+                    <span className="block truncate text-[11px] font-medium text-zinc-500 dark:text-zinc-400">
                       {stage.title}
                     </span>
                     <p className="mt-0.5 text-[10px] text-zinc-400">
@@ -633,19 +633,11 @@ export default function JourneyTimeline({
                                 <span className="block truncate text-xs font-medium text-zinc-900 dark:text-zinc-100">
                                   {action.label}
                                 </span>
-                                <p className="mt-0.5 truncate text-[10px] text-zinc-400">
-                                  {t(
-                                    action.action === 'Navigate'
-                                      ? 'actionNavigate'
-                                      : action.action === 'Click'
-                                        ? 'actionClick'
-                                        : action.action === 'Type'
-                                          ? 'actionType'
-                                          : 'actionVerify',
-                                  )}
-                                  {action.duration && isDone && !canEdit ? ` · ${action.duration}` : ''}
-                                  {isRunning ? ` · ${t('running')}` : ''}
-                                </p>
+                                {(isRunning || (action.duration && isDone && !canEdit)) && (
+                                  <p className="mt-0.5 truncate text-[10px] text-zinc-400">
+                                    {isRunning ? t('running') : action.duration}
+                                  </p>
+                                )}
                               </div>
                               {canEdit && isChecked && (
                                 <button
