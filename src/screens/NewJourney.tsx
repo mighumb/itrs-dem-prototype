@@ -36,13 +36,14 @@ import {
   buildJourneyFromDiscovery,
   buildJourneyFromPrompt,
   extractUrlFromText,
+  formatJourneyTitle,
   runFallbackMessage,
   runLiveOkMessage,
   runStartMessage,
   runStoppedMessage,
   type JourneyLaunchSession,
 } from '../lib/journeyLaunch'
-import { recordedStepsToJourneySteps, recordingTitle } from '../lib/recordedSteps'
+import { recordedStepsToJourneySteps, recordingSiteUrl, recordingTitle } from '../lib/recordedSteps'
 import { useLocale } from '../context/LocaleContext'
 import { runLiveJourney } from '../lib/journeyRunAi'
 import { upsertLastRunStep } from '../lib/runMonitoring'
@@ -286,12 +287,33 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
     )
   }, [locale, journey, steps])
 
+  const siteUrlForTitle = useMemo(() => {
+    const fromSteps = steps.find((s) => s.href?.startsWith('http'))?.href
+      ?? steps.find((s) => s.target?.startsWith('http'))?.target
+      ?? null
+    const fromFrame =
+      browserFrame?.url && browserFrame.url !== 'about:blank' ? browserFrame.url : null
+    return (
+      session.siteUrl ||
+      extractUrlFromText(session.prompt) ||
+      extractUrlFromText(initialPrompt) ||
+      fromSteps ||
+      fromFrame ||
+      null
+    )
+  }, [session.siteUrl, session.prompt, initialPrompt, steps, browserFrame?.url])
+
+  const displayJourneyTitle = useMemo(
+    () => formatJourneyTitle(journeyName, siteUrlForTitle, locale),
+    [journeyName, siteUrlForTitle, locale],
+  )
+
   useEffect(() => {
     onHeaderChange?.({
-      title: isComplete ? journeyName : t('newJourney'),
+      title: isComplete || isRunning ? displayJourneyTitle : t('newJourney'),
       subtitle: isRunning ? t('running') : isComplete ? undefined : t('starting'),
     })
-  }, [isComplete, isRunning, journeyName, onHeaderChange, t])
+  }, [isComplete, isRunning, displayJourneyTitle, onHeaderChange, t])
 
   const {
     order: panelOrder,
@@ -414,7 +436,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
 
       const title = recordingTitle(recorded, journeyName)
       const last = [...recorded].reverse().find((s) => s.url || s.href)
-      const lastUrl = last?.href || last?.url || null
+      const lastUrl = last?.href || last?.url || recordingSiteUrl(recorded) || null
 
       setJourneyName(title)
       setSteps(nextSteps)
@@ -435,7 +457,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
       }
 
       onHeaderChange?.({
-        title,
+        title: formatJourneyTitle(title, lastUrl, locale),
         subtitle: tf('extensionStepCount', { count: nextSteps.length }),
       })
 
@@ -1200,7 +1222,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
           if (ai.plan.title) {
             setJourneyName(ai.plan.title)
             onHeaderChange?.({
-              title: ai.plan.title,
+              title: formatJourneyTitle(ai.plan.title, seedUrl, locale),
               subtitle: isRunning ? t('running') : ai.plan.summary,
             })
           }
@@ -1251,7 +1273,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
     <MonitoringColumn
       embedded
       isUnsaved={!isMonitored}
-      journeyName={journeyName}
+      journeyName={displayJourneyTitle}
       lastRun={lastRun}
       onClose={panelClose('monitoring')}
       onSave={onSave}
