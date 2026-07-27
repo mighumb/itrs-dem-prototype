@@ -23,7 +23,7 @@ const BRAND_RESOLVE_TIMEOUT_MS = 12_000
 function shouldTryBrandResolve(text: string): boolean {
   const t = text.trim()
   if (!t || t.length < 2) return false
-  // Pure social / ping (incl. « Bonne nuit ») — never burn a brand Search call
+  // Ultra-short social / ping — never burn a brand Search call
   if (looksLikeSocialChat(t)) return false
   // Pure greetings / ultra-short asks — don't burn a search call
   if (

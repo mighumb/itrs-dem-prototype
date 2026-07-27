@@ -19,7 +19,6 @@ import {
   looksLikeAmbiguousBrandName,
   looksLikeSiteConfirmation,
   looksLikeSiteDecline,
-  looksLikeSocialChat,
   messageRequestsSiteWork,
 } from './_lib/discoverySiteIntent.js'
 import {
@@ -505,19 +504,15 @@ function buildResultPayload(
   confirmFirst: boolean,
 ) {
   const declined = isSiteCandidateDeclined(body)
-  const socialOnly = looksLikeSocialChat(body.userMessage)
-  // Hard gates: never ship journey proposals while confirming, after a decline,
-  // or on pure social ping (e.g. « Bonne nuit » must not become a brand journey form).
+  // Hard gates: never ship journey proposals while confirming the site, or after the
+  // user declined the candidate (e.g. « c'était juste un souhait »).
   const proposals =
-    confirmFirst || declined || socialOnly || !Array.isArray(parsed.proposals)
-      ? null
-      : parsed.proposals
-  const questions =
-    declined || socialOnly
-      ? null
-      : Array.isArray(parsed.questions)
-        ? parsed.questions
-        : null
+    confirmFirst || declined || !Array.isArray(parsed.proposals) ? null : parsed.proposals
+  const questions = declined
+    ? null
+    : Array.isArray(parsed.questions)
+      ? parsed.questions
+      : null
   const lang = body.preferredLanguage ?? body.context?.preferredLanguage ?? 'en'
   const fr = lang === 'fr'
   const rawFormTitle =

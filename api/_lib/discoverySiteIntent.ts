@@ -4,15 +4,16 @@
  * Keep this file free of Node-only or browser-only APIs.
  */
 
+/** Ultra-short social / ping only — multi-word phrases like « Bonne nuit » may still be brand candidates. */
 const SOCIAL_CHAT_RE =
-  /^(hi|hello|hey|yo|bonjour|bonsoir|salut|coucou|bonne\s+nuit|bonnes?\s+nuits?|good\s+night|good\s+morning|good\s+afternoon|good\s+evening|hello\s+there|hey\s+there|à\s+bientôt|a\s+bientot|bye|goodbye|ciao|merci|thanks|thank\s+you|ok|oui|non|ping|test|essai|aide|help)([.!?…\s]*)$/i
+  /^(hi|hello|hey|yo|bonjour|bonsoir|salut|coucou|hello\s+there|hey\s+there|à\s+bientôt|a\s+bientot|bye|goodbye|ciao|merci|thanks|thank\s+you|ok|oui|non|ping|test|essai|aide|help)([.!?…\s]*)$/i
 
 const ACRONYM_NOISE_RE =
   /^(OK|KO|LOL|MDR|WTF|FYI|ASAP|PDF|FAQ|IMO|BTW|IDK)$/i
 
 /** Intent / confirm tokens that must never be treated as a brand name. */
 const BRAND_BLOCKLIST_RE =
-  /^(parcours|journey|journeys|site|sites|idées|ideas|aide|help|test|essai|chat|monitoring|surveillance|ok|oui|non|parfait|nickel|go|sure|exact|okay|merci|thanks|ping|nuit|night|matin|morning|soir|evening)$/i
+  /^(parcours|journey|journeys|site|sites|idées|ideas|aide|help|test|essai|chat|monitoring|surveillance|ok|oui|non|parfait|nickel|go|sure|exact|okay|merci|thanks|ping)$/i
 
 const INTENT_ONLY_RE =
   /^(je\s+veux|j['’]aimerais|i\s+want|i['’]d\s+like|un\s+parcours|des\s+idées|des\s+parcours|construisons(?:\s+un\s+parcours)?|test\s+chat|aide[- ]moi|help\s+me|un\s+site|montre[- ]moi|des\s+idées)$/i
@@ -81,6 +82,15 @@ export function looksLikeSiteDecline(text: string): boolean {
   if (
     /^(non|no|nan)\b/i.test(t) &&
     /\b(juste|just|souhait|greeting|salut|bonjour|bonsoir|bonne\s+nuit|good\s+night|pas\s+(?:ça|ce\s+site|celui)|wrong|autre|not\b|c['’]était|cetait)\b/i.test(
+      t,
+    )
+  ) {
+    return true
+  }
+  // Clarification that the prior turn was only a greeting/wish — not a site to monitor.
+  // Must match without requiring a leading "non" (e.g. « c'était juste un souhait »).
+  if (
+    /\b(?:juste\s+(?:un\s+)?souhait|c['’]?était\s+juste|cetait\s+juste|just\s+(?:a\s+)?(?:wish|greeting)|je\s+(?:te|vous)\s+souhait|only\s+(?:a\s+)?(?:greeting|wish)|pas\s+une\s+marque)\b/i.test(
       t,
     )
   ) {
