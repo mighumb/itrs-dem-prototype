@@ -12,7 +12,8 @@ export type HomeJourneyExample = {
   id: 'salesforce' | 'axa' | 'amazon' | 'airbnb'
   company: string
   logoSrc: string
-  url: string
+  /** Market homepage used as context.url for the sample (locale-aware). */
+  url: { en: string; fr: string }
   journeyTitle: { en: string; fr: string }
   /** Seed passed to Gemini (site + journey intent; params collected only if needed). */
   seed: { en: string; fr: string }
@@ -29,21 +30,27 @@ export const HOME_JOURNEY_EXAMPLES: readonly HomeJourneyExample[] = [
     id: 'salesforce',
     company: 'Salesforce',
     logoSrc: '/logos/salesforce.svg',
-    url: 'https://www.salesforce.com',
+    url: {
+      en: 'https://www.salesforce.com',
+      fr: 'https://www.salesforce.com/fr/',
+    },
     journeyTitle: {
       en: 'Start a free trial',
       fr: 'Démarrer un essai gratuit',
     },
     seed: {
       en: `Monitor https://www.salesforce.com — journey: prove a real free-trial funnel. Required actions: Navigate homepage → Click "See all products" or "Agentforce" → Click "See full pricing" → Click "Start for free" → Type the user-provided work email on the trial form → final Verify the email field/next state reflects the input. Ask for a work email before building the plan — do not invent one. Stop before password / Sales Cloud login. ${SAMPLE_ACTION_RULES_EN}`,
-      fr: `Monitorer https://www.salesforce.com — parcours : prouver un vrai funnel d’essai gratuit. Actions requises : Navigate accueil → Click « See all products » ou « Agentforce » → Click « See full pricing » → Click « Start for free » → Type l’e-mail pro fourni par l’utilisateur sur le formulaire d’essai → Verify final que le champ/état suivant reflète la saisie. Demander l’e-mail pro avant le plan — ne pas l’inventer. S’arrêter avant mot de passe / login Sales Cloud. ${SAMPLE_ACTION_RULES_FR}`,
+      fr: `Monitorer https://www.salesforce.com/fr/ — parcours : prouver un vrai funnel d’essai gratuit. Actions requises : Navigate accueil → Click « See all products » ou « Agentforce » → Click « See full pricing » → Click « Start for free » → Type l’e-mail pro fourni par l’utilisateur sur le formulaire d’essai → Verify final que le champ/état suivant reflète la saisie. Demander l’e-mail pro avant le plan — ne pas l’inventer. S’arrêter avant mot de passe / login Sales Cloud. ${SAMPLE_ACTION_RULES_FR}`,
     },
   },
   {
     id: 'axa',
     company: 'AXA',
     logoSrc: '/logos/axa.svg',
-    url: 'https://www.axa.fr',
+    url: {
+      en: 'https://www.axa.fr',
+      fr: 'https://www.axa.fr',
+    },
     journeyTitle: {
       en: 'Get a car insurance quote',
       fr: 'Obtenir un devis assurance auto',
@@ -57,28 +64,34 @@ export const HOME_JOURNEY_EXAMPLES: readonly HomeJourneyExample[] = [
     id: 'amazon',
     company: 'Amazon',
     logoSrc: '/logos/amazon.svg',
-    url: 'https://www.amazon.com',
+    url: {
+      en: 'https://www.amazon.com',
+      fr: 'https://www.amazon.fr',
+    },
     journeyTitle: {
       en: 'Search and add a product to cart',
       fr: 'Rechercher et ajouter un produit au panier',
     },
     seed: {
       en: `Monitor https://www.amazon.com — journey: ecommerce add-to-cart with real actions. Required actions: Navigate homepage → Type a user-provided search query → Click/submit search → Click a product result → Click "Add to cart" → final Verify the cart reflects the added item (cart count or cart page). Ask for the search query before building the plan — do not invent a SKU. Stop before checkout/payment/login. ${SAMPLE_ACTION_RULES_EN}`,
-      fr: `Monitorer https://www.amazon.com — parcours : e-commerce ajout panier avec de vraies actions. Actions requises : Navigate accueil → Type une requête de recherche fournie par l’utilisateur → Click/submit recherche → Click un produit dans les résultats → Click « Add to cart » → Verify final que le panier reflète l’ajout (compteur ou page panier). Demander la requête de recherche avant le plan — ne pas inventer de SKU. S’arrêter avant checkout/paiement/login. ${SAMPLE_ACTION_RULES_FR}`,
+      fr: `Monitorer https://www.amazon.fr — parcours : e-commerce ajout panier avec de vraies actions. Actions requises : Navigate accueil → Type une requête de recherche fournie par l’utilisateur → Click/submit recherche → Click un produit dans les résultats → Click « Ajouter au panier » → Verify final que le panier reflète l’ajout (compteur ou page panier). Demander la requête de recherche avant le plan — ne pas inventer de SKU. S’arrêter avant checkout/paiement/login. ${SAMPLE_ACTION_RULES_FR}`,
     },
   },
   {
     id: 'airbnb',
     company: 'Airbnb',
     logoSrc: '/logos/airbnb.svg',
-    url: 'https://www.airbnb.com',
+    url: {
+      en: 'https://www.airbnb.com',
+      fr: 'https://www.airbnb.fr',
+    },
     journeyTitle: {
       en: 'Search for a stay',
       fr: 'Rechercher un séjour',
     },
     seed: {
       en: `Monitor https://www.airbnb.com — journey: stay search with real search actions. Required actions: Navigate homepage → Type a user-provided destination → Click/set dates if the UI requires it (suggested defaults only if user delegates) → Click guests if needed → Click "Search" → final Verify homes/results are listed. Ask for the destination before building the plan. ${SAMPLE_ACTION_RULES_EN}`,
-      fr: `Monitorer https://www.airbnb.com — parcours : recherche de séjour avec de vraies actions. Actions requises : Navigate accueil → Type une destination fournie par l’utilisateur → Click/renseigner les dates si l’UI l’exige (defaults suggérés seulement si délégation) → Click voyageurs si besoin → Click « Search » → Verify final que des logements/résultats s’affichent. Demander la destination avant le plan. ${SAMPLE_ACTION_RULES_FR}`,
+      fr: `Monitorer https://www.airbnb.fr — parcours : recherche de séjour avec de vraies actions. Actions requises : Navigate accueil → Type une destination fournie par l’utilisateur → Click/renseigner les dates si l’UI l’exige (defaults suggérés seulement si délégation) → Click voyageurs si besoin → Click « Rechercher » → Verify final que des logements/résultats s’affichent. Demander la destination avant le plan. ${SAMPLE_ACTION_RULES_FR}`,
     },
   },
 ] as const

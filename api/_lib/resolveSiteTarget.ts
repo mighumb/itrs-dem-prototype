@@ -146,9 +146,13 @@ function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T
 /** Prefer market-matching TLDs when ranking brand-resolve candidates. */
 function localeUrlScore(url: string, preferredLanguage?: 'en' | 'fr' | null): number {
   try {
-    const host = new URL(url).hostname.toLowerCase()
+    const parsed = new URL(url)
+    const host = parsed.hostname.toLowerCase()
+    const path = parsed.pathname.toLowerCase()
     if (preferredLanguage === 'fr') {
       if (host.endsWith('.fr')) return 100
+      if (host.startsWith('fr.') || /(^|\.)fr\./.test(host)) return 95
+      if (/^\/fr(\/|$)/.test(path) || path.includes('/fr-fr')) return 90
       if (host.endsWith('.be') || host.endsWith('.ch') || host.endsWith('.ca')) return 70
       if (host.endsWith('.us') || /(^|\.)us\./.test(host)) return 5
       if (host.endsWith('.com')) return 40
@@ -308,6 +312,20 @@ async function pickBestBrandUrl(options: {
         note: `Resolved brand/name to ${finalUrl}`,
       }
     }
+
+    // Prefer the market TLD even when the probe is incomplete (bot walls, etc.)
+    // rather than falling through to a foreign .com that happens to answer.
+    if (
+      preferredLanguage === 'fr' &&
+      localeUrlScore(candidate.url, 'fr') >= 90 &&
+      brandHostScore(candidate.url, brandTokens) > 0
+    ) {
+      return {
+        url: candidate.url,
+        label: candidate.title ?? labelHint,
+        note: `Resolved brand/name to ${candidate.url} (FR market preferred; page probe incomplete)`,
+      }
+    }
   }
 
   const fallback = brandMatched.find((c) => !isJunkResolvedHost(c.url)) ?? null
@@ -341,7 +359,7 @@ async function resolveBrandWithGemini(
 
   const localeHint =
     preferredLanguage === 'fr'
-      ? 'User language/market is French — prefer the official .fr (or FR/BE/CH) consumer site when it exists (e.g. asos.fr / fr.asos.com over a random unrelated .fr).'
+      ? 'User language/market is French — MUST prefer the official French consumer site when it exists: .fr first, else fr.{brand}.com or {brand}.com/fr/ (e.g. amazon.fr, airbnb.fr, asos.fr, fr.asos.com). Do NOT default to the US/global .com if a FR market homepage exists.'
       : preferredLanguage === 'en'
         ? 'User language is English — prefer the primary consumer site for English-speaking markets when ambiguous.'
         : 'Prefer the primary official consumer homepage for the brand.'
