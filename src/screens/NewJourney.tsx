@@ -1,7 +1,9 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type DragEvent } from 'react'
 import { ArrowUp, Pencil, Play, Square } from 'lucide-react'
 import BrowserPanel from '../components/BrowserPanel'
-import CollapsedWorkspacePanel from '../components/CollapsedWorkspacePanel'
+import CollapsedWorkspacePanel, {
+  type CollapsedPanelStatus,
+} from '../components/CollapsedWorkspacePanel'
 import { DetachedPanelsLayer, type DetachablePanelId } from '../components/DetachedPanelWindow'
 import { AgentMessage } from '../components/GlobalAgent'
 import AgentWorkStatus from '../components/AgentWorkStatus'
@@ -168,8 +170,8 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
     switch (id) {
       case 'agent':
         return t('panelAgent')
-      case 'steps':
-        return t('panelSteps')
+      case 'journey':
+        return t('panelJourney')
       case 'browser':
         return t('panelBrowser')
       case 'monitoring':
@@ -200,6 +202,8 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
   /** Label of the action currently executing — drives the Browser overlay. */
   const [runningActionLabel, setRunningActionLabel] = useState<string | null>(null)
   const [isRunning, setIsRunning] = useState(false)
+  /** Status shown on the reduced journey bandeau only. */
+  const [journeyRunStatus, setJourneyRunStatus] = useState<CollapsedPanelStatus>(null)
   const [isComplete, setIsComplete] = useState(false)
 
   const [scheduleResolved, setScheduleResolved] = useState(false)
@@ -461,12 +465,28 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
     setEditMode((on) => !on)
   }
 
+  /** Collapse User journey into the reduced bandeau strip for the duration of a run. */
+  const dockJourneyForRun = useCallback(() => {
+    setJourneyRunStatus('running')
+    setOpenPanels((prev) => {
+      const next = new Set(prev)
+      next.delete('journey')
+      return next
+    })
+    setUserClosedPanels((prev) => new Set(prev).add('journey'))
+  }, [])
+
+  const finishJourneyRunStatus = useCallback((ok: boolean) => {
+    setJourneyRunStatus(ok ? 'ok' : 'failed')
+  }, [])
+
   const stopRun = useCallback(() => {
     runIdRef.current += 1
     runAbortRef.current?.abort()
     runAbortRef.current = null
     setIsRunning(false)
     setRunningActionLabel(null)
+    finishJourneyRunStatus(false)
     setStages((prev) =>
       mapActions(prev, (s) =>
         s.status === 'running' ? { ...s, status: 'pending' as const } : s,
@@ -480,7 +500,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
         content: runStoppedMessage(locale),
       },
     ])
-  }, [locale])
+  }, [finishJourneyRunStatus, locale])
 
   const handleApplyRecording = useCallback(
     (recorded: RecordedBrowserStep[]) => {
@@ -499,7 +519,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
       setFixActionsResolved(false)
       setScheduleResolved(false)
       setEditMode(false)
-      openPanel('steps')
+      openPanel('journey')
       openPanel('browser')
 
       if (lastUrl) {
@@ -894,6 +914,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
   const runSimulation = useCallback(async () => {
     const runId = ++runIdRef.current
     setIsRunning(true)
+    dockJourneyForRun()
     hidePanel('monitoring')
     setEditMode(false)
     // Preserve stage structure from the template (1 action = 1 stage by default).
@@ -970,6 +991,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
     commitLastRun()
     setIsRunning(false)
     setRunningActionLabel(null)
+    finishJourneyRunStatus(!failedStep)
     setIsComplete(true)
     setEditMode(false)
     setFixActionsResolved(false)
@@ -981,6 +1003,8 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
     locale,
     openPanel,
     hidePanel,
+    dockJourneyForRun,
+    finishJourneyRunStatus,
     runStepsWithPlaywright,
     runSimulatedSteps,
     session.messages.length,
@@ -1008,6 +1032,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
       setEditMode(false)
       hidePanel('monitoring')
       setIsRunning(true)
+      dockJourneyForRun()
       setBrowserFrame(null)
       setRunningActionLabel(null)
       setFixActionsResolved(true)
@@ -1116,6 +1141,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
       commitLastRun()
       setIsRunning(false)
       setRunningActionLabel(null)
+      finishJourneyRunStatus(!failedStep)
       setEditMode(false)
       setFixActionsResolved(!failedStep)
       openPanel('monitoring')
@@ -1126,6 +1152,8 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
       locale,
       openPanel,
       hidePanel,
+      dockJourneyForRun,
+      finishJourneyRunStatus,
       runStepsWithPlaywright,
       tf,
       beginLastRunCapture,
@@ -1143,6 +1171,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
     setEditMode(false)
     hidePanel('monitoring')
     setIsRunning(true)
+    dockJourneyForRun()
     setFixActionsResolved(false)
     setBrowserFrame(null)
     setRunningActionLabel(null)
@@ -1172,6 +1201,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
     commitLastRun()
     setIsRunning(false)
     setRunningActionLabel(null)
+    finishJourneyRunStatus(!failedStep)
     setEditMode(false)
     openPanel('monitoring')
     setMessages((prev) => applyPostRunMessages(prev, journey, failedStep, { locale }))
@@ -1182,6 +1212,8 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
     journey,
     openPanel,
     hidePanel,
+    dockJourneyForRun,
+    finishJourneyRunStatus,
     runStepsWithPlaywright,
     runSimulatedSteps,
     beginLastRunCapture,
@@ -1301,7 +1333,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
   const centerNarrowPanels = shouldCenterWorkspace(inlinePanels)
 
   const panelFlex = (id: WorkspacePanelId) =>
-    getPanelFlexClass(id, inlinePanels, { stepsEditMode: editMode })
+    getPanelFlexClass(id, inlinePanels, { journeyEditMode: editMode })
 
   const handleChatSubmit = useCallback(
     async (text: string) => {
@@ -1528,15 +1560,15 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
           </WorkspacePanel>
         )
 
-      case 'steps':
+      case 'journey':
         return (
           <WorkspacePanel
             key={id}
             id={id}
-            title={tf('panelStepsCount', { count: actionCount })}
+            title={tf('panelJourneyCount', { count: actionCount })}
             flexClass={panelFlex(id)}
             hiddenBelowMd
-            onClose={panelClose('steps')}
+            onClose={panelClose('journey')}
             {...dragProps}
           >
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -1642,7 +1674,10 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
             <CollapsedWorkspacePanel
               key={id}
               id={id}
-              title={id === 'steps' ? tf('panelStepsCount', { count: actionCount }) : panelLabel(id)}
+              title={
+                id === 'journey' ? tf('panelJourneyCount', { count: actionCount }) : panelLabel(id)
+              }
+              status={id === 'journey' ? journeyRunStatus : null}
               onRestore={() => openPanel(id)}
               {...panelDragProps(id)}
             />

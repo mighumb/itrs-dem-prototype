@@ -1,20 +1,20 @@
 import { useCallback, useState, type DragEvent } from 'react'
 
-export type WorkspacePanelId = 'agent' | 'steps' | 'browser' | 'monitoring'
+export type WorkspacePanelId = 'agent' | 'journey' | 'browser' | 'monitoring'
 
 /** @deprecated Prefer i18n panel* keys via useLocale().t */
 export const PANEL_LABELS: Record<WorkspacePanelId, string> = {
   agent: 'Agent',
-  steps: 'Steps',
+  journey: 'User journey',
   browser: 'Browser',
   monitoring: 'Monitoring',
 }
 
-export const ALL_PANEL_IDS: WorkspacePanelId[] = ['agent', 'steps', 'browser', 'monitoring']
+export const ALL_PANEL_IDS: WorkspacePanelId[] = ['agent', 'journey', 'browser', 'monitoring']
 
-export const DEFAULT_OPEN_PANELS: WorkspacePanelId[] = ['agent', 'steps', 'browser']
+export const DEFAULT_OPEN_PANELS: WorkspacePanelId[] = ['agent', 'journey', 'browser']
 
-const DEFAULT_ORDER: WorkspacePanelId[] = ['agent', 'steps', 'browser', 'monitoring']
+const DEFAULT_ORDER: WorkspacePanelId[] = ['agent', 'journey', 'browser', 'monitoring']
 
 function reorderPanels(
   order: WorkspacePanelId[],
@@ -27,7 +27,7 @@ function reorderPanels(
 
   const next = [...order]
   next.splice(from, 1)
-  next.splice(to, 0, sourceId)
+  next.splice(to, 0, targetId)
   return next
 }
 
@@ -85,7 +85,7 @@ export function usePanelOrder(initial: WorkspacePanelId[] = DEFAULT_ORDER) {
 }
 
 /** Panels that stay in a narrow, centered column when alone (chat / timeline). */
-export const NARROW_PANEL_IDS: WorkspacePanelId[] = ['agent', 'steps']
+export const NARROW_PANEL_IDS: WorkspacePanelId[] = ['agent', 'journey']
 
 const WIDE_PANEL_IDS: WorkspacePanelId[] = ['browser', 'monitoring']
 
@@ -100,7 +100,7 @@ function isNarrowPairOnly(visibleIds: WorkspacePanelId[]): boolean {
 export function getPanelFlexClass(
   id: WorkspacePanelId,
   visibleIds: WorkspacePanelId[],
-  options?: { stepsEditMode?: boolean },
+  options?: { journeyEditMode?: boolean },
 ): string {
   const centerSolo = shouldCenterWorkspace(visibleIds)
   const narrowPair = isNarrowPairOnly(visibleIds)
@@ -117,18 +117,18 @@ export function getPanelFlexClass(
       }
       return 'min-w-[280px] max-w-[400px] shrink-0 flex-[0_1_400px]'
 
-    case 'steps':
+    case 'journey':
       if (centerSolo && alone) {
-        return options?.stepsEditMode
+        return options?.journeyEditMode
           ? 'w-full min-w-[360px] max-w-[720px] shrink-0'
           : 'w-full min-w-[360px] max-w-[640px] shrink-0'
       }
       if (narrowPair) {
-        return options?.stepsEditMode
+        return options?.journeyEditMode
           ? 'min-w-[220px] flex-[1.25_1_280px] min-w-0 flex-1'
           : 'min-w-[220px] flex-[0.85_1_360px] min-w-0 flex-1'
       }
-      return options?.stepsEditMode
+      return options?.journeyEditMode
         ? 'min-w-[220px] max-w-[400px] shrink-0 flex-[0_1_400px]'
         : 'min-w-[220px] max-w-[360px] shrink-0 flex-[0_1_360px]'
 
