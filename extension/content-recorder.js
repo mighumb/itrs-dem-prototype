@@ -73,8 +73,13 @@
     bannerEl = document.createElement('div')
     bannerEl.id = 'itrs-dem-rec-banner'
     bannerEl.setAttribute('data-itrs-dem', 'rec-banner')
-    bannerEl.innerHTML =
-      '<span class="itrs-dem-rec-dot"></span><strong>ITRS DEM</strong> · Enregistrement en cours — naviguez normalement sur ce site'
+    bannerEl.innerHTML = `
+      <span class="itrs-dem-rec-dot" aria-hidden="true"></span>
+      <span class="itrs-dem-rec-text"><strong>ITRS DEM</strong> · Enregistrement en cours</span>
+      <button type="button" class="itrs-dem-rec-stop" id="itrs-dem-rec-stop">
+        Arrêter et importer
+      </button>
+    `
     const style = document.createElement('style')
     style.textContent = `
       #itrs-dem-rec-banner {
@@ -85,28 +90,68 @@
         z-index: 2147483647 !important;
         display: flex !important;
         align-items: center !important;
-        gap: 8px !important;
-        padding: 10px 14px !important;
+        gap: 10px !important;
+        padding: 8px 12px !important;
         background: #b91c1c !important;
         color: #fff !important;
         font: 600 13px/1.3 system-ui, -apple-system, sans-serif !important;
         box-shadow: 0 2px 12px rgba(0,0,0,.25) !important;
+        pointer-events: auto !important;
+        box-sizing: border-box !important;
+      }
+      #itrs-dem-rec-banner .itrs-dem-rec-text {
+        flex: 1 1 auto !important;
+        min-width: 0 !important;
         pointer-events: none !important;
       }
       #itrs-dem-rec-banner .itrs-dem-rec-dot {
-        width: 8px; height: 8px; border-radius: 99px;
+        width: 8px; height: 8px; border-radius: 99px; flex-shrink: 0;
         background: #fff; box-shadow: 0 0 0 0 rgba(255,255,255,.7);
         animation: itrs-dem-pulse 1.2s ease-out infinite;
+        pointer-events: none !important;
+      }
+      #itrs-dem-rec-banner .itrs-dem-rec-stop {
+        flex-shrink: 0 !important;
+        margin-left: auto !important;
+        cursor: pointer !important;
+        border: 0 !important;
+        border-radius: 8px !important;
+        padding: 7px 12px !important;
+        background: #fff !important;
+        color: #b91c1c !important;
+        font: 650 12px/1.2 system-ui, -apple-system, sans-serif !important;
+        box-shadow: 0 1px 2px rgba(0,0,0,.12) !important;
+      }
+      #itrs-dem-rec-banner .itrs-dem-rec-stop:hover {
+        background: #fef2f2 !important;
+      }
+      #itrs-dem-rec-banner .itrs-dem-rec-stop:disabled {
+        opacity: 0.7 !important;
+        cursor: wait !important;
       }
       @keyframes itrs-dem-pulse {
         0% { box-shadow: 0 0 0 0 rgba(255,255,255,.65); }
         70% { box-shadow: 0 0 0 8px rgba(255,255,255,0); }
         100% { box-shadow: 0 0 0 0 rgba(255,255,255,0); }
       }
-      html.itrs-dem-recording { scroll-padding-top: 44px !important; }
-      body.itrs-dem-recording { padding-top: 44px !important; }
+      html.itrs-dem-recording { scroll-padding-top: 48px !important; }
+      body.itrs-dem-recording { padding-top: 48px !important; }
     `
     bannerEl.prepend(style)
+    const stopBtn = bannerEl.querySelector('#itrs-dem-rec-stop')
+    if (stopBtn instanceof HTMLButtonElement) {
+      stopBtn.addEventListener('click', (event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        if (stopBtn.disabled) return
+        stopBtn.disabled = true
+        stopBtn.textContent = 'Import…'
+        chrome.runtime.sendMessage({ type: 'stop_and_import' }, () => {
+          void chrome.runtime.lastError
+          // Banner will disappear when recording flag clears.
+        })
+      })
+    }
     document.documentElement.classList.add('itrs-dem-recording')
     document.body?.classList.add('itrs-dem-recording')
     ;(document.body || document.documentElement).appendChild(bannerEl)

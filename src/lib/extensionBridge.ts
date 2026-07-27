@@ -148,3 +148,22 @@ export async function reopenRecordingTab(): Promise<boolean> {
   const res = await requestExtension('reopen_recording_tab', { timeoutMs: 2500 })
   return Boolean(res.ok)
 }
+
+/** Listen for Stop & import from the Chrome recording-tab banner. */
+export function subscribeImportRecording(
+  onImport: (steps: RecordedBrowserStep[]) => void,
+): () => void {
+  if (!isBrowser()) return () => undefined
+
+  const onMessage = (event: MessageEvent) => {
+    if (event.source !== window) return
+    const data = event.data as Record<string, unknown> | null
+    if (!data || data.source !== EXT) return
+    if (data.type !== 'import_recording') return
+    if (!Array.isArray(data.steps)) return
+    onImport(data.steps as RecordedBrowserStep[])
+  }
+
+  window.addEventListener('message', onMessage)
+  return () => window.removeEventListener('message', onMessage)
+}

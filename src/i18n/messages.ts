@@ -100,6 +100,8 @@ export const messages = {
     extensionStartFailed: 'Could not reach the extension. Is it enabled on this page?',
     extensionNoSteps: 'No steps recorded yet. Browse the site, then try again.',
     extensionImported: 'Imported {count} step(s) from your Chrome recording. You can edit or Run them.',
+    downloadJsonFile: 'Download JSON file',
+    jsonAttachmentHint: 'JSON · click to download',
 
     playwrightCapture: 'Playwright capture',
     browserPreview: 'Browser preview',
@@ -371,6 +373,8 @@ export const messages = {
     extensionStartFailed: 'Extension inaccessible. Est-elle activée sur cette page ?',
     extensionNoSteps: 'Aucune étape pour l’instant. Naviguez sur le site, puis réessayez.',
     extensionImported: '{count} étape(s) importée(s) depuis Chrome. Vous pouvez les modifier ou Lancer.',
+    downloadJsonFile: 'Télécharger le fichier JSON',
+    jsonAttachmentHint: 'JSON · cliquer pour télécharger',
 
     playwrightCapture: 'Capture Playwright',
     browserPreview: 'Aperçu navigateur',

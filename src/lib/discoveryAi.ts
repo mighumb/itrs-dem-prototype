@@ -58,10 +58,15 @@ export interface DiscoveryAiResult {
 }
 
 function historyFromMessages(messages: ChatMessage[]) {
-  return messages.map((m) => ({
-    role: m.role,
-    content: m.content,
-  }))
+  return messages.map((m) => {
+    if (!m.attachment?.text) {
+      return { role: m.role, content: m.content }
+    }
+    return {
+      role: m.role,
+      content: `${m.content}\n\n[Attached file: ${m.attachment.filename}]\n\`\`\`json\n${m.attachment.text}\n\`\`\``,
+    }
+  })
 }
 
 function normalizeQuestions(raw: unknown): DiscoveryQuestion[] | null {

@@ -1,4 +1,4 @@
-import { ChevronRight, Sparkles, X } from 'lucide-react'
+import { ChevronRight, Download, FileJson, Sparkles, X } from 'lucide-react'
 import { useLocale } from '../context/LocaleContext'
 import type { MessageKey } from '../i18n/messages'
 import type { ChatMessage } from '../types'
@@ -14,6 +14,19 @@ const QUICK_PROMPTS: { id: string; labelKey: MessageKey }[] = [
   { id: 'failing-journeys', labelKey: 'agentPromptFailing' },
   { id: 'dashboard', labelKey: 'agentPromptDashboard' },
 ]
+
+function downloadAttachment(filename: string, mimeType: string, text: string) {
+  const blob = new Blob([text], { type: mimeType || 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.rel = 'noopener'
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  window.setTimeout(() => URL.revokeObjectURL(url), 1_000)
+}
 
 export default function GlobalAgent({ open, onToggle, onNavigate }: GlobalAgentProps) {
   const { t } = useLocale()
@@ -49,8 +62,8 @@ export default function GlobalAgent({ open, onToggle, onNavigate }: GlobalAgentP
         </button>
       </header>
 
-      <div className="flex-1 space-y-3 overflow-y-auto p-4 text-sm leading-relaxed text-zinc-600 dark:text-zinc-300">
-        <p className="rounded-xl bg-zinc-50 px-3 py-2.5 dark:bg-zinc-800">{t('assistantIntro')}</p>
+      <div className="min-h-0 flex-1 space-y-3 overflow-x-hidden overflow-y-auto p-4 text-sm leading-relaxed text-zinc-600 dark:text-zinc-300">
+        <p className="break-words rounded-xl bg-zinc-50 px-3 py-2.5 dark:bg-zinc-800">{t('assistantIntro')}</p>
         <div className="flex flex-wrap gap-2">
           {QUICK_PROMPTS.map((prompt) => (
             <button
@@ -85,10 +98,12 @@ export function AgentMessage({
   onActionClick?: (actionId: string) => void
   hideActions?: boolean
 }) {
+  const { t } = useLocale()
   const isAgent = message.role === 'agent'
+  const attachment = message.attachment
 
   const bubbleContent = message.content.split('\n').map((line, i) => (
-    <p key={i} className={i > 0 ? 'mt-1.5' : ''}>
+    <p key={i} className={`break-words [overflow-wrap:anywhere] ${i > 0 ? 'mt-1.5' : ''}`}>
       {isAgent
         ? line.split('**').map((part, j) =>
             j % 2 === 1 ? <strong key={j}>{part}</strong> : part,
@@ -98,11 +113,11 @@ export function AgentMessage({
   ))
 
   return (
-    <div className="animate-fade-in space-y-2">
+    <div className="animate-fade-in min-w-0 space-y-2 overflow-x-hidden">
       {message.content && (
-        <div className={`flex ${isAgent ? 'justify-start' : 'justify-end'}`}>
+        <div className={`flex min-w-0 ${isAgent ? 'justify-start' : 'justify-end'}`}>
           <div
-            className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${
+            className={`min-w-0 max-w-[85%] overflow-hidden rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed break-words [overflow-wrap:anywhere] whitespace-pre-wrap ${
               isAgent
                 ? 'rounded-bl-md bg-transparent text-zinc-800 dark:text-zinc-200'
                 : 'rounded-br-md bg-[var(--color-user-bubble)] text-zinc-900 dark:text-zinc-100'
@@ -113,17 +128,46 @@ export function AgentMessage({
         </div>
       )}
 
+      {attachment && (
+        <div className={`flex min-w-0 ${isAgent ? 'justify-start' : 'justify-end'}`}>
+          <button
+            type="button"
+            onClick={() =>
+              downloadAttachment(attachment.filename, attachment.mimeType, attachment.text)
+            }
+            className="group flex max-w-[85%] min-w-0 cursor-pointer items-center gap-2.5 rounded-xl border border-zinc-200 bg-white px-3 py-2.5 text-left transition hover:border-zinc-300 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:border-zinc-600 dark:hover:bg-zinc-800"
+            title={t('downloadJsonFile')}
+          >
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
+              <FileJson size={18} />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-sm font-medium text-zinc-800 dark:text-zinc-100">
+                {attachment.filename}
+              </span>
+              <span className="block text-[11px] text-zinc-500 dark:text-zinc-400">
+                {t('jsonAttachmentHint')}
+              </span>
+            </span>
+            <Download
+              size={16}
+              className="shrink-0 text-zinc-400 transition group-hover:text-zinc-600 dark:group-hover:text-zinc-300"
+            />
+          </button>
+        </div>
+      )}
+
       {message.actions && !hideActions && (
-        <div className="flex w-full flex-col gap-2">
+        <div className="flex w-full min-w-0 flex-col gap-2">
           {message.actions.map((action) =>
             action.variant === 'primary' ? (
               <button
                 key={action.id}
                 type="button"
                 onClick={() => onActionClick?.(action.id)}
-                className="flex w-full cursor-pointer items-center justify-between rounded-xl bg-[#0071e3] px-3.5 py-2.5 text-left text-sm font-semibold text-white transition hover:bg-[#0077ed]"
+                className="flex w-full min-w-0 cursor-pointer items-center justify-between rounded-xl bg-[#0071e3] px-3.5 py-2.5 text-left text-sm font-semibold text-white transition hover:bg-[#0077ed]"
               >
-                <span>{action.label}</span>
+                <span className="min-w-0 break-words [overflow-wrap:anywhere]">{action.label}</span>
                 <ChevronRight size={16} className="shrink-0 text-white/80" />
               </button>
             ) : (
@@ -131,9 +175,9 @@ export function AgentMessage({
                 key={action.id}
                 type="button"
                 onClick={() => onActionClick?.(action.id)}
-                className="group flex w-full cursor-pointer items-center justify-between rounded-xl border border-zinc-200 bg-white px-3.5 py-2.5 text-left text-sm font-medium text-zinc-700 transition hover:border-zinc-300 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:border-zinc-600 dark:hover:bg-zinc-800"
+                className="group flex w-full min-w-0 cursor-pointer items-center justify-between rounded-xl border border-zinc-200 bg-white px-3.5 py-2.5 text-left text-sm font-medium text-zinc-700 transition hover:border-zinc-300 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:border-zinc-600 dark:hover:bg-zinc-800"
               >
-                <span>{action.label}</span>
+                <span className="min-w-0 break-words [overflow-wrap:anywhere]">{action.label}</span>
                 <ChevronRight
                   size={16}
                   className="shrink-0 text-zinc-300 transition group-hover:text-zinc-500"
