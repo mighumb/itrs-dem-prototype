@@ -329,10 +329,10 @@ export const messages = {
     agentTranslating: 'Traduction du formulaire…',
 
     panelAgent: 'Agent',
-    panelSteps: 'User journey',
+    panelSteps: 'Parcours utilisateur',
     panelBrowser: 'Navigateur',
     panelMonitoring: 'Monitoring',
-    panelStepsCount: 'User journey ({count})',
+    panelStepsCount: 'Parcours utilisateur ({count})',
     newJourney: 'Nouveau parcours',
     running: 'En cours…',
     starting: 'Démarrage…',
