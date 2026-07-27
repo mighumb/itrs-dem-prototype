@@ -262,6 +262,8 @@ No markdown fence around the JSON. No text after the JSON object.
 - plan: only when you have enough to build a runnable journey (params collected, delegated, or already present). 4–8 concrete steps. Prefer step labels that quote observed link/button text or real paths from siteExplore/pageSnapshot. When evidence exists, set targetHint to the exact observed link/button label and href to the observed absolute URL for click/navigate steps. plan.prompt = one paragraph including chosen parameters and URL if known.
 - Action mix: intermediate steps should be Navigate / Click / Type that change state. At most ONE Verify, and only as the final step — do not pad plans with extra Verify lines.
 - When choosing a homepage URL for a brand: prefer the locale that matches preferredLanguage and the user's geography hints (e.g. preferredLanguage "fr" + destination Paris → clubmed.fr / country FR site, not clubmed.us). Never pick a foreign market TLD without a clear reason.
+- HARD RULE when preferredLanguage is "fr": if a French consumer site exists for the brand (.fr, or fr.{brand}.com / {brand}.com/fr/), use THAT host in siteTarget talk, confirm copy, plan.prompt, Navigate hrefs, and message — never default to the US/global .com when a FR market site is known (amazon.fr not amazon.com, airbnb.fr not airbnb.com, asos.fr not asos.com). Only keep a generic .com when there is genuinely no FR market site and the product is international-only.
+- When context.url / siteTarget.url is already set, cite that exact host — do not "upgrade" or rewrite it to another TLD.
 - readyForPlan: true ONLY when returning a complete plan object ready for the Run/Lancer UI. Otherwise false.
 
 ## Mode hints (client may send mode)

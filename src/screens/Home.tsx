@@ -749,7 +749,7 @@ export default function Home({
     }
     const nextCtx: DiscoveryContext = {
       ...createDiscoveryContext(seed),
-      url: example.url,
+      url: example.url[locale],
       selectedProposalId: proposal.id,
       selectedProposal: proposal,
       answers: {},
