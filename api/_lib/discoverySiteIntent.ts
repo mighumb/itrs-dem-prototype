@@ -118,12 +118,41 @@ function brandishLeftover(text: string): string {
     .trim()
 }
 
+function compactToken(token: string): string {
+  return token
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, '')
+}
+
 /**
- * French/English article + name → compound host token.
- * "La poste" / "La Poste" → "laposte" so we seed laposte.fr, not poste.fr.
- * Also matches inside journey sentences: "surveiller La Poste jusqu'à …".
+ * Individual leftover brand words after stripping journey vocabulary
+ * (no joining yet).
  */
-export function extractArticleBrandCompounds(text: string): string[] {
+function extractBrandishWords(text: string): string[] {
+  const leftover = brandishLeftover(text)
+  if (!leftover) return []
+  return leftover
+    .split(/\s+/)
+    .map((w) => w.replace(/^['’]+|['’]+$/g, ''))
+    .filter((w) => {
+      if (!w || BRAND_BLOCKLIST_RE.test(w)) return false
+      const compact = w.replace(/\./g, '')
+      if (compact.length < 2) return false
+      if (compact.length >= 4) return true
+      if (/^[A-ZÀ-Ü]{2,3}$/u.test(compact)) return true
+      if (/^[A-ZÀ-Ü][a-zà-ü]{2,}$/u.test(w)) return true
+      return false
+    })
+}
+
+/**
+ * Glue articles that belong to the brand in the original sentence.
+ * "La poste" → laposte ; "Le Figaro" → lefigaro.
+ * This is one input to joining — not the only brand strategy.
+ */
+function extractArticleGluedCompounds(text: string): string[] {
   const out: string[] = []
   const seen = new Set<string>()
   const re = /\b(la|le|les|the|l['’])\s+([\p{L}][\p{L}0-9'.-]{2,40})\b/giu
@@ -132,9 +161,8 @@ export function extractArticleBrandCompounds(text: string): string[] {
     const article = match[1].replace(/['’]/g, '').toLowerCase()
     const rest = match[2]
     if (BRAND_BLOCKLIST_RE.test(rest)) continue
-    const restCompact = rest.toLowerCase().replace(/[^a-z0-9]/g, '')
+    const restCompact = compactToken(rest)
     if (restCompact.length < 2) continue
-    // Avoid "dans la rue" noise: short lowercase leftovers need length ≥ 4.
     if (restCompact.length < 4 && !/^[A-ZÀ-Ü]/.test(rest)) continue
     const compound = `${article}${restCompact}`
     if (compound.length < restCompact.length + 2) continue
@@ -146,35 +174,63 @@ export function extractArticleBrandCompounds(text: string): string[] {
 }
 
 /**
+ * Multi-word leftovers → joined host forms.
+ * "Crédit Agricole" → creditagricole ; "British Airways" → britishairways.
+ * Also keeps hyphenated form when useful for seeding.
+ */
+function extractJoinedWordCompounds(words: string[]): string[] {
+  if (words.length < 2) return []
+  const parts = words.map(compactToken).filter((p) => p.length >= 2)
+  if (parts.length < 2) return []
+  const joined = parts.join('')
+  const hyphenated = parts.join('-')
+  const out: string[] = []
+  if (joined.length >= 5) out.push(joined)
+  if (hyphenated.length >= 5 && hyphenated !== joined) out.push(hyphenated)
+  return out
+}
+
+/**
+ * Drop short leftovers that are only fragments of a longer brand token we
+ * already have. Prevents seeding poste.fr when laposte exists, or
+ * agricole.fr when creditagricole exists — for ANY brand, not just articles.
+ */
+export function dominantBrandTokens(tokens: string[]): string[] {
+  const items = tokens
+    .map((t) => ({ t, c: compactToken(t) }))
+    .filter(({ c }) => c.length >= 2)
+  return items
+    .filter(
+      ({ c }) =>
+        !items.some(
+          (other) => other.c !== c && other.c.includes(c) && other.c.length > c.length,
+        ),
+    )
+    .map(({ t }) => t)
+}
+
+/** @deprecated Use extractBrandishTokens — kept as alias for older call sites. */
+export function extractArticleBrandCompounds(text: string): string[] {
+  return extractArticleGluedCompounds(text)
+}
+
+/**
  * Brand / org tokens left after stripping journey vocabulary.
- * Exported so server brand-resolve Search uses the same leftovers.
+ * Includes joined multi-word forms and article-glued forms.
+ * Callers that invent hosts MUST run dominantBrandTokens() first.
  */
 export function extractBrandishTokens(text: string): string[] {
-  const leftover = brandishLeftover(text)
-  const compounds = extractArticleBrandCompounds(text)
-  const fromLeftover = leftover
-    ? leftover
-        .split(/\s+/)
-        .map((w) => w.replace(/^['’]+|['’]+$/g, ''))
-        .filter((w) => {
-          if (!w || BRAND_BLOCKLIST_RE.test(w)) return false
-          const compact = w.replace(/\./g, '')
-          if (compact.length < 2) return false
-          // Long enough leftover → brandish (aliexpress, totalenergies…).
-          if (compact.length >= 4) return true
-          // Short: only ALL-CAPS acronyms (FFF, HP) or Title Case (Asos, Fnac).
-          // Lowercase "sur"/"en" must never become brands.
-          if (/^[A-ZÀ-Ü]{2,3}$/u.test(compact)) return true
-          if (/^[A-ZÀ-Ü][a-zà-ü]{2,}$/u.test(w)) return true
-          return false
-        })
-    : []
+  const words = extractBrandishWords(text)
+  const compounds = [
+    ...extractArticleGluedCompounds(text),
+    ...extractJoinedWordCompounds(words),
+  ]
 
   const out: string[] = []
   const seen = new Set<string>()
-  // Prefer compounds first so ranking / seeding favor laposte over poste.
-  for (const token of [...compounds, ...fromLeftover]) {
-    const key = token.toLowerCase().replace(/[^a-z0-9]/g, '')
+  // Longer / joined forms first.
+  for (const token of [...compounds, ...words]) {
+    const key = compactToken(token)
     if (!key || seen.has(key)) continue
     seen.add(key)
     out.push(token)

@@ -2,6 +2,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai'
 import { geminiModelCandidates } from './geminiModels.js'
 import { analyzePublicSite, extractHttpUrl, type SiteAnalysisResult } from './analyzeSite.js'
 import {
+  dominantBrandTokens,
   extractBrandishTokens,
   extractArticleBrandCompounds,
   looksLikeSocialChat,
@@ -40,7 +41,11 @@ function shouldTryBrandResolve(text: string): boolean {
 }
 
 function compactBrandToken(token: string): string {
-  return token.toLowerCase().replace(/[^a-z0-9]/g, '')
+  return token
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, '')
 }
 
 /** Prefer hosts that literally contain a user-named brand token. */
@@ -96,8 +101,9 @@ function isJunkResolvedHost(url: string): boolean {
 }
 
 /**
- * Deterministic homepage guesses from the named brand — tried before Search
- * so a bad grounding hit cannot invent an unrelated sibling host.
+ * Deterministic homepage guesses from dominant brand tokens only.
+ * Never seed a short fragment when a longer compound already exists
+ * (poste ≪ laposte, agricole ≪ creditagricole).
  */
 function seedBrandHomepages(
   brandTokens: string[],
@@ -115,7 +121,7 @@ function seedBrandHomepages(
       /* ignore */
     }
   }
-  const ordered = [...brandTokens].sort((a, b) => {
+  const ordered = dominantBrandTokens(brandTokens).sort((a, b) => {
     const ca = compactBrandToken(a)
     const cb = compactBrandToken(b)
     return cb.length - ca.length
@@ -123,12 +129,19 @@ function seedBrandHomepages(
   for (const token of ordered) {
     if (!isSeedableBrandToken(token)) continue
     const compact = compactBrandToken(token)
-    if (preferredLanguage === 'fr') {
-      push(`https://www.${compact}.fr`)
-      push(`https://fr.${compact}.com`)
+    // Hyphenated compounds → try both glued and hyphen host forms.
+    const variants = compact.includes('-')
+      ? [compact, compact.replace(/-/g, '')]
+      : [compact]
+    for (const host of variants) {
+      if (host.length < 2) continue
+      if (preferredLanguage === 'fr') {
+        push(`https://www.${host}.fr`)
+        push(`https://fr.${host}.com`)
+      }
+      push(`https://www.${host}.com`)
+      push(`https://${host}.com`)
     }
-    push(`https://www.${compact}.com`)
-    push(`https://${compact}.com`)
   }
   return out
 }
@@ -233,12 +246,17 @@ function parseHolisticBrandReply(text: string): {
 function mergeBrandTokens(primary: string | null, heuristic: string[]): string[] {
   const out: string[] = []
   const seen = new Set<string>()
+  // Expand Gemini's brand label into words + joined compounds, then keep
+  // only dominant tokens (drop fragments dominated by a longer form).
   const primaryExpanded =
     primary != null
-      ? [primary, ...extractArticleBrandCompounds(primary), ...extractBrandishTokens(primary)]
+      ? [primary, ...extractBrandishTokens(primary), ...extractArticleBrandCompounds(primary)]
       : []
-  for (const token of [...primaryExpanded, ...heuristic]) {
-    if (!token || !isSeedableBrandToken(token)) continue
+  const merged = dominantBrandTokens(
+    [...primaryExpanded, ...heuristic].filter((t): t is string => Boolean(t)),
+  )
+  for (const token of merged) {
+    if (!isSeedableBrandToken(token)) continue
     const key = compactBrandToken(token)
     if (!key || seen.has(key)) continue
     seen.add(key)
@@ -390,7 +408,8 @@ Reason over the WHOLE sentence like a careful assistant — not like a keyword s
 
 Rules:
 - Identify the brand / company / website the user wants to monitor.
-- Keep articles that are part of the brand name (La Poste → laposte.fr, Le Figaro → lefigaro.fr, L'Oréal → loreal.com). Never strip "La/Le/The" and invent a leftover host (poste.fr is WRONG for La Poste).
+- Keep the FULL brand name, including articles that belong to it (La Poste → laposte.fr, Le Figaro → lefigaro.fr). Never invent a host from a leftover fragment after dropping grammar words (poste.fr is WRONG for La Poste; agricole.fr is WRONG for Crédit Agricole).
+- Multi-word brands stay one brand (British Airways → britishairways.com / ba.com official consumer site — prefer the official homepage Search finds, not a random word from the name).
 - Ignore journey vocabulary and grammar words that are NOT part of the brand (achat, commande, livraison, sur, en, site, web, purchase, order, delivery, on, for, website…).
 - Return THAT brand's official consumer homepage for the user's market.
 - Never confuse sibling / parent-group / "related" properties the user did not name.
@@ -515,14 +534,14 @@ export async function resolveSiteTarget(
       lastNote = resolved.note
       lastLabel = resolved.label
     }
-    // Last resort: heuristic tokens → probe www.{brand}.fr/.com (never grammar leftovers).
-    // HARD RULE: only return a seed that actually responds (probe.ok).
+    // Last resort: only seed DOMINANT brand tokens (never short fragments),
+    // and only return a host that actually responds (probe.ok).
     const seeds = seedBrandHomepages(
-      extractBrandishTokens(userText),
+      dominantBrandTokens(extractBrandishTokens(userText)),
       options.preferredLanguage,
     )
     for (const seed of seeds) {
-      const tokens = extractBrandishTokens(userText)
+      const tokens = dominantBrandTokens(extractBrandishTokens(userText))
       if (isJunkResolvedHost(seed.url) || brandHostScore(seed.url, tokens) === 0) continue
       const probe = await analyzePublicSite(seed.url)
       if (!probe.ok) continue
