@@ -41,6 +41,26 @@ export default function MonitoringColumn({
   const selectedStep =
     runSteps.find((step) => step.stepId === selectedStepId) ?? runSteps[0] ?? null
 
+  const footer = isUnsaved ? (
+    <div className="shrink-0 border-t border-amber-200/60 bg-amber-50 px-3 py-2.5 dark:border-amber-900/40 dark:bg-amber-950/40">
+      <p className="text-[11px] leading-snug text-amber-900 dark:text-amber-100">
+        <button
+          type="button"
+          onClick={onSave}
+          className="cursor-pointer font-medium text-[#0071e3] hover:underline"
+        >
+          {t('signUpLink')}
+        </button>{' '}
+        {t('signUpToUnlockMonitoring')}
+      </p>
+    </div>
+  ) : (
+    <div className="flex shrink-0 items-start gap-2 border-t border-emerald-200/60 bg-emerald-50 px-3 py-2.5 text-[11px] text-emerald-800 dark:border-emerald-900/40 dark:bg-emerald-950/40 dark:text-emerald-200">
+      <CheckCircle2 size={14} className="mt-0.5 shrink-0" />
+      {lastRun?.mode === 'playwright' ? t('monitoringFromThisRun') : t('liveMonitoringActive')}
+    </div>
+  )
+
   const body = (
     <>
       <div className="min-h-0 flex-1 overflow-y-auto p-4">
@@ -146,29 +166,8 @@ export default function MonitoringColumn({
         </div>
 
         {selectedStep && <StepDetailPanel step={selectedStep} />}
-
-        {isUnsaved ? (
-          <div className="mt-4 rounded-lg bg-amber-50 px-3 py-2.5">
-            <p className="text-[11px] leading-snug text-amber-900">
-              <button
-                type="button"
-                onClick={onSave}
-                className="cursor-pointer font-medium text-[#0071e3] hover:underline"
-              >
-                {t('signUpLink')}
-              </button>{' '}
-              {t('signUpToUnlockMonitoring')}
-            </p>
-          </div>
-        ) : (
-          <div className="mt-4 flex items-start gap-2 rounded-lg bg-emerald-50 px-3 py-2.5 text-[11px] text-emerald-800">
-            <CheckCircle2 size={14} className="mt-0.5 shrink-0" />
-            {lastRun?.mode === 'playwright'
-              ? t('monitoringFromThisRun')
-              : t('liveMonitoringActive')}
-          </div>
-        )}
       </div>
+      {footer}
     </>
   )
 
