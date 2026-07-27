@@ -128,13 +128,6 @@ export function getBrowserFrameForStep(step: JourneyStep, index: number): Browse
   }
 }
 
-/** Index of the step that fails on this run, or null if all pass. Run stops at the first failure. */
-export function pickRandomFailureIndex(stepCount: number): number | null {
-  if (stepCount === 0) return null
-  if (Math.random() < 0.25) return null
-  return Math.floor(Math.random() * stepCount)
-}
-
 export function buildJourneyReadyMessage(journey: JourneyTemplate, locale: Locale = 'en'): ChatMessage {
   return {
     id: 'done-1',

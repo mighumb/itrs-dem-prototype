@@ -94,9 +94,8 @@ Workspace runs always come from the Discovery plan (or a minimal URL-derived jou
 
 ## What's still mocked
 
-- Monitoring KPIs / random failure injection (simulation fallback only)
+- Monitoring KPIs (simulation fallback only — no fake step failures)
 - Auth / signup (no API)
-- Take control (button only)
 - Cookie/login vault (agent may ask for credentials when a journey needs them; session-only)
 
 ## Phase 2 (not included)
