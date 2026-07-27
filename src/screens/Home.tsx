@@ -468,8 +468,12 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
     if (siteConfirmPending) {
       setSiteConfirmPending(false)
       setCtx(nextCtx)
-      // Affirm → chat with URL so the server explores, then may return proposals.
-      await replyWithAiChat(answerText || 'Oui', history, nextCtx)
+      // Affirm → chat with URL so the server explores; keep original journey ask visible.
+      const affirm =
+        nextCtx.seed.trim().length > 0
+          ? `${answerText || 'Oui'}\n\nBesoin initial: ${nextCtx.seed}`
+          : answerText || 'Oui'
+      await replyWithAiChat(affirm, history, nextCtx)
       return
     }
 

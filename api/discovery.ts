@@ -20,6 +20,7 @@ import {
   looksLikeSiteConfirmation,
   looksLikeSiteDecline,
   messageRequestsSiteWork,
+  summarizeStatedJourneyIntent,
 } from './_lib/discoverySiteIntent.js'
 import {
   buildRelocalizeUserPrompt,
@@ -108,11 +109,18 @@ function buildUserPrompt(
   const attachSite = shouldAttachSiteEvidence(body)
   const confirmFirst = shouldConfirmBeforeExplore(body, target)
   const base = body.context ?? {}
+  const seed = typeof base.seed === 'string' ? base.seed.trim() : ''
+  const statedJourneyIntent =
+    summarizeStatedJourneyIntent(seed) ??
+    summarizeStatedJourneyIntent(body.userMessage)
 
   const context = attachSite
     ? {
         ...base,
         preferredLanguage,
+        seed: seed || base.seed || null,
+        /** Original ask — proposals MUST honor this when set (not generic templates). */
+        statedJourneyIntent,
         url: analysis?.url ?? target?.url ?? base.url ?? null,
         pageSnapshot: confirmFirst
           ? null
@@ -152,6 +160,7 @@ function buildUserPrompt(
         journeyName: base.journeyName ?? null,
         currentSteps: base.currentSteps ?? null,
         seed: null,
+        statedJourneyIntent: null,
         url: null,
         pageSnapshot: null,
         siteTarget: null,
@@ -160,12 +169,20 @@ function buildUserPrompt(
         siteConfirmation: { needed: false },
       }
 
+  // After a bare "oui", keep the original journey ask visible to the model.
+  const userMessage =
+    statedJourneyIntent &&
+    looksLikeSiteConfirmation(body.userMessage) &&
+    !confirmFirst
+      ? `${body.userMessage}\n\n[Original monitoring request — honor for proposals #1]: ${statedJourneyIntent}`
+      : body.userMessage
+
   return JSON.stringify(
     {
       mode: body.mode,
       phase: body.phase ?? null,
       preferredLanguage,
-      userMessage: body.userMessage,
+      userMessage,
       selectedProposal: body.selectedProposal ?? null,
       context,
       history: (body.history ?? []).slice(-16),
