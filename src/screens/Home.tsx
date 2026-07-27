@@ -943,8 +943,17 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
   )
 
   if (!inSession) {
+    // Fill the viewport below the fixed header so justify-center actually
+    // centers (ChatGPT-like). min-h-full alone failed after document-scroll
+    // unlock — the height chain no longer filled the screen on desktop.
     return (
-      <div className="keyboard-lift flex min-h-full flex-col items-center justify-center px-6 py-16">
+      <div
+        className="keyboard-lift flex flex-col items-center justify-center px-6 py-16"
+        style={{
+          minHeight:
+            'calc(var(--app-height, 100dvh) - var(--app-header-height, 3.5rem))',
+        }}
+      >
         <div className="w-full max-w-2xl animate-fade-in">
           {userName && userName !== 'there' ? (
             <p className="mb-3 text-center text-sm text-zinc-400 dark:text-zinc-500">
