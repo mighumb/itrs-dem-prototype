@@ -62,17 +62,17 @@ export default function MonitoringColumn({
   }
 
   const footer = isUnsaved ? (
-    <div className="shrink-0 border-t border-amber-200/60 bg-amber-50 px-3 py-2.5 dark:border-amber-900/40 dark:bg-amber-950/40">
-      <p className="text-[11px] leading-snug text-amber-900 dark:text-amber-100">
-        <button
-          type="button"
-          onClick={onSave}
-          className="cursor-pointer font-medium text-[#0071e3] hover:underline"
-        >
-          {t('signUpLink')}
-        </button>{' '}
-        {t('signUpToUnlockMonitoring')}
+    <div className="shrink-0 border-t border-amber-200/70 bg-amber-50 px-3 py-3 dark:border-amber-900/40 dark:bg-amber-950/40">
+      <p className="mb-2 text-[11px] leading-snug text-amber-900 dark:text-amber-100">
+        {t('signUpToUnlockMonitoringBanner')}
       </p>
+      <button
+        type="button"
+        onClick={onSave}
+        className="w-full cursor-pointer rounded-lg bg-[#0071e3] px-3 py-2 text-xs font-semibold text-white transition hover:bg-[#0077ed]"
+      >
+        {t('createAccountStartMonitoring')}
+      </button>
     </div>
   ) : (
     <div className="flex shrink-0 items-start gap-2 border-t border-emerald-200/60 bg-emerald-50 px-3 py-2.5 text-[11px] text-emerald-800 dark:border-emerald-900/40 dark:bg-emerald-950/40 dark:text-emerald-200">
@@ -81,119 +81,125 @@ export default function MonitoringColumn({
     </div>
   )
 
-  const body = (
-    <>
-      <div className="@container/monitoring min-h-0 flex-1 overflow-y-auto p-4">
-        {isSimulated && (
-          <div className="mb-4 rounded-xl border border-amber-200/80 bg-amber-50/90 px-3 py-2.5 text-xs text-amber-900">
-            {t('monitoringSimulatedBanner')}
-          </div>
-        )}
-
-        {showAlert && (
-          <div className="mb-4 flex gap-2 rounded-xl border border-red-200/80 bg-red-50/90 p-3">
-            <AlertTriangle size={16} className="mt-0.5 shrink-0 text-red-600" />
-            <div className="text-xs">
-              <p className="font-medium text-red-900">{alertTitle}</p>
-              <p className="mt-0.5 text-red-800/80">{alertMessage}</p>
-            </div>
-          </div>
-        )}
-
-        <h2 className="mb-3 truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-          {journeyName}
-        </h2>
-
-        <div className="mb-4 grid grid-cols-3 gap-2">
-          <KpiCard
-            label={t('availability')}
-            value={kpi.availability}
-            negative={failedCount > 0}
-          />
-          <KpiCard label={t('totalTime')} value={kpi.totalTime} />
-          <KpiCard
-            label={t('issues')}
-            value={kpi.failingSteps}
-            negative={!kpi.failingSteps.startsWith('0')}
-          />
+  const scrollBody = (
+    <div className="@container/monitoring min-h-0 flex-1 overflow-y-auto overscroll-contain p-4">
+      {isSimulated && (
+        <div className="mb-4 rounded-xl border border-amber-200/80 bg-amber-50/90 px-3 py-2.5 text-xs text-amber-900">
+          {t('monitoringSimulatedBanner')}
         </div>
+      )}
 
-        <div className="@container rounded-xl border border-zinc-200/80 bg-zinc-50/50 p-3 dark:border-zinc-700/80 dark:bg-zinc-800/40">
-          {runSteps.length === 0 ? (
-            <p className="py-4 text-center text-xs text-zinc-400">{t('noExecutedSteps')}</p>
-          ) : (
-            <div className="flex gap-[clamp(0.4rem,1.8cqw,0.75rem)] overflow-x-auto pb-1">
-              {runSteps.map((step) => {
-                const isSelected = step.stepId === selectedStepId
-                const isFailed = step.status === 'failed'
-                const stepNumber = step.index + 1
-                const shortLabel = step.label.split(/\s+/).filter(Boolean).slice(0, 2).join(' ')
-                const hasShot = Boolean(step.screenshotDataUrl)
+      {showAlert && (
+        <div className="mb-4 flex gap-2 rounded-xl border border-red-200/80 bg-red-50/90 p-3">
+          <AlertTriangle size={16} className="mt-0.5 shrink-0 text-red-600" />
+          <div className="text-xs">
+            <p className="font-medium text-red-900">{alertTitle}</p>
+            <p className="mt-0.5 text-red-800/80">{alertMessage}</p>
+          </div>
+        </div>
+      )}
 
-                return (
-                  <div
-                    key={step.stepId}
-                    className={`group relative flex w-[clamp(7.5rem,42cqw,14rem)] shrink-0 flex-col gap-[clamp(0.3rem,1.4cqw,0.55rem)] rounded-lg border p-[clamp(0.3rem,1.2cqw,0.5rem)] text-left transition ${
-                      isSelected
-                        ? 'border-[#0071e3] bg-[#0071e3]/8 ring-2 ring-[#0071e3]/25'
-                        : isFailed
-                          ? 'border-red-200 bg-red-50/60 hover:border-red-300'
-                          : 'border-zinc-200/80 bg-white hover:border-zinc-300 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:border-zinc-600'
-                    }`}
+      <h2 className="mb-3 truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+        {journeyName}
+      </h2>
+
+      <div className="mb-4 grid grid-cols-3 gap-2">
+        <KpiCard
+          label={t('availability')}
+          value={kpi.availability}
+          negative={failedCount > 0}
+        />
+        <KpiCard label={t('totalTime')} value={kpi.totalTime} />
+        <KpiCard
+          label={t('issues')}
+          value={kpi.failingSteps}
+          negative={!kpi.failingSteps.startsWith('0')}
+        />
+      </div>
+
+      <div className="@container rounded-xl border border-zinc-200/80 bg-zinc-50/50 p-3 dark:border-zinc-700/80 dark:bg-zinc-800/40">
+        {runSteps.length === 0 ? (
+          <p className="py-4 text-center text-xs text-zinc-400">{t('noExecutedSteps')}</p>
+        ) : (
+          <div className="flex gap-[clamp(0.4rem,1.8cqw,0.75rem)] overflow-x-auto pb-1">
+            {runSteps.map((step) => {
+              const isSelected = step.stepId === selectedStepId
+              const isFailed = step.status === 'failed'
+              const stepNumber = step.index + 1
+              const shortLabel = step.label.split(/\s+/).filter(Boolean).slice(0, 2).join(' ')
+              const hasShot = Boolean(step.screenshotDataUrl)
+
+              return (
+                <div
+                  key={step.stepId}
+                  className={`group relative flex w-[clamp(7.5rem,42cqw,14rem)] shrink-0 flex-col gap-[clamp(0.3rem,1.4cqw,0.55rem)] rounded-lg border p-[clamp(0.3rem,1.2cqw,0.5rem)] text-left transition ${
+                    isSelected
+                      ? 'border-[#0071e3] bg-[#0071e3]/8 ring-2 ring-[#0071e3]/25'
+                      : isFailed
+                        ? 'border-red-200 bg-red-50/60 hover:border-red-300'
+                        : 'border-zinc-200/80 bg-white hover:border-zinc-300 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:border-zinc-600'
+                  }`}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setSelectedStepId(step.stepId)}
+                    className="flex w-full cursor-pointer flex-col gap-[clamp(0.3rem,1.4cqw,0.55rem)] text-left"
                   >
+                    <CaptureFrame
+                      src={step.screenshotDataUrl}
+                      failed={isFailed}
+                      size="thumb"
+                    />
+                    <div className="min-w-0 px-0.5 text-center">
+                      <p
+                        className={`truncate text-[clamp(0.65rem,2.6cqw,0.8rem)] font-medium leading-tight ${
+                          isSelected ? 'text-[#0071e3]' : 'text-zinc-700 dark:text-zinc-200'
+                        }`}
+                      >
+                        <span className="tabular-nums">{stepNumber}</span>
+                        <span className="mx-1 text-zinc-300 dark:text-zinc-600">·</span>
+                        {shortLabel}
+                      </p>
+                      <p className="mt-0.5 text-[clamp(0.6rem,2.3cqw,0.72rem)] tabular-nums text-zinc-400">
+                        {formatDurationMs(step.durationMs)}
+                      </p>
+                    </div>
+                  </button>
+
+                  {hasShot && (
                     <button
                       type="button"
-                      onClick={() => setSelectedStepId(step.stepId)}
-                      className="flex w-full cursor-pointer flex-col gap-[clamp(0.3rem,1.4cqw,0.55rem)] text-left"
+                      title={t('expandScreenshot')}
+                      aria-label={t('expandScreenshot')}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        openLightbox(step.stepId)
+                      }}
+                      className="absolute right-2 top-2 z-10 flex h-7 w-7 cursor-pointer items-center justify-center rounded-md bg-zinc-950/70 text-white opacity-0 shadow transition hover:bg-zinc-950/85 group-hover:opacity-100 focus-visible:opacity-100"
                     >
-                      <CaptureFrame
-                        src={step.screenshotDataUrl}
-                        failed={isFailed}
-                        size="thumb"
-                      />
-                      <div className="min-w-0 px-0.5 text-center">
-                        <p
-                          className={`truncate text-[clamp(0.65rem,2.6cqw,0.8rem)] font-medium leading-tight ${
-                            isSelected ? 'text-[#0071e3]' : 'text-zinc-700 dark:text-zinc-200'
-                          }`}
-                        >
-                          <span className="tabular-nums">{stepNumber}</span>
-                          <span className="mx-1 text-zinc-300 dark:text-zinc-600">·</span>
-                          {shortLabel}
-                        </p>
-                        <p className="mt-0.5 text-[clamp(0.6rem,2.3cqw,0.72rem)] tabular-nums text-zinc-400">
-                          {formatDurationMs(step.durationMs)}
-                        </p>
-                      </div>
+                      <Expand size={14} />
                     </button>
-
-                    {hasShot && (
-                      <button
-                        type="button"
-                        title={t('expandScreenshot')}
-                        aria-label={t('expandScreenshot')}
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          openLightbox(step.stepId)
-                        }}
-                        className="absolute right-2 top-2 z-10 flex h-7 w-7 cursor-pointer items-center justify-center rounded-md bg-zinc-950/70 text-white opacity-0 shadow transition hover:bg-zinc-950/85 group-hover:opacity-100 focus-visible:opacity-100"
-                      >
-                        <Expand size={14} />
-                      </button>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          )}
-        </div>
-
-        {selectedStep && (
-          <StepDetailPanel step={selectedStep} onExpandCapture={() => openLightbox(selectedStep.stepId)} />
+                  )}
+                </div>
+              )
+            })}
+          </div>
         )}
       </div>
-      {footer}
 
+      {selectedStep && (
+        <StepDetailPanel
+          step={selectedStep}
+          onExpandCapture={() => openLightbox(selectedStep.stepId)}
+        />
+      )}
+    </div>
+  )
+
+  const shell = (
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      {scrollBody}
+      {footer}
       {lightboxStepId && (
         <ScreenshotLightbox
           steps={lightboxSteps}
@@ -202,11 +208,11 @@ export default function MonitoringColumn({
           onClose={() => setLightboxStepId(null)}
         />
       )}
-    </>
+    </div>
   )
 
   if (embedded) {
-    return <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{body}</div>
+    return shell
   }
 
   return (
@@ -224,7 +230,7 @@ export default function MonitoringColumn({
           <X size={14} />
         </button>
       </div>
-      {body}
+      {shell}
     </section>
   )
 }
@@ -395,7 +401,7 @@ function StepDetailPanel({
           )}
         </div>
 
-        <div className="min-w-0 @[40rem]/monitoring:sticky @[40rem]/monitoring:top-0">
+        <div className="min-w-0 self-start @[40rem]/monitoring:max-h-[min(70vh,640px)] @[40rem]/monitoring:sticky @[40rem]/monitoring:top-0">
           <div className="mb-2 flex items-center justify-between gap-2">
             <p className="text-[10px] font-medium uppercase tracking-wider text-zinc-400">
               {t('monitoringCapture')}
@@ -412,43 +418,66 @@ function StepDetailPanel({
               </button>
             )}
           </div>
-          {hasShot ? (
-            <button
-              type="button"
-              onClick={onExpandCapture}
-              className="block w-full cursor-pointer text-left"
-              title={t('expandScreenshot')}
-            >
-              <CaptureFrame
-                src={step.screenshotDataUrl}
-                failed={isFailed}
-                size="hero"
-                alt={tf('monitoringCaptureAlt', { label: step.label })}
-              />
-            </button>
-          ) : (
-            <CaptureFrame failed={isFailed} size="hero" />
-          )}
+          <CaptureFrame
+            src={step.screenshotDataUrl}
+            failed={isFailed}
+            size="hero"
+            alt={tf('monitoringCaptureAlt', { label: step.label })}
+            onOpen={hasShot ? onExpandCapture : undefined}
+          />
         </div>
       </div>
     </div>
   )
 }
 
-/** Strict 16:9 frame — Playwright shots are often 16:10; cover+top keeps a consistent video plane. */
+/**
+ * Thumb: cropped 16:9 cover.
+ * Hero: 16:9 viewport with vertical scroll so the full Playwright page can be reviewed.
+ */
 function CaptureFrame({
   src,
   failed,
   size,
   alt = '',
+  onOpen,
 }: {
   src?: string
   failed?: boolean
   size: 'thumb' | 'hero'
   alt?: string
+  onOpen?: () => void
 }) {
   const radius = size === 'hero' ? 'rounded-xl' : 'rounded-md'
   const ring = failed ? 'ring-1 ring-red-300' : ''
+
+  if (size === 'hero') {
+    return (
+      <div
+        className={`relative aspect-video w-full overflow-y-auto overscroll-contain bg-zinc-200/80 dark:bg-zinc-800 ${radius} ${ring}`}
+        onDoubleClick={onOpen}
+      >
+        {src ? (
+          <img
+            key={src}
+            src={src}
+            alt={alt}
+            className="block w-full max-w-full h-auto"
+            draggable={false}
+          />
+        ) : (
+          <div className="flex h-full min-h-full w-full items-center justify-center text-sm text-zinc-400">
+            —
+          </div>
+        )}
+        {failed && (
+          <span className="pointer-events-none absolute right-2.5 top-2.5 z-10 rounded-md bg-red-500 px-2 py-0.5 text-[10px] font-semibold text-white">
+            !
+          </span>
+        )}
+      </div>
+    )
+  }
 
   return (
     <div
@@ -462,21 +491,12 @@ function CaptureFrame({
           className="absolute inset-0 h-full w-full object-cover object-top"
         />
       ) : (
-        <div
-          className={`flex h-full w-full items-center justify-center text-zinc-400 ${
-            size === 'hero' ? 'text-sm' : 'text-[clamp(0.6rem,2.4cqw,0.75rem)]'
-          }`}
-        >
+        <div className="flex h-full w-full items-center justify-center text-[clamp(0.6rem,2.4cqw,0.75rem)] text-zinc-400">
           —
         </div>
       )}
-      {failed && size === 'thumb' && (
+      {failed && (
         <span className="absolute right-[clamp(0.2rem,1cqw,0.35rem)] top-[clamp(0.2rem,1cqw,0.35rem)] flex h-[clamp(1rem,4cqw,1.25rem)] w-[clamp(1rem,4cqw,1.25rem)] items-center justify-center rounded-md bg-red-500 text-[clamp(0.55rem,2.2cqw,0.7rem)] font-bold text-white">
-          !
-        </span>
-      )}
-      {failed && size === 'hero' && (
-        <span className="absolute right-2.5 top-2.5 rounded-md bg-red-500 px-2 py-0.5 text-[10px] font-semibold text-white">
           !
         </span>
       )}
