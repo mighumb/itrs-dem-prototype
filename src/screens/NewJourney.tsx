@@ -1360,18 +1360,28 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
             flexClass={panelFlex(id)}
             hiddenBelowMd
             onClose={panelClose('steps')}
-            actions={
-              steps.length > 0 || isRunning ? (
-                <div className="flex items-center gap-1">
+            {...dragProps}
+          >
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+              <div className="min-h-0 flex-1 overflow-hidden">
+                <JourneyTimeline
+                  steps={steps}
+                  compact
+                  editMode={editMode && !isRunning}
+                  onStepsChange={isRunning ? undefined : setSteps}
+                />
+              </div>
+              {(steps.length > 0 || isRunning) && (
+                <div className="flex shrink-0 items-center gap-2 border-t border-zinc-100 px-3 py-2 dark:border-zinc-800">
                   <button
                     type="button"
                     onClick={handleRunStop}
                     disabled={!isRunning && steps.length === 0}
                     title={isRunning ? t('stopRun') : t('runJourneyInBrowser')}
-                    className={`flex cursor-pointer items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-medium transition disabled:cursor-not-allowed disabled:opacity-40 ${
+                    className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-40 ${
                       isRunning
-                        ? 'bg-red-600 text-white hover:bg-red-700'
-                        : 'text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200'
+                        ? 'border-red-300 bg-red-600 text-white hover:bg-red-700 dark:border-red-500'
+                        : 'border-zinc-200 text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800'
                     }`}
                   >
                     {isRunning ? (
@@ -1392,10 +1402,10 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
                       onClick={toggleEdit}
                       disabled={isRunning}
                       title={editMode ? t('doneEditing') : t('editSteps')}
-                      className={`flex cursor-pointer items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-medium transition disabled:cursor-not-allowed disabled:opacity-40 ${
+                      className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-40 ${
                         editMode
-                          ? 'bg-[#0071e3] text-white'
-                          : 'text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200'
+                          ? 'border-[#0071e3] bg-[#0071e3] text-white'
+                          : 'border-zinc-200 text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800'
                       }`}
                     >
                       <Pencil size={12} />
@@ -1403,16 +1413,8 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
                     </button>
                   )}
                 </div>
-              ) : undefined
-            }
-            {...dragProps}
-          >
-            <JourneyTimeline
-              steps={steps}
-              compact
-              editMode={editMode && !isRunning}
-              onStepsChange={isRunning ? undefined : setSteps}
-            />
+              )}
+            </div>
           </WorkspacePanel>
         )
 
