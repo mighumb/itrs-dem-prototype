@@ -103,11 +103,15 @@ function withFlatActions(stages: JourneyStage[], flat: JourneyAction[]): Journey
   }))
 }
 
-function stagesFromFlat(prev: JourneyStage[], flat: JourneyAction[]): JourneyStage[] {
+function stagesFromFlat(
+  prev: JourneyStage[],
+  flat: JourneyAction[],
+  locale: 'en' | 'fr' = 'en',
+): JourneyStage[] {
   if (prev.length > 0 && countActions(prev) === flat.length) {
     return withFlatActions(prev, flat)
   }
-  return actionsToStages(flat)
+  return actionsToStages(flat, locale)
 }
 
 function planToJourneyStages(
@@ -477,7 +481,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
 
   const handleApplyRecording = useCallback(
     (recorded: RecordedBrowserStep[]) => {
-      const nextStages = recordedStepsToJourneyStages(recorded)
+      const nextStages = recordedStepsToJourneyStages(recorded, locale)
       const nextSteps = flattenActions(nextStages)
       if (nextSteps.length === 0) return
 
@@ -637,11 +641,14 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
                 ? ('running' as const)
                 : ('pending' as const),
         }))
-        setStages((prev) => stagesFromFlat(prev, flat))
+        setStages((prev) => stagesFromFlat(prev, flat, locale))
       } else {
         setStages((prev) => {
           if (prev.length === 0) {
-            return actionsToStages(slice.map((step) => ({ ...step, status: 'pending' as const })))
+            return actionsToStages(
+              slice.map((step) => ({ ...step, status: 'pending' as const })),
+              locale,
+            )
           }
           // Preserve hydrated stage structure; reset action statuses for this run.
           return resetActionStatuses(prev, 'pending')
@@ -689,7 +696,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
                       ? { ...s, status: s.status === 'pending' ? ('done' as const) : s.status }
                       : s,
                 )
-                return stagesFromFlat(prev, flat)
+                return stagesFromFlat(prev, flat, locale)
               })
             }
             if (event.type === 'step_done') {
@@ -712,7 +719,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
                 const flat = flattenActions(prev).map((s, idx) =>
                   idx === absolute ? { ...s, status: 'done' as const } : s,
                 )
-                return stagesFromFlat(prev, flat)
+                return stagesFromFlat(prev, flat, locale)
               })
             }
             if (event.type === 'step_failed') {
@@ -766,7 +773,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
                 nextFlat.push({ ...step, status: 'pending' as const })
               }
             }
-            return stagesFromFlat(prev, nextFlat)
+            return stagesFromFlat(prev, nextFlat, locale)
           })
           lastFailedStepRef.current = failedStep
           return {
@@ -784,7 +791,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
         }
       }
     },
-    [initialPrompt, recordLastRunStep],
+    [initialPrompt, locale, recordLastRunStep],
   )
 
   const runSimulatedSteps = useCallback(
@@ -816,12 +823,13 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
                 ...s,
                 status: idx === i ? ('running' as const) : ('pending' as const),
               })),
+              locale,
             )
           }
           const next = flat.map((s, idx) =>
             idx === i ? { ...s, status: 'running' as const } : s,
           )
-          return stagesFromFlat(prev, next)
+          return stagesFromFlat(prev, next, locale)
         })
         setBrowserFrame(journey.browserFrames[i] ?? null)
         const stepStartedAt = Date.now()
@@ -844,7 +852,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
           const flat = flattenActions(prev).map((s, idx) =>
             idx === i ? { ...s, status: 'done' as const } : s,
           )
-          return stagesFromFlat(prev, flat)
+          return stagesFromFlat(prev, flat, locale)
         })
 
         if (i === Math.min(2, journeySteps.length - 1)) {
@@ -1017,7 +1025,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
             const flat = flattenActions(prev).map((s, idx) =>
               idx === i ? { ...s, status: 'running' as const } : s,
             )
-            return stagesFromFlat(prev, flat)
+            return stagesFromFlat(prev, flat, locale)
           })
           setBrowserFrame(getBrowserFrameForStep(step, i))
           const stepStartedAt = Date.now()
@@ -1042,7 +1050,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
             const flat = flattenActions(prev).map((s, idx) =>
               idx === i ? { ...s, status: 'done' as const } : s,
             )
-            return stagesFromFlat(prev, flat)
+            return stagesFromFlat(prev, flat, locale)
           })
         }
         failedStep = null
@@ -1185,7 +1193,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
           })
 
           lastFailedStepRef.current = null
-          setStages((prev) => stagesFromFlat(prev, nextSteps))
+          setStages((prev) => stagesFromFlat(prev, nextSteps, locale))
           setMessages((prev) => [
             ...withoutTransientRunMessages(prev),
             { id: `user-fix-auto-${Date.now()}`, role: 'user', content: t('fixAndContinue') },

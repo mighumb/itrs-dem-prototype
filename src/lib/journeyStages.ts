@@ -1,3 +1,4 @@
+import { tf, type Locale } from '../i18n/messages'
 import type { JourneyAction, JourneyStage, StepStatus } from '../types'
 
 export function newStageId(prefix = 'stage'): string {
@@ -8,13 +9,22 @@ export function newActionId(prefix = 'action'): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
 }
 
-/** Default product rule: 1 action = 1 stage (title = action label). */
+/** Default stage title: "Stage 1" / "Étape 1". Users can rename manually. */
+export function defaultStageTitle(indexZeroBased: number, locale: Locale = 'en'): string {
+  return tf(locale, 'stageN', { n: indexZeroBased + 1 })
+}
+
+/**
+ * Default product rule: 1 action = 1 stage.
+ * Stage titles are numbered (Étape N), not copies of the action label.
+ */
 export function actionsToStages(
   actions: Array<Omit<JourneyAction, 'status'> & { status?: StepStatus }>,
+  locale: Locale = 'en',
 ): JourneyStage[] {
   return actions.map((action, index) => ({
     id: `stage-${action.id || index + 1}`,
-    title: action.label,
+    title: defaultStageTitle(index, locale),
     actions: [
       {
         ...action,

@@ -125,8 +125,9 @@ function framesForActions(
 
 function stagesFromActions(
   actions: Omit<JourneyAction, 'status'>[],
+  locale: Locale = 'en',
 ): JourneyTemplateStage[] {
-  return actionsToStages(actions).map((stage) => ({
+  return actionsToStages(actions, locale).map((stage) => ({
     id: stage.id,
     title: stage.title,
     actions: stage.actions.map(({ status: _status, ...action }) => action),
@@ -197,7 +198,7 @@ export function buildJourneyFromDiscovery(options: {
   return {
     id: 'discovery-plan',
     name,
-    stages: stagesFromActions(actions),
+    stages: stagesFromActions(actions, locale),
     browserFrames: framesForActions(actions, seedUrl),
     monitoring: genericMonitoring(name, locale),
   }
@@ -238,7 +239,7 @@ export function buildJourneyFromPrompt(
   return {
     id: 'prompt-journey',
     name,
-    stages: stagesFromActions(actions),
+    stages: stagesFromActions(actions, locale),
     browserFrames: framesForActions(actions, url),
     monitoring: genericMonitoring(name, locale),
   }

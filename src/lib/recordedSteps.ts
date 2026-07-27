@@ -1,5 +1,6 @@
-import type { RecordedBrowserStep } from './extensionBridge'
+import type { Locale } from '../i18n/messages'
 import type { JourneyAction, JourneyStage } from '../types'
+import type { RecordedBrowserStep } from './extensionBridge'
 import { actionsToStages } from './journeyStages'
 
 /** Turn extension-recorded gestures into flat journey actions. */
@@ -43,9 +44,12 @@ export function recordedStepsToJourneySteps(recorded: RecordedBrowserStep[]): Jo
   return out
 }
 
-/** Default: 1 recorded action → 1 stage. */
-export function recordedStepsToJourneyStages(recorded: RecordedBrowserStep[]): JourneyStage[] {
-  return actionsToStages(recordedStepsToJourneySteps(recorded))
+/** Default: 1 recorded action → 1 stage (Étape N / Stage N). */
+export function recordedStepsToJourneyStages(
+  recorded: RecordedBrowserStep[],
+  locale: Locale = 'en',
+): JourneyStage[] {
+  return actionsToStages(recordedStepsToJourneySteps(recorded), locale)
 }
 
 function normalizeAction(action: string): string {
