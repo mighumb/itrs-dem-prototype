@@ -403,6 +403,10 @@ export const messages = {
     browserPreviewHint:
       'Lance un parcours pour voir les captures Playwright étape par étape',
     browserScreenshotAlt: 'Capture d’écran navigateur',
+    expandScreenshot: 'Agrandir la capture',
+    closeScreenshot: 'Fermer la capture',
+    previousScreenshot: 'Capture précédente',
+    nextScreenshot: 'Capture suivante',
 
     availability: 'Disponibilité',
     totalTime: 'Temps total',
