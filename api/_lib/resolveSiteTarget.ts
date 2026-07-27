@@ -41,12 +41,18 @@ function shouldTryBrandResolve(text: string): boolean {
 function brandHostScore(url: string, brandTokens: string[]): number {
   try {
     const host = new URL(url).hostname.toLowerCase().replace(/^www\./, '')
-    let score = 0
+    const labels = host.split('.')
+    let best = 0
     for (const token of brandTokens) {
-      const compact = token.toLowerCase().replace(/[^a-z0-9]/g, '')
-      if (compact.length >= 3 && host.includes(compact)) score += 100
+      const compact = compactBrandToken(token)
+      if (compact.length < 2 || !host.includes(compact)) continue
+      // Longer brand token wins over short preposition leftovers (asos ≫ sur).
+      let score = compact.length * 20
+      if (labels.some((label) => label === compact)) score += 200
+      if (host === `${compact}.com` || host === `${compact}.fr`) score += 50
+      best = Math.max(best, score)
     }
-    return score
+    return best
   } catch {
     return 0
   }
@@ -54,6 +60,16 @@ function brandHostScore(url: string, brandTokens: string[]): number {
 
 function compactBrandToken(token: string): string {
   return token.toLowerCase().replace(/[^a-z0-9]/g, '')
+}
+
+/** Short lowercase function words must never be seeded as www.{token}.fr. */
+function isSeedableBrandToken(token: string): boolean {
+  const compact = compactBrandToken(token)
+  if (compact.length < 2) return false
+  if (compact.length >= 4) return true
+  if (/^[A-ZÀ-Ü]{2,3}$/u.test(token.replace(/\./g, ''))) return true
+  if (/^[A-ZÀ-Ü][a-zà-ü]{2,}$/u.test(token)) return true
+  return false
 }
 
 /** Error/login/auth subdomains are never a monitoring homepage. */
@@ -93,12 +109,18 @@ function seedBrandHomepages(
       /* ignore */
     }
   }
-  for (const token of brandTokens) {
+  // Prefer longer / Title-Case tokens first so asos beats sur.
+  const ordered = [...brandTokens].sort((a, b) => {
+    const ca = compactBrandToken(a)
+    const cb = compactBrandToken(b)
+    return cb.length - ca.length
+  })
+  for (const token of ordered) {
+    if (!isSeedableBrandToken(token)) continue
     const compact = compactBrandToken(token)
-    if (compact.length < 3) continue
     if (preferredLanguage === 'fr') {
-      push(`https://fr.${compact}.com`)
       push(`https://www.${compact}.fr`)
+      push(`https://fr.${compact}.com`)
     }
     push(`https://www.${compact}.com`)
     push(`https://${compact}.com`)
