@@ -10,6 +10,8 @@ interface TopHeaderProps {
   onHome?: () => void
   journeyTitle?: string
   journeySubtitle?: string
+  /** Soft opacity fade under the header — Discovery chat only. */
+  discoveryFade?: boolean
 }
 
 type DrawerView = 'main' | 'settings'
@@ -52,6 +54,7 @@ export default function TopHeader({
   onHome,
   journeyTitle,
   journeySubtitle,
+  discoveryFade = false,
 }: TopHeaderProps) {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [drawerMounted, setDrawerMounted] = useState(false)
@@ -212,7 +215,11 @@ export default function TopHeader({
 
   return (
     <>
-      <header className="app-top-header z-40 flex items-center gap-3 bg-[var(--color-surface)] px-4 py-3">
+      <header
+        className={`app-top-header z-40 flex items-center gap-3 bg-[var(--color-surface)] px-4 py-3${
+          discoveryFade ? ' app-top-header--discovery-fade' : ''
+        }`}
+      >
         {/* —— Mobile left: burger (drawer overlays header; close lives in the panel) —— */}
         <button
           ref={menuBtnRef}

@@ -32,6 +32,7 @@ export default function App() {
   const [journeyHeader, setJourneyHeader] = useState<JourneyHeaderState | null>(null)
   const [journeySession, setJourneySession] = useState(0)
   const [homeSession, setHomeSession] = useState(0)
+  const [discoveryFade, setDiscoveryFade] = useState(false)
   const journeyRef = useRef<NewJourneyHandle>(null)
   const pendingScheduleSource = useRef<'accept' | 'customize' | null>(null)
   useVisualViewportHeight()
@@ -44,6 +45,7 @@ export default function App() {
     setLaunchSession(next)
     setPendingSchedule(null)
     setJourneySession((n) => n + 1)
+    setDiscoveryFade(false)
     setScreen('new-journey')
   }
 
@@ -53,6 +55,7 @@ export default function App() {
     setJourneyHeader(null)
     setScheduleDrawerOpen(false)
     setSaveOpen(false)
+    setDiscoveryFade(false)
     setHomeSession((session) => session + 1)
     setScreen('home')
   }
@@ -122,6 +125,7 @@ export default function App() {
           onHome={handleGoHome}
           journeyTitle={journeyHeader?.title}
           journeySubtitle={journeyHeader?.subtitle}
+          discoveryFade={!isWorkspace && discoveryFade}
         />
       )}
 
@@ -136,6 +140,7 @@ export default function App() {
             key={homeSession}
             userName={accountCreated ? 'Miguel' : 'there'}
             onStart={handleStart}
+            onDiscoverySessionChange={setDiscoveryFade}
           />
         )}
 

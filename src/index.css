@@ -35,7 +35,7 @@
 /*
   Fixed TopHeader: sticky fails on iOS Safari when html/body lock overflow-x
   (scroll containment). Fixed keeps the bar pinned; an in-flow spacer
-  reserves height. Soft fade under the bar so chat dissolves underneath.
+  reserves height. Optional Discovery fade: `.app-top-header--discovery-fade`.
   Document scroll stays the root (native pull-to-refresh).
 */
 .app-top-header {
@@ -56,7 +56,11 @@
   pointer-events: none;
 }
 
-.app-top-header::after {
+/*
+  Soft fade under the header only for Discovery chat (Home, in-session).
+  Workspace and idle Home keep a hard header edge.
+*/
+.app-top-header--discovery-fade::after {
   content: '';
   position: absolute;
   left: 0;

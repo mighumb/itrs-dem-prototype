@@ -31,12 +31,18 @@ import type { ChatMessage } from '../types'
 interface HomeProps {
   userName?: string
   onStart: (session: JourneyLaunchSession) => void
+  /** Notify parent when Discovery chat is in-session (header fade). */
+  onDiscoverySessionChange?: (active: boolean) => void
 }
 
 const uid = (prefix: string) =>
   `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
 
-export default function Home({ userName = 'there', onStart }: HomeProps) {
+export default function Home({
+  userName = 'there',
+  onStart,
+  onDiscoverySessionChange,
+}: HomeProps) {
   const { t, locale } = useLocale()
   const [phase, setPhase] = useState<DiscoveryPhase>('idle')
   const [input, setInput] = useState('')
@@ -96,6 +102,10 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
   const showStack =
     !agentTyping && (phase === 'questionnaire' || phase === 'proposals')
   const showRun = phase === 'planning' && Boolean(plan)
+
+  useEffect(() => {
+    onDiscoverySessionChange?.(inSession)
+  }, [inSession, onDiscoverySessionChange])
 
   // Smart scroll: when a floating form appears, bring the dock into view
   // (document scroll). Otherwise follow the latest message.
