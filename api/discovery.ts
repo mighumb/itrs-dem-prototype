@@ -14,6 +14,15 @@ import {
 } from './_lib/playwrightRunner.js'
 import { DISCOVERY_SYSTEM_PROMPT } from './_lib/discoverySystemPrompt.js'
 import {
+  answersIncludeSiteDecline,
+  hasExplicitSiteLocator,
+  looksLikeAmbiguousBrandName,
+  looksLikeSiteConfirmation,
+  looksLikeSiteDecline,
+  looksLikeSocialChat,
+  messageRequestsSiteWork,
+} from './_lib/discoverySiteIntent.js'
+import {
   resolveSiteTarget,
   type ResolvedSiteTarget,
 } from './_lib/resolveSiteTarget.js'
@@ -46,112 +55,21 @@ type DiscoveryAiRequest = {
   }
 }
 
-const CHAT_NOISE_RE =
-  /^(hi|hello|hey|bonjour|salut|coucou|test|essai|ok|oui|non|merci|thanks|aide|help|ping)$/i
-const ACRONYM_NOISE_RE =
-  /^(OK|KO|LOL|MDR|WTF|FYI|ASAP|PDF|FAQ|IMO|BTW|IDK)$/i
-/** Intent / confirm tokens that must never be treated as a brand name. */
-const BRAND_BLOCKLIST_RE =
-  /^(parcours|journey|journeys|site|sites|idées|ideas|aide|help|test|essai|chat|monitoring|surveillance|ok|oui|non|parfait|nickel|go|sure|exact|okay|merci|thanks|ping)$/i
-const INTENT_ONLY_RE =
-  /^(je\s+veux|j['’]aimerais|i\s+want|i['’]d\s+like|un\s+parcours|des\s+idées|des\s+parcours|construisons(?:\s+un\s+parcours)?|test\s+chat|aide[- ]moi|help\s+me|un\s+site|montre[- ]moi|des\s+idées)$/i
-/** Strip product intent so "Je veux Amazon" still keeps Amazon. */
-const INTENT_STOPWORD_RE =
-  /\b(je|j|tu|on|nous|vous|veux|voudrais|aimerais|besoin|faire|créer|cree|construire|construisons|build|create|make|start|commencer|surveiller|monitor(?:er|ing)?|parcours|journey|journeys|site|website|web|pour|avec|de|du|des|le|la|les|un|une|the|a|an|to|for|of|on|in|dans|please|svp|aide[- ]?moi|help\s+me|i\s+want|i'd\s+like|can\s+you|could\s+you|quel(?:le)?s?|what|which|aujourd['’]?hui|today)\b/gi
-
-/** Explicit URL / domain — unambiguous monitoring target. */
-function hasExplicitSiteLocator(text: string): boolean {
-  const t = text.trim()
-  return (
-    /https?:\/\/[^\s]+/i.test(t) ||
-    /\b(?:www\.)?[a-z0-9][a-z0-9-]*\.[a-z]{2,}(?:\/[^\s]*)?\b/i.test(t)
-  )
-}
-
-/** "monitor EasyJet" / "surveiller Amazon" — clear monitoring intent + name. */
-function hasMonitorVerbWithTarget(text: string): boolean {
-  return /\b(?:monitor(?:er|ing)?|surveill(?:er|ance)?|parcours(?:\s+(?:sur|pour))?|journey(?:\s+(?:on|for))?|check(?:er)?)\s+[\wÀ-ü][\wÀ-ü&'.-]{1,}/i.test(
-    text.trim(),
-  )
-}
-
-/** User affirming a previously proposed site candidate. */
-function looksLikeSiteConfirmation(text: string): boolean {
-  const t = text.trim()
-  if (!t || t.length > 80) return false
-  if (
-    /^(oui|ouais|yes|yep|yeah|yup|ok|okay|d['’]?accord|exact|exactement|sure|confirme(?:d)?|vas[- ]y|go|nickel|parfait)([.!]|$)/i.test(
-      t,
-    )
-  ) {
-    return true
-  }
-  if (
-    /^(oui|yes|ok)\b.{0,48}$/i.test(t) &&
-    /\b(c['’]?est\s+(?:ça|bien|bon|celui)|celui[- ]là|ce\s+site|that(?:'s|\s+is)\s+(?:it|right)|correct)\b/i.test(
-      t,
-    )
-  ) {
-    return true
-  }
-  return false
-}
-
-function brandishLeftover(text: string): string {
-  return text
-    .replace(INTENT_STOPWORD_RE, ' ')
-    .replace(/\s*&\s*/g, ' ')
-    .replace(/[^\p{L}\p{N}.'-]+/gu, ' ')
-    .trim()
-}
-
-/**
- * Short brand / acronym / org name without URL — may be ambiguous
- * (e.g. national federation initials). Resolve, then confirm before proposals.
- */
-function looksLikeAmbiguousBrandName(text: string): boolean {
-  const t = text.trim()
-  if (!t || hasExplicitSiteLocator(t) || hasMonitorVerbWithTarget(t)) return false
-  if (looksLikeSiteConfirmation(t) || INTENT_ONLY_RE.test(t) || CHAT_NOISE_RE.test(t)) {
-    return false
-  }
-  const leftover = brandishLeftover(t)
-  if (!leftover) return false
-  const words = leftover.split(/\s+/).filter(Boolean)
-  if (words.length === 0 || words.length > 6) return false
-  if (words.every((w) => BRAND_BLOCKLIST_RE.test(w))) return false
-  const letters = leftover.replace(/[^A-Za-zÀ-ü]/g, '')
-  if (/^[A-ZÀ-Ü]{2,6}$/.test(letters) && !ACRONYM_NOISE_RE.test(letters)) return true
-  if (/^(?:la|le|l['’]|les|the|el|die)\s+[A-Za-zÀ-ü][A-Za-zÀ-ü'.-]{1,40}$/i.test(t)) {
-    return true
-  }
-  if (
-    words.length <= 3 &&
-    words.every((w) => /^[\p{L}'.-]{2,}$/u.test(w)) &&
-    !words.every((w) => BRAND_BLOCKLIST_RE.test(w))
-  ) {
-    return true
-  }
-  return false
-}
-
-/** True when this turn should resolve/crawl a site — not on casual chat. */
-function messageRequestsSiteWork(text: string): boolean {
-  const t = text.trim()
-  if (!t) return false
-  // Confirmations attach site via shouldAttachSiteEvidence — not as brand work.
-  if (looksLikeSiteConfirmation(t)) return false
-  if (hasExplicitSiteLocator(t) || hasMonitorVerbWithTarget(t)) return true
-  return looksLikeAmbiguousBrandName(t)
-}
-
 /** Message names a different/new site vs leftover context — ignore cached URL/snapshot. */
 function messageNamesNewSite(text: string): boolean {
   return hasExplicitSiteLocator(text) || looksLikeAmbiguousBrandName(text)
 }
 
+/** User rejected a site candidate — drop URL/evidence and never open proposals. */
+function isSiteCandidateDeclined(body: DiscoveryAiRequest): boolean {
+  if (looksLikeSiteDecline(body.userMessage)) return true
+  return answersIncludeSiteDecline(body.context?.answers)
+}
+
 function shouldAttachSiteEvidence(body: DiscoveryAiRequest): boolean {
   if (/\brelocalize_ui\b/.test(body.userMessage)) return false
+  // Declining a confirm candidate must never keep the URL or open proposals.
+  if (isSiteCandidateDeclined(body)) return false
   if (['propose', 'configure', 'plan', 'iterate'].includes(body.mode)) return true
   if (body.mode === 'bootstrap' || body.mode === 'chat') {
     if (messageRequestsSiteWork(body.userMessage)) return true
@@ -586,10 +504,20 @@ function buildResultPayload(
   streamedStatuses: string[],
   confirmFirst: boolean,
 ) {
-  // Hard gate: never ship journey proposals while still confirming the site.
+  const declined = isSiteCandidateDeclined(body)
+  const socialOnly = looksLikeSocialChat(body.userMessage)
+  // Hard gates: never ship journey proposals while confirming, after a decline,
+  // or on pure social ping (e.g. « Bonne nuit » must not become a brand journey form).
   const proposals =
-    confirmFirst || !Array.isArray(parsed.proposals) ? null : parsed.proposals
-  const questions = Array.isArray(parsed.questions) ? parsed.questions : null
+    confirmFirst || declined || socialOnly || !Array.isArray(parsed.proposals)
+      ? null
+      : parsed.proposals
+  const questions =
+    declined || socialOnly
+      ? null
+      : Array.isArray(parsed.questions)
+        ? parsed.questions
+        : null
   const lang = body.preferredLanguage ?? body.context?.preferredLanguage ?? 'en'
   const fr = lang === 'fr'
   const rawFormTitle =
@@ -620,20 +548,28 @@ function buildResultPayload(
         : fr
           ? 'Voici ce que je propose.'
           : 'Here is what I suggest.',
-    workTrace: normalizeWorkTrace(parsed.workTrace, analysis, target, explore, streamedStatuses),
+    workTrace: normalizeWorkTrace(
+      parsed.workTrace,
+      declined ? null : analysis,
+      declined ? null : target,
+      declined ? null : explore,
+      streamedStatuses,
+    ),
     formTitle: questions || proposals ? formTitle : null,
     questions,
     proposals,
-    plan: confirmFirst
-      ? null
-      : parsed.plan && typeof parsed.plan === 'object'
-        ? parsed.plan
-        : null,
-    readyForPlan: confirmFirst ? false : Boolean(parsed.readyForPlan),
-    pageSnapshot: confirmFirst
-      ? null
-      : analysis?.snapshot ?? body.context?.pageSnapshot ?? null,
-    siteTarget: target,
+    plan:
+      confirmFirst || declined
+        ? null
+        : parsed.plan && typeof parsed.plan === 'object'
+          ? parsed.plan
+          : null,
+    readyForPlan: confirmFirst || declined ? false : Boolean(parsed.readyForPlan),
+    pageSnapshot:
+      confirmFirst || declined
+        ? null
+        : analysis?.snapshot ?? body.context?.pageSnapshot ?? null,
+    siteTarget: declined ? null : target,
     siteConfirmation: confirmFirst
       ? {
           needed: true,
@@ -641,28 +577,30 @@ function buildResultPayload(
           candidateLabel: target?.label ?? null,
         }
       : { needed: false },
-    siteAnalysis: analysis
-      ? {
-          ok: analysis.ok,
-          url: analysis.url,
-          reason: analysis.reason,
-          title: analysis.title,
-          status: analysis.status,
-          exploreMethod: explore?.method ?? null,
-          pagesVisited: explore?.pagesVisited ?? null,
-        }
-      : target?.url
+    siteAnalysis: declined
+      ? null
+      : analysis
         ? {
-            // Candidate from brand resolve — client keeps URL for the confirm turn.
-            ok: false,
-            url: target.url,
-            reason: confirmFirst ? 'awaiting_user_confirmation' : null,
-            title: target.label,
-            status: null,
-            exploreMethod: null,
-            pagesVisited: null,
+            ok: analysis.ok,
+            url: analysis.url,
+            reason: analysis.reason,
+            title: analysis.title,
+            status: analysis.status,
+            exploreMethod: explore?.method ?? null,
+            pagesVisited: explore?.pagesVisited ?? null,
           }
-        : null,
+        : target?.url
+          ? {
+              // Candidate from brand resolve — client keeps URL for the confirm turn.
+              ok: false,
+              url: target.url,
+              reason: confirmFirst ? 'awaiting_user_confirmation' : null,
+              title: target.label,
+              status: null,
+              exploreMethod: null,
+              pagesVisited: null,
+            }
+          : null,
     model: modelName,
   }
 }

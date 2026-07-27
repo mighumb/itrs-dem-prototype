@@ -6,7 +6,12 @@ import AgentWorkStatus from '../components/AgentWorkStatus'
 import RotatingWord from '../components/RotatingWord'
 import { useLocale } from '../context/LocaleContext'
 import { HOME_ROTATING_TARGETS } from '../i18n/messages'
-import { requestDiscoveryAi, type DiscoveryAiResult } from '../lib/discoveryAi'
+import {
+  answersIncludeSiteDecline,
+  looksLikeSiteDecline,
+  requestDiscoveryAi,
+  type DiscoveryAiResult,
+} from '../lib/discoveryAi'
 import type { JourneyLaunchSession } from '../lib/journeyLaunch'
 import { getHomeExamples, type HomeJourneyExample } from '../mock/data'
 import {
@@ -44,6 +49,11 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
   const [configuring, setConfiguring] = useState(false)
   /** Floating-form chrome title — driven by the AI ask, not a fixed default. */
   const [formTitle, setFormTitle] = useState<string | null>(null)
+  /**
+   * True after brand_resolve asked "is this the site?" — until the user affirms or declines.
+   * Decline must never enter propose mode / open journey chooser for that candidate.
+   */
+  const [siteConfirmPending, setSiteConfirmPending] = useState(false)
   const chatEndRef = useRef<HTMLDivElement>(null)
   const formDockRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -52,12 +62,19 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
   messagesRef.current = messages
 
   const rememberSnapshot = (ai: DiscoveryAiResult) => {
+    const awaitingConfirm = ai.siteAnalysis?.reason === 'awaiting_user_confirmation'
+    if (awaitingConfirm) {
+      setSiteConfirmPending(true)
+    } else if (ai.siteAnalysis?.url || ai.pageSnapshot) {
+      // Affirmed + explored (or explicit site turn) — confirm gate is done.
+      setSiteConfirmPending(false)
+    }
+
     // Keep candidate URL even before crawl (awaiting confirmation after brand/acronym resolve).
     if (!ai.pageSnapshot && !ai.siteAnalysis?.url) return
     setCtx((prev) => {
       const url = ai.siteAnalysis?.url ?? prev?.url ?? null
       const base = prev ?? createDiscoveryContext(url ?? ai.siteAnalysis?.title ?? 'site')
-      const awaitingConfirm = ai.siteAnalysis?.reason === 'awaiting_user_confirmation'
       return {
         ...base,
         url,
@@ -409,6 +426,10 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
     const blocks = answered.map(
       (q) => `${t('answerQ')} : ${q.prompt}\n${t('answerR')} : ${nextCtx.answers[q.id]}`,
     )
+    const answerText = answered
+      .map((q) => String(nextCtx.answers[q.id] ?? '').trim())
+      .filter(Boolean)
+      .join(' — ')
     const extra: ChatMessage[] = []
     if (blocks.length > 0) {
       const userMsg: ChatMessage = {
@@ -419,7 +440,32 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
       extra.push(userMsg)
       pushMessages(userMsg)
     }
-    await openProposals(nextCtx, historyPlus(...extra))
+    const history = historyPlus(...extra)
+
+    // Site-confirm form: decline / affirm are chat turns — never force propose mode.
+    // (Forcing propose after "Non" was opening journeys on a rejected candidate.)
+    if (siteConfirmPending && answersIncludeSiteDecline(nextCtx.answers)) {
+      const cleared: DiscoveryContext = {
+        ...nextCtx,
+        url: null,
+        pageSnapshot: null,
+        seed: '',
+        answers: {},
+      }
+      setSiteConfirmPending(false)
+      setCtx(cleared)
+      await replyWithAiChat(answerText || 'Non', history, cleared)
+      return
+    }
+    if (siteConfirmPending) {
+      setSiteConfirmPending(false)
+      setCtx(nextCtx)
+      // Affirm → chat with URL so the server explores, then may return proposals.
+      await replyWithAiChat(answerText || 'Oui', history, nextCtx)
+      return
+    }
+
+    await openProposals(nextCtx, history)
   }
 
   const saveQuestionnaireAnswer = async (questionId: string, option: string) => {
@@ -545,20 +591,40 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
     })
   }
 
-  const replyWithAiChat = async (text: string, history: ChatMessage[]) => {
+  const replyWithAiChat = async (
+    text: string,
+    history: ChatMessage[],
+    contextOverride?: DiscoveryContext | null,
+  ) => {
     // Iterating away from a settled plan hides Run/Lancer until a full plan is shown again.
     setPlan(null)
     setProposals([])
     setQuestions([])
     setFormTitle(null)
     setPhase('conversation')
+
+    // Free-text decline while a brand_resolve confirm is open — drop the candidate
+    // before the request so leftover URL/seed cannot revive proposals.
+    let chatCtx = contextOverride !== undefined ? contextOverride : ctx
+    if (
+      contextOverride === undefined &&
+      siteConfirmPending &&
+      looksLikeSiteDecline(text)
+    ) {
+      chatCtx = ctx
+        ? { ...ctx, url: null, pageSnapshot: null, seed: '', answers: {} }
+        : null
+      setSiteConfirmPending(false)
+      setCtx(chatCtx)
+    }
+
     await withTyping(async (signal, onStatus) => {
       const ai = await requestDiscoveryAi({
         mode: 'chat',
         userMessage: text,
         messages: history,
         phase: 'conversation',
-        context: ctx,
+        context: chatCtx,
         preferredLanguage: locale,
         signal,
         onStatus,
