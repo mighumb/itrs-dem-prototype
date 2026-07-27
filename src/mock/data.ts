@@ -13,6 +13,8 @@ export type HomeJourneyExample = {
   id: 'salesforce' | 'axa' | 'amazon' | 'airbnb'
   company: string
   logoSrc: string
+  /** Optional light-on-dark wordmark (e.g. Amazon black → white). */
+  logoSrcDark?: string
   /** Market homepage used as context.url for the sample (locale-aware). */
   url: { en: string; fr: string }
   journeyTitle: { en: string; fr: string }
@@ -65,6 +67,7 @@ export const HOME_JOURNEY_EXAMPLES: readonly HomeJourneyExample[] = [
     id: 'amazon',
     company: 'Amazon',
     logoSrc: '/logos/amazon.svg',
+    logoSrcDark: '/logos/amazon-dark.svg',
     url: {
       en: 'https://www.amazon.com',
       fr: 'https://www.amazon.fr',
