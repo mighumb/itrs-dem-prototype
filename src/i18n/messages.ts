@@ -120,7 +120,6 @@ export const messages = {
     noExecutedSteps: 'No executed steps yet. Run the journey to populate monitoring.',
     newStepsAppear: 'New steps appear here after you run the journey.',
     signUpToUnlockMonitoring: 'to unlock full monitoring.',
-    signUpToUnlockMonitoringBanner: 'Create a free account to unlock full monitoring for this journey.',
     liveMonitoringActive: 'Live monitoring for this journey.',
     monitoringFromThisRun: 'Metrics from this Playwright run.',
     monitoringSimulatedBanner: 'Simulated — no live metrics from Playwright.',
@@ -417,8 +416,6 @@ export const messages = {
     noExecutedSteps: 'Aucune étape exécutée. Lance le parcours pour alimenter le monitoring.',
     newStepsAppear: 'Les nouvelles étapes apparaissent ici après un run.',
     signUpToUnlockMonitoring: 'pour débloquer le monitoring complet.',
-    signUpToUnlockMonitoringBanner:
-      'Crée un compte gratuit pour débloquer le monitoring complet de ce parcours.',
     liveMonitoringActive: 'Monitoring actif pour ce parcours.',
     monitoringFromThisRun: 'Métriques de ce run Playwright.',
     monitoringSimulatedBanner: 'Simulé — pas de métriques live Playwright.',
