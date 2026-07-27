@@ -44,7 +44,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     await runJourneyWithPlaywright({
-      steps: steps.slice(0, 12),
+      steps,
       prompt: typeof body.prompt === 'string' ? body.prompt : undefined,
       signal: abort.signal,
       onEvent: async (event) => {

@@ -49,7 +49,16 @@ const server = http.createServer(async (req, res) => {
     return
   }
 
-  const steps = Array.isArray(body.steps) ? body.steps.slice(0, 12) : []
+  const steps = Array.isArray(body.steps)
+    ? body.steps.filter(
+        (s): s is RunnableStep =>
+          Boolean(s) &&
+          typeof s === 'object' &&
+          typeof s.id === 'string' &&
+          typeof s.label === 'string' &&
+          typeof s.action === 'string',
+      )
+    : []
   if (steps.length === 0) {
     res.writeHead(400, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify({ error: 'steps[] required' }))
