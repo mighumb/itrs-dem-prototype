@@ -22,6 +22,12 @@ import {
   messageRequestsSiteWork,
 } from './_lib/discoverySiteIntent.js'
 import {
+  buildRelocalizeUserPrompt,
+  mergeRelocalizedForm,
+  parseRelocalizeSource,
+  RELOCALIZE_SYSTEM_PROMPT,
+} from './_lib/relocalizeForm.js'
+import {
   resolveSiteTarget,
   type ResolvedSiteTarget,
 } from './_lib/resolveSiteTarget.js'
@@ -31,7 +37,7 @@ import { geminiApiKeys } from './_lib/geminiKeys.js'
 type ChatTurn = { role: 'user' | 'agent'; content: string }
 
 type DiscoveryAiRequest = {
-  mode: 'bootstrap' | 'chat' | 'propose' | 'configure' | 'plan' | 'iterate'
+  mode: 'bootstrap' | 'chat' | 'propose' | 'configure' | 'plan' | 'iterate' | 'relocalize'
   userMessage: string
   history?: ChatTurn[]
   phase?: string
@@ -66,6 +72,7 @@ function isSiteCandidateDeclined(body: DiscoveryAiRequest): boolean {
 }
 
 function shouldAttachSiteEvidence(body: DiscoveryAiRequest): boolean {
+  if (body.mode === 'relocalize') return false
   if (/\brelocalize_ui\b/.test(body.userMessage)) return false
   // Declining a confirm candidate must never keep the URL or open proposals.
   if (isSiteCandidateDeclined(body)) return false
@@ -282,6 +289,116 @@ function parseModelOutput(fullText: string): {
     statuses,
     parsed: extractJson(jsonText) as Record<string, unknown>,
   }
+}
+
+/** Translate floating-form copy only — no Discovery site/journey pipeline. */
+async function handleRelocalize(
+  body: DiscoveryAiRequest,
+  res: VercelResponse,
+  apiKeyEntries: ReturnType<typeof geminiApiKeys>,
+  sendStatus: (text: string) => void,
+) {
+  const lang = body.preferredLanguage ?? 'en'
+  const fr = lang === 'fr'
+  const source = parseRelocalizeSource(body.userMessage)
+  const hasProposals = Array.isArray(source.proposals) && source.proposals.length > 0
+  const hasQuestions = Array.isArray(source.questions) && source.questions.length > 0
+
+  if (!hasProposals && !hasQuestions) {
+    writeNdjson(res, {
+      type: 'result',
+      message: fr ? 'Rien à traduire.' : 'Nothing to translate.',
+      workTrace: null,
+      formTitle: null,
+      questions: null,
+      proposals: null,
+      plan: null,
+      readyForPlan: false,
+      pageSnapshot: null,
+      siteTarget: null,
+      siteConfirmation: { needed: false },
+      siteAnalysis: null,
+      model: null,
+    })
+    return res.end()
+  }
+
+  sendStatus(fr ? 'Traduction du formulaire…' : 'Translating the form…')
+
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+  const isQuotaError = (error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error)
+    return /\b429\b|Too Many Requests|quota|rate.?limit/i.test(message)
+  }
+  const isHardQuotaExhausted = (error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error)
+    return /limit:\s*0\b/i.test(message) || /GenerateRequestsPerDayPerProjectPerModel/i.test(message)
+  }
+  const retryDelayMs = (error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error)
+    const match = message.match(/retry in ([\d.]+)\s*s/i)
+    if (!match) return 1500
+    return Math.min(8000, Math.max(500, Math.ceil(parseFloat(match[1]) * 1000)))
+  }
+
+  let lastError: unknown
+  for (const entry of apiKeyEntries) {
+    const genAI = new GoogleGenerativeAI(entry.key)
+    const modelCandidates = geminiModelCandidates(entry.tier)
+    let quotaHitsOnThisKey = 0
+
+    for (const modelName of modelCandidates) {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const model = genAI.getGenerativeModel({
+            model: modelName,
+            systemInstruction: RELOCALIZE_SYSTEM_PROMPT,
+            generationConfig: {
+              temperature: 0.2,
+            },
+          })
+
+          const result = await model.generateContent(
+            buildRelocalizeUserPrompt(source, lang),
+          )
+          const fullText = result.response.text()
+          const { parsed: rawParsed } = parseModelOutput(fullText)
+          const merged = mergeRelocalizedForm(source, rawParsed ?? {}, lang)
+
+          writeNdjson(res, {
+            type: 'result',
+            message: merged.message,
+            workTrace: null,
+            formTitle: merged.formTitle,
+            questions: merged.questions,
+            proposals: merged.proposals,
+            plan: null,
+            readyForPlan: false,
+            pageSnapshot: null,
+            siteTarget: null,
+            siteConfirmation: { needed: false },
+            siteAnalysis: null,
+            model: modelName,
+          })
+          return res.end()
+        } catch (error) {
+          lastError = error
+          if (isQuotaError(error)) {
+            quotaHitsOnThisKey += 1
+            if (isHardQuotaExhausted(error) || attempt === 1) break
+            await sleep(retryDelayMs(error))
+            continue
+          }
+          break
+        }
+      }
+      if (quotaHitsOnThisKey >= 2) break
+    }
+  }
+
+  const message = lastError instanceof Error ? lastError.message : 'Relocalize failed'
+  writeNdjson(res, { type: 'error', error: message })
+  return res.end()
 }
 
 async function resolveTargetOnly(
@@ -622,6 +739,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const sendStatus = (text: string) => {
     writeNdjson(res, { type: 'status', text })
+  }
+
+  if (body.mode === 'relocalize') {
+    return handleRelocalize(body, res, apiKeyEntries, sendStatus)
   }
 
   let analysis: SiteAnalysisResult | null = null

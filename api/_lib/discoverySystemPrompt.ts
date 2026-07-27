@@ -281,12 +281,8 @@ No markdown fence around the JSON. No text after the JSON object.
   - STATUS lines OK. No floating questionnaire unless truly blocked.
 
 ### UI language switch (relocalize)
-If userMessage includes action "relocalize_ui" (or clearly asks to translate the floating UI):
-- Translate the provided proposals and/or questions into preferredLanguage.
-- Keep the same ids, count, and intents — do not invent a new set.
-- message: one short sentence in the new language (no re-listing). Chat history / plans are NOT rewritten by the client — only the floating form is.
-- Return proposals when translating proposals; questions when translating questions.
-- readyForPlan false. plan null.
+Handled by a dedicated API mode (\`relocalize\`) with its own short translator prompt — not this Discovery agent.
+If you still receive action "relocalize_ui" in chat/propose by mistake: translate the provided proposals/questions only, same ids/count, no new journeys, plan null.
 
 ### Dismiss floating form
 The client closes floating forms **silently** when the user dismisses without validating — no agent turn.

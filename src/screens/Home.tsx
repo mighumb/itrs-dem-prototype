@@ -188,7 +188,10 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
     const needsQuestions = session.phase === 'questionnaire' && session.questions.length > 0
     if (!needsProposals && !needsQuestions) return
 
+    // Floating form content is model-generated — translate it when UI language changes.
+    // Dedicated relocalize mode: no site crawl, no journey re-search, same ids.
     void withTyping(async (signal, onStatus) => {
+      onStatus(t('agentTranslating'))
       const payload = {
         action: 'relocalize_ui',
         targetLanguage: locale,
@@ -197,16 +200,11 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
       }
 
       const ai = await requestDiscoveryAi({
-        mode: needsProposals
-          ? 'propose'
-          : session.configuring
-            ? 'configure'
-            : 'chat',
+        mode: 'relocalize',
         userMessage: JSON.stringify(payload),
-        messages: session.messages,
+        messages: [],
         phase: session.phase,
-        context: session.ctx,
-        selectedProposal: session.ctx?.selectedProposal ?? null,
+        context: null,
         preferredLanguage: locale,
         signal,
         onStatus,
@@ -215,12 +213,22 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
 
       if (needsProposals && ai.proposals && ai.proposals.length > 0) {
         setProposals(ai.proposals)
-        if (ai.formTitle) setFormTitle(ai.formTitle)
+        setFormTitle(
+          ai.formTitle ||
+            (session.phase === 'proposals' ? t('chooseJourney') : t('clarifyRequest')),
+        )
       }
       if (needsQuestions && ai.questions && ai.questions.length > 0) {
         // Preserve answers keyed by id when ids stay stable.
         setQuestions(ai.questions)
-        if (ai.formTitle) setFormTitle(ai.formTitle)
+        setFormTitle(
+          ai.formTitle ||
+            (session.configuring
+              ? t('configureJourney')
+              : session.phase === 'questionnaire' && session.ctx?.url
+                ? t('confirmSite')
+                : t('clarifyRequest')),
+        )
       }
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps -- locale + idle retry after typing

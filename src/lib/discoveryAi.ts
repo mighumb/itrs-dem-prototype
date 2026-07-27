@@ -22,7 +22,14 @@ export {
   messageRequestsSiteWork,
 } from '../../api/_lib/discoverySiteIntent'
 
-export type DiscoveryAiMode = 'bootstrap' | 'chat' | 'propose' | 'configure' | 'plan' | 'iterate'
+export type DiscoveryAiMode =
+  | 'bootstrap'
+  | 'chat'
+  | 'propose'
+  | 'configure'
+  | 'plan'
+  | 'iterate'
+  | 'relocalize'
 
 export type SiteAnalysisInfo = {
   ok: boolean
@@ -218,7 +225,14 @@ function finalizeDiscoveryResult(options: {
   // Never turn "1. Oui / 2. Non" confirm copy into journey proposal cards.
   // Also never revive proposals from prose after the user declined a site candidate
   // (API already nulls proposals[]; recovery must not undo that hard gate).
-  if (!proposals && !questions && !awaitingConfirm && !declined) {
+  // Relocalize must never invent journeys from a translate-only reply.
+  if (
+    !proposals &&
+    !questions &&
+    !awaitingConfirm &&
+    !declined &&
+    options.mode !== 'relocalize'
+  ) {
     proposals = recoverProposalsFromMessage(message, options.fallbackPrompt)
   }
 
@@ -383,7 +397,7 @@ export async function requestDiscoveryAi(options: {
         userMessage,
         phase,
         preferredLanguage,
-        history: historyFromMessages(messages),
+        history: mode === 'relocalize' ? [] : historyFromMessages(messages),
         selectedProposal: selectedProposal
           ? {
               id: selectedProposal.id,
@@ -407,6 +421,7 @@ export async function requestDiscoveryAi(options: {
                 (value) => typeof value === 'string' && looksLikeSiteDecline(value),
               ))
           const attachSite =
+            mode !== 'relocalize' &&
             !declined &&
             (mode === 'propose' ||
               mode === 'configure' ||
@@ -414,7 +429,7 @@ export async function requestDiscoveryAi(options: {
               mode === 'iterate' ||
               messageRequestsSiteWork(userMessage) ||
               (looksLikeSiteConfirmation(userMessage) && Boolean(context?.url)))
-          if (!context) {
+          if (!context || mode === 'relocalize') {
             return { preferredLanguage, journeyName, currentSteps }
           }
           if (!attachSite) {
