@@ -119,27 +119,67 @@ function brandishLeftover(text: string): string {
 }
 
 /**
+ * French/English article + name → compound host token.
+ * "La poste" / "La Poste" → "laposte" so we seed laposte.fr, not poste.fr.
+ * Also matches inside journey sentences: "surveiller La Poste jusqu'à …".
+ */
+export function extractArticleBrandCompounds(text: string): string[] {
+  const out: string[] = []
+  const seen = new Set<string>()
+  const re = /\b(la|le|les|the|l['’])\s+([\p{L}][\p{L}0-9'.-]{2,40})\b/giu
+  let match: RegExpExecArray | null
+  while ((match = re.exec(text)) !== null) {
+    const article = match[1].replace(/['’]/g, '').toLowerCase()
+    const rest = match[2]
+    if (BRAND_BLOCKLIST_RE.test(rest)) continue
+    const restCompact = rest.toLowerCase().replace(/[^a-z0-9]/g, '')
+    if (restCompact.length < 2) continue
+    // Avoid "dans la rue" noise: short lowercase leftovers need length ≥ 4.
+    if (restCompact.length < 4 && !/^[A-ZÀ-Ü]/.test(rest)) continue
+    const compound = `${article}${restCompact}`
+    if (compound.length < restCompact.length + 2) continue
+    if (seen.has(compound)) continue
+    seen.add(compound)
+    out.push(compound)
+  }
+  return out
+}
+
+/**
  * Brand / org tokens left after stripping journey vocabulary.
  * Exported so server brand-resolve Search uses the same leftovers.
  */
 export function extractBrandishTokens(text: string): string[] {
   const leftover = brandishLeftover(text)
-  if (!leftover) return []
-  return leftover
-    .split(/\s+/)
-    .map((w) => w.replace(/^['’]+|['’]+$/g, ''))
-    .filter((w) => {
-      if (!w || BRAND_BLOCKLIST_RE.test(w)) return false
-      const compact = w.replace(/\./g, '')
-      if (compact.length < 2) return false
-      // Long enough leftover → brandish (aliexpress, totalenergies…).
-      if (compact.length >= 4) return true
-      // Short: only ALL-CAPS acronyms (FFF, HP) or Title Case (Asos, Fnac).
-      // Lowercase "sur"/"en" must never become brands.
-      if (/^[A-ZÀ-Ü]{2,3}$/u.test(compact)) return true
-      if (/^[A-ZÀ-Ü][a-zà-ü]{2,}$/u.test(w)) return true
-      return false
-    })
+  const compounds = extractArticleBrandCompounds(text)
+  const fromLeftover = leftover
+    ? leftover
+        .split(/\s+/)
+        .map((w) => w.replace(/^['’]+|['’]+$/g, ''))
+        .filter((w) => {
+          if (!w || BRAND_BLOCKLIST_RE.test(w)) return false
+          const compact = w.replace(/\./g, '')
+          if (compact.length < 2) return false
+          // Long enough leftover → brandish (aliexpress, totalenergies…).
+          if (compact.length >= 4) return true
+          // Short: only ALL-CAPS acronyms (FFF, HP) or Title Case (Asos, Fnac).
+          // Lowercase "sur"/"en" must never become brands.
+          if (/^[A-ZÀ-Ü]{2,3}$/u.test(compact)) return true
+          if (/^[A-ZÀ-Ü][a-zà-ü]{2,}$/u.test(w)) return true
+          return false
+        })
+    : []
+
+  const out: string[] = []
+  const seen = new Set<string>()
+  // Prefer compounds first so ranking / seeding favor laposte over poste.
+  for (const token of [...compounds, ...fromLeftover]) {
+    const key = token.toLowerCase().replace(/[^a-z0-9]/g, '')
+    if (!key || seen.has(key)) continue
+    seen.add(key)
+    out.push(token)
+  }
+  return out
 }
 
 /** Short brand / acronym / org name without URL — resolve, then confirm before proposals. */
