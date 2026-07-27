@@ -155,17 +155,20 @@ function extractBrandishWords(text: string): string[] {
 function extractArticleGluedCompounds(text: string): string[] {
   const out: string[] = []
   const seen = new Set<string>()
-  const re = /\b(la|le|les|the|l['’])\s+([\p{L}][\p{L}0-9'.-]{2,40})\b/giu
+  // "La Poste", "Le Figaro", "L'Oréal" / "L’Oréal" (apostrophe, optional space)
+  const re =
+    /\b(?:(la|le|les|the)\s+|(l['’])\s*)([\p{L}][\p{L}0-9'.-]{2,40})\b/giu
   let match: RegExpExecArray | null
   while ((match = re.exec(text)) !== null) {
-    const article = match[1].replace(/['’]/g, '').toLowerCase()
-    const rest = match[2]
-    if (BRAND_BLOCKLIST_RE.test(rest)) continue
+    const articleRaw = match[1] || match[2] || ''
+    const article = articleRaw.replace(/['’]/g, '').toLowerCase()
+    const rest = match[3]
+    if (!article || !rest || BRAND_BLOCKLIST_RE.test(rest)) continue
     const restCompact = compactToken(rest)
     if (restCompact.length < 2) continue
     if (restCompact.length < 4 && !/^[A-ZÀ-Ü]/.test(rest)) continue
     const compound = `${article}${restCompact}`
-    if (compound.length < restCompact.length + 2) continue
+    if (compound.length < restCompact.length + 1) continue
     if (seen.has(compound)) continue
     seen.add(compound)
     out.push(compound)
