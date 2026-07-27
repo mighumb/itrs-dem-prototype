@@ -1339,7 +1339,8 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
             onClose={panelClose('agent')}
             {...dragProps}
           >
-            <div className="flex-1 space-y-3 overflow-y-auto p-4">
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain p-4">
               {messages.map((msg) => (
                 <AgentMessage
                   key={msg.id}
@@ -1361,15 +1362,10 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
               <div ref={chatEndRef} />
             </div>
             <footer
-              className="sticky z-10 shrink-0 border-t border-zinc-100 bg-[var(--color-surface)] p-3 transition-[bottom] duration-300 ease-out dark:border-zinc-800"
+              className="z-10 shrink-0 border-t border-zinc-100 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900"
               style={{
-                bottom: 'var(--keyboard-inset, 0px)',
                 paddingBottom:
                   'var(--dock-pad-bottom, max(0.75rem, env(safe-area-inset-bottom, 0px)))',
-              }}
-              onFocusCapture={() => {
-                window.scrollTo(0, 0)
-                requestAnimationFrame(() => window.scrollTo(0, 0))
               }}
             >
               <form
@@ -1382,10 +1378,6 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
                 <input
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
-                  onFocus={() => {
-                    window.scrollTo(0, 0)
-                    requestAnimationFrame(() => window.scrollTo(0, 0))
-                  }}
                   placeholder={t('placeholderWorkspace')}
                   disabled={agentTyping}
                   className="w-full rounded-xl border border-zinc-200 bg-zinc-50 py-2.5 pl-3 pr-10 text-base outline-none transition focus:border-[#0071e3] focus:bg-white focus:ring-2 focus:ring-[#0071e3]/20 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:bg-zinc-900"
@@ -1399,6 +1391,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
                 </button>
               </form>
             </footer>
+            </div>
           </WorkspacePanel>
         )
 
@@ -1506,7 +1499,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
   }
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
       {dockedPanels.length > 0 && (
         <div className="flex shrink-0 flex-wrap items-center gap-2 px-4 pt-3">
           {dockedPanels.map((id) => (
@@ -1522,7 +1515,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
       )}
 
       <div
-        className={`flex min-h-0 flex-1 gap-4 overflow-x-auto p-4 ${
+        className={`flex min-h-0 flex-1 gap-4 overflow-x-auto overflow-y-hidden p-4 ${
           centerNarrowPanels ? 'justify-center' : ''
         }`}
       >

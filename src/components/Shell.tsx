@@ -7,6 +7,8 @@ import type { MessageKey } from '../i18n/messages'
 interface ShellProps {
   children: ReactNode
   minimal?: boolean
+  /** Lock to parent height so workspace panels fill the viewport (no document scroll). */
+  fillViewport?: boolean
   onHome?: () => void
 }
 
@@ -16,17 +18,34 @@ const NAV_ITEMS: { key: MessageKey; phase2?: boolean }[] = [
   { key: 'journeys', phase2: true },
 ]
 
-export default function Shell({ children, minimal, onHome }: ShellProps) {
+export default function Shell({ children, minimal, fillViewport, onHome }: ShellProps) {
   const { theme, toggleTheme } = useTheme()
   const { t } = useLocale()
 
   if (minimal) {
-    // Document scroll (not a nested overflow trap) so native pull-to-refresh works.
-    return <div className="flex min-h-full flex-1 flex-col">{children}</div>
+    // Home: document scroll for native pull-to-refresh.
+    // Workspace: fill parent height so panels scroll internally.
+    return (
+      <div
+        className={
+          fillViewport
+            ? 'flex h-full min-h-0 flex-1 flex-col overflow-hidden'
+            : 'flex min-h-full flex-1 flex-col'
+        }
+      >
+        {children}
+      </div>
+    )
   }
 
   return (
-    <div className="flex min-h-full">
+    <div
+      className={
+        fillViewport
+          ? 'flex h-full min-h-0 overflow-hidden'
+          : 'flex min-h-full'
+      }
+    >
       <nav className="hidden w-52 shrink-0 flex-col border-r border-zinc-200/80 bg-white/70 p-4 dark:border-zinc-800 dark:bg-zinc-950/80 md:flex">
         <div className="mb-8 flex items-center gap-1.5 px-2">
           <button
@@ -66,7 +85,15 @@ export default function Shell({ children, minimal, onHome }: ShellProps) {
           ))}
         </ul>
       </nav>
-      <main className="min-w-0 flex-1">{children}</main>
+      <main
+        className={
+          fillViewport
+            ? 'flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden'
+            : 'min-w-0 flex-1'
+        }
+      >
+        {children}
+      </main>
     </div>
   )
 }

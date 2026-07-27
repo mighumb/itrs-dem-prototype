@@ -236,7 +236,7 @@ export default function JourneyTimeline({
   )
 
   return (
-    <div className="overflow-y-auto px-3 py-3">
+    <div className="h-full min-h-0 overflow-y-auto overscroll-contain px-3 py-3">
       {canEdit && (
         <div className="mb-2 flex min-h-9 items-center gap-2 rounded-xl border border-zinc-200/80 bg-zinc-50/80 py-2 pl-2.5 pr-3 dark:border-zinc-700/80 dark:bg-zinc-800/50">
           <label className={`${CHECKBOX_SLOT} cursor-pointer`} title={t('selectAllSteps')}>

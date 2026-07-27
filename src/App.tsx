@@ -80,6 +80,20 @@ export default function App() {
     }
   }, [screen])
 
+  useEffect(() => {
+    if (screen !== 'new-journey') return
+    const html = document.documentElement
+    const body = document.body
+    const prevHtml = html.style.overflow
+    const prevBody = body.style.overflow
+    html.style.overflow = 'hidden'
+    body.style.overflow = 'hidden'
+    return () => {
+      html.style.overflow = prevHtml
+      body.style.overflow = prevBody
+    }
+  }, [screen])
+
   const handleAccountSuccess = () => {
     setAuthOpen(false)
     setSaveOpen(false)
@@ -87,12 +101,20 @@ export default function App() {
     // Stay on the current screen — saving a journey must not eject to Home.
   }
 
+  const isWorkspace = screen === 'new-journey'
+
   return (
     <div
-      className="flex w-full flex-col"
-      style={{ minHeight: 'var(--app-height, 100dvh)' }}
+      className={`flex w-full flex-col ${
+        isWorkspace ? 'h-[var(--app-height,100dvh)] overflow-hidden' : ''
+      }`}
+      style={
+        isWorkspace
+          ? undefined
+          : { minHeight: 'var(--app-height, 100dvh)' }
+      }
     >
-      {(!accountCreated || screen === 'new-journey') && (
+      {(!accountCreated || isWorkspace) && (
         <TopHeader
           onLogIn={() => openAuth('login')}
           onSignUp={() => openAuth('signup')}
@@ -103,8 +125,12 @@ export default function App() {
         />
       )}
 
-      <div className="flex min-h-0 flex-1 flex-col">
-        <Shell minimal={!accountCreated} onHome={handleGoHome}>
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <Shell
+          minimal={!accountCreated}
+          fillViewport={isWorkspace}
+          onHome={handleGoHome}
+        >
         {screen === 'home' && (
           <Home
             key={homeSession}
@@ -113,7 +139,7 @@ export default function App() {
           />
         )}
 
-        {screen === 'new-journey' && launchSession && (
+        {isWorkspace && launchSession && (
           <NewJourney
             ref={journeyRef}
             key={`${journeySession}-${launchSession.prompt || 'default'}`}
