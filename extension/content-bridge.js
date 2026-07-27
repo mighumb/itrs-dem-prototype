@@ -43,5 +43,20 @@
     )
   })
 
+  // Extension → page: stop & import from the recording-tab banner
+  chrome.runtime.onMessage.addListener((message) => {
+    if (!message || typeof message !== 'object') return
+    if (message.type === 'import_recording' && Array.isArray(message.steps)) {
+      window.postMessage(
+        {
+          source: EXT,
+          type: 'import_recording',
+          steps: message.steps,
+        },
+        window.location.origin,
+      )
+    }
+  })
+
   reply({ type: 'ready', installed: true })
 })()

@@ -465,19 +465,35 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
         href: s.href ?? null,
         targetHint: s.targetHint ?? null,
       }))
+      const jsonBody = JSON.stringify({ title, url: lastUrl, steps: stepsJson }, null, 2)
+      const userCaption =
+        locale === 'fr'
+          ? `J’ai enregistré ce parcours dans Chrome (Take control) — ${nextSteps.length} étape(s). Fichier JSON joint.`
+          : `I recorded this journey in Chrome (Take control) — ${nextSteps.length} step(s). JSON file attached.`
       const userPayload = [
         locale === 'fr'
           ? 'J’ai enregistré ce parcours dans Chrome (Take control). Voici le JSON des étapes — garde-les pour le Run :'
           : 'I recorded this journey in Chrome (Take control). Here is the steps JSON — keep them for Run:',
         '```json',
-        JSON.stringify({ title, url: lastUrl, steps: stepsJson }, null, 2),
+        jsonBody,
         '```',
       ].join('\n')
+      const safeName = title
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/gi, '-')
+        .replace(/^-|-$/g, '')
+        .slice(0, 40)
 
       const userMsg: ChatMessage = {
         id: `user-recording-${Date.now()}`,
         role: 'user',
-        content: userPayload,
+        content: userCaption,
+        attachment: {
+          id: `att-recording-${Date.now()}`,
+          filename: `${safeName || 'journey'}-steps.json`,
+          mimeType: 'application/json',
+          text: jsonBody,
+        },
       }
       setMessages((prev) => [
         ...prev,
@@ -1314,8 +1330,8 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
             onClose={panelClose('agent')}
             {...dragProps}
           >
-            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain p-4">
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+            <div className="min-h-0 min-w-0 flex-1 space-y-3 overflow-x-hidden overflow-y-auto overscroll-contain p-4">
               {messages.map((msg) => (
                 <AgentMessage
                   key={msg.id}

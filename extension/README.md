@@ -19,14 +19,15 @@ Useful when sites block server-side Playwright (e.g. adidas.fr).
 2. Browser panel → **Take control** → **Start recording**
 3. Chrome **opens a tab automatically** (site URL when known) with a **red REC bar**
 4. Browse **in that tab** (product, cart, …). The DEM panel shows a **live mirror** while the tab is focused
-5. Watch the step counter increase → **Stop & import steps**
+5. Watch the step counter increase → **Stop & import** (red bar on the Chrome tab **or** Browser panel)
 
 ## What you see where
 
 | Place | Signal |
 | --- | --- |
-| **Chrome tab** | Red bar: `ITRS DEM · Enregistrement en cours` |
+| **Chrome tab** | Red bar: `ITRS DEM · Enregistrement en cours` + **Arrêter et importer** |
 | **ITRS Browser panel** | Red recording strip + step count + live screenshot mirror |
+| **Agent chat** | Short caption + downloadable `.json` chip (not a raw JSON dump) |
 | **Extension popup** | `Recording…` + step count |
 
 If you accidentally close the Chrome tab: in the ITRS panel click **Show / reopen recording tab** — it reopens at the last URL and **keeps** steps already captured.

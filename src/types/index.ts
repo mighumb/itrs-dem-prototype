@@ -18,11 +18,21 @@ export interface JourneyStep {
   timeout?: string
 }
 
+export interface ChatAttachment {
+  id: string
+  filename: string
+  mimeType: string
+  /** Full file body for download — never rendered as message text. */
+  text: string
+}
+
 export interface ChatMessage {
   id: string
   role: 'agent' | 'user'
   content: string
   actions?: ChatAction[]
+  /** Optional downloadable file chip (e.g. recorded journey JSON). */
+  attachment?: ChatAttachment
 }
 
 export interface ChatAction {

@@ -127,11 +127,52 @@ async function focusOrReopenRecordingTab() {
   return { ok: true, reopened: true, url }
 }
 
-chrome.runtime.onInstalled.addListener(() => {
-  recordingTabId = null
-  lastFrame = null
-  void setState({ recording: false, steps: [], startedAt: null, openUrl: null })
-})
+function isDemAppUrl(url) {
+  try {
+    const host = new URL(url).hostname
+    return (
+      host === 'localhost' ||
+      host === '127.0.0.1' ||
+      host.endsWith('.vercel.app') ||
+      host === 'mighumb.github.io'
+    )
+  } catch {
+    return false
+  }
+}
+
+async function stopRecordingInternal() {
+  const state = await getState()
+  stopCaptureLoop()
+  await setState({ ...state, recording: false })
+  return getState()
+}
+
+/** Push recorded steps to open DEM app tabs and focus one. */
+async function notifyDemTabsImport(steps) {
+  const tabs = await chrome.tabs.query({})
+  const demTabs = tabs.filter((tab) => typeof tab.url === 'string' && isDemAppUrl(tab.url))
+  for (const tab of demTabs) {
+    if (tab.id == null) continue
+    try {
+      await chrome.tabs.sendMessage(tab.id, { type: 'import_recording', steps })
+    } catch {
+      // Content bridge may not be injected yet — ignore.
+    }
+  }
+  const focus = demTabs[0]
+  if (focus?.id != null) {
+    try {
+      if (focus.windowId != null) {
+        await chrome.windows.update(focus.windowId, { focused: true })
+      }
+      await chrome.tabs.update(focus.id, { active: true })
+    } catch {
+      // ignore
+    }
+  }
+  return demTabs.length
+}
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   if (tabId === recordingTabId) {
@@ -228,14 +269,25 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
 
       if (message.type === 'stop_recording') {
-        const state = await getState()
-        stopCaptureLoop()
-        await setState({ ...state, recording: false })
-        const next = await getState()
+        const next = await stopRecordingInternal()
         sendResponse({
           ok: true,
           recording: false,
           steps: next.steps,
+          frame: lastFrame,
+        })
+        return
+      }
+
+      if (message.type === 'stop_and_import') {
+        const next = await stopRecordingInternal()
+        const steps = Array.isArray(next.steps) ? next.steps : []
+        const notified = await notifyDemTabsImport(steps)
+        sendResponse({
+          ok: true,
+          recording: false,
+          steps,
+          notified,
           frame: lastFrame,
         })
         return

@@ -1,5 +1,5 @@
 import { ExternalLink, Hand, Loader2 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useLocale } from '../context/LocaleContext'
 import {
   focusRecordingTab,
@@ -8,6 +8,7 @@ import {
   pingExtension,
   startExtensionRecording,
   stopExtensionRecording,
+  subscribeImportRecording,
   type RecordedBrowserStep,
 } from '../lib/extensionBridge'
 import type { BrowserFrame } from '../types'
@@ -40,6 +41,8 @@ export default function BrowserPanel({
   const [liveFrame, setLiveFrame] = useState<string | null>(null)
   const [liveUrl, setLiveUrl] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const onApplyRef = useRef(onApplyRecording)
+  onApplyRef.current = onApplyRecording
 
   useEffect(() => {
     if (phase !== 'recording') return
@@ -52,6 +55,23 @@ export default function BrowserPanel({
     }, 800)
     return () => window.clearInterval(id)
   }, [phase])
+
+  // Import from Chrome recording-tab banner ("Arrêter et importer").
+  useEffect(() => {
+    return subscribeImportRecording((steps) => {
+      const apply = onApplyRef.current
+      if (!apply || steps.length === 0) {
+        setPhase((prev) => (prev === 'recording' ? 'ready' : prev))
+        if (steps.length === 0) setError(t('extensionNoSteps'))
+        return
+      }
+      apply(steps)
+      setPhase('closed')
+      setStepCount(0)
+      setLiveFrame(null)
+      setError(null)
+    })
+  }, [t])
 
   const openTakeControl = async () => {
     if (disabled || isRunning) return
