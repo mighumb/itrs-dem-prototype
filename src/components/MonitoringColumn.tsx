@@ -1,5 +1,6 @@
-import { AlertTriangle, CheckCircle2, X } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, Expand, X } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useLocale } from '../context/LocaleContext'
 import { computeLastRunKpi, formatDurationMs } from '../lib/runMonitoring'
 import type { LastRunSnapshot, LastRunStepMetric } from '../types'
@@ -24,6 +25,7 @@ export default function MonitoringColumn({
   const { t, tf, locale } = useLocale()
   const runSteps = lastRun?.steps ?? []
   const [selectedStepId, setSelectedStepId] = useState(runSteps[0]?.stepId ?? '')
+  const [lightboxStepId, setLightboxStepId] = useState<string | null>(null)
 
   const failedCount = runSteps.filter((s) => s.status === 'failed').length
   const kpi = computeLastRunKpi(lastRun, locale)
@@ -32,14 +34,32 @@ export default function MonitoringColumn({
   const alertMessage = tf('stepsFailedInRun', { count: failedCount })
   const isSimulated = lastRun?.mode === 'simulated'
 
+  const lightboxSteps = useMemo(
+    () => runSteps.filter((step) => Boolean(step.screenshotDataUrl)),
+    [runSteps],
+  )
+
   useEffect(() => {
     if (!runSteps.some((step) => step.stepId === selectedStepId)) {
       setSelectedStepId(runSteps[0]?.stepId ?? '')
     }
   }, [runSteps, selectedStepId])
 
+  useEffect(() => {
+    if (lightboxStepId && !lightboxSteps.some((step) => step.stepId === lightboxStepId)) {
+      setLightboxStepId(null)
+    }
+  }, [lightboxStepId, lightboxSteps])
+
   const selectedStep =
     runSteps.find((step) => step.stepId === selectedStepId) ?? runSteps[0] ?? null
+
+  const openLightbox = (stepId: string) => {
+    setSelectedStepId(stepId)
+    if (runSteps.some((s) => s.stepId === stepId && s.screenshotDataUrl)) {
+      setLightboxStepId(stepId)
+    }
+  }
 
   const footer = isUnsaved ? (
     <div className="shrink-0 border-t border-amber-200/60 bg-amber-50 px-3 py-2.5 dark:border-amber-900/40 dark:bg-amber-950/40">
@@ -108,13 +128,12 @@ export default function MonitoringColumn({
                 const isFailed = step.status === 'failed'
                 const stepNumber = step.index + 1
                 const shortLabel = step.label.split(/\s+/).filter(Boolean).slice(0, 2).join(' ')
+                const hasShot = Boolean(step.screenshotDataUrl)
 
                 return (
-                  <button
+                  <div
                     key={step.stepId}
-                    type="button"
-                    onClick={() => setSelectedStepId(step.stepId)}
-                    className={`flex w-[clamp(7.5rem,42cqw,14rem)] shrink-0 cursor-pointer flex-col gap-[clamp(0.3rem,1.4cqw,0.55rem)] rounded-lg border p-[clamp(0.3rem,1.2cqw,0.5rem)] text-left transition ${
+                    className={`group relative flex w-[clamp(7.5rem,42cqw,14rem)] shrink-0 flex-col gap-[clamp(0.3rem,1.4cqw,0.55rem)] rounded-lg border p-[clamp(0.3rem,1.2cqw,0.5rem)] text-left transition ${
                       isSelected
                         ? 'border-[#0071e3] bg-[#0071e3]/8 ring-2 ring-[#0071e3]/25'
                         : isFailed
@@ -122,35 +141,67 @@ export default function MonitoringColumn({
                           : 'border-zinc-200/80 bg-white hover:border-zinc-300 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:border-zinc-600'
                     }`}
                   >
-                    <CaptureFrame
-                      src={step.screenshotDataUrl}
-                      failed={isFailed}
-                      size="thumb"
-                    />
-                    <div className="min-w-0 px-0.5 text-center">
-                      <p
-                        className={`truncate text-[clamp(0.65rem,2.6cqw,0.8rem)] font-medium leading-tight ${
-                          isSelected ? 'text-[#0071e3]' : 'text-zinc-700 dark:text-zinc-200'
-                        }`}
+                    <button
+                      type="button"
+                      onClick={() => setSelectedStepId(step.stepId)}
+                      className="flex w-full cursor-pointer flex-col gap-[clamp(0.3rem,1.4cqw,0.55rem)] text-left"
+                    >
+                      <CaptureFrame
+                        src={step.screenshotDataUrl}
+                        failed={isFailed}
+                        size="thumb"
+                      />
+                      <div className="min-w-0 px-0.5 text-center">
+                        <p
+                          className={`truncate text-[clamp(0.65rem,2.6cqw,0.8rem)] font-medium leading-tight ${
+                            isSelected ? 'text-[#0071e3]' : 'text-zinc-700 dark:text-zinc-200'
+                          }`}
+                        >
+                          <span className="tabular-nums">{stepNumber}</span>
+                          <span className="mx-1 text-zinc-300 dark:text-zinc-600">·</span>
+                          {shortLabel}
+                        </p>
+                        <p className="mt-0.5 text-[clamp(0.6rem,2.3cqw,0.72rem)] tabular-nums text-zinc-400">
+                          {formatDurationMs(step.durationMs)}
+                        </p>
+                      </div>
+                    </button>
+
+                    {hasShot && (
+                      <button
+                        type="button"
+                        title={t('expandScreenshot')}
+                        aria-label={t('expandScreenshot')}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          openLightbox(step.stepId)
+                        }}
+                        className="absolute right-2 top-2 z-10 flex h-7 w-7 cursor-pointer items-center justify-center rounded-md bg-zinc-950/70 text-white opacity-0 shadow transition hover:bg-zinc-950/85 group-hover:opacity-100 focus-visible:opacity-100"
                       >
-                        <span className="tabular-nums">{stepNumber}</span>
-                        <span className="mx-1 text-zinc-300 dark:text-zinc-600">·</span>
-                        {shortLabel}
-                      </p>
-                      <p className="mt-0.5 text-[clamp(0.6rem,2.3cqw,0.72rem)] tabular-nums text-zinc-400">
-                        {formatDurationMs(step.durationMs)}
-                      </p>
-                    </div>
-                  </button>
+                        <Expand size={14} />
+                      </button>
+                    )}
+                  </div>
                 )
               })}
             </div>
           )}
         </div>
 
-        {selectedStep && <StepDetailPanel step={selectedStep} />}
+        {selectedStep && (
+          <StepDetailPanel step={selectedStep} onExpandCapture={() => openLightbox(selectedStep.stepId)} />
+        )}
       </div>
       {footer}
+
+      {lightboxStepId && (
+        <ScreenshotLightbox
+          steps={lightboxSteps}
+          activeStepId={lightboxStepId}
+          onActiveStepIdChange={setLightboxStepId}
+          onClose={() => setLightboxStepId(null)}
+        />
+      )}
     </>
   )
 
@@ -178,17 +229,139 @@ export default function MonitoringColumn({
   )
 }
 
-function StepDetailPanel({ step }: { step: LastRunStepMetric }) {
+function ScreenshotLightbox({
+  steps,
+  activeStepId,
+  onActiveStepIdChange,
+  onClose,
+}: {
+  steps: LastRunStepMetric[]
+  activeStepId: string
+  onActiveStepIdChange: (stepId: string) => void
+  onClose: () => void
+}) {
+  const { t, tf } = useLocale()
+  const index = Math.max(
+    0,
+    steps.findIndex((step) => step.stepId === activeStepId),
+  )
+  const step = steps[index] ?? null
+  const hasPrev = index > 0
+  const hasNext = index < steps.length - 1
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        onClose()
+        return
+      }
+      if (event.key === 'ArrowLeft' && hasPrev) {
+        event.preventDefault()
+        onActiveStepIdChange(steps[index - 1]!.stepId)
+        return
+      }
+      if (event.key === 'ArrowRight' && hasNext) {
+        event.preventDefault()
+        onActiveStepIdChange(steps[index + 1]!.stepId)
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      document.body.style.overflow = previousOverflow
+    }
+  }, [hasNext, hasPrev, index, onActiveStepIdChange, onClose, steps])
+
+  if (!step?.screenshotDataUrl || typeof document === 'undefined') return null
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[80] flex items-center justify-center bg-zinc-950/45 p-4 backdrop-blur-md animate-fade-in sm:p-8"
+      role="dialog"
+      aria-modal="true"
+      aria-label={t('expandScreenshot')}
+      onClick={onClose}
+    >
+      <div
+        className="relative flex w-[min(92vw,1100px)] max-h-[88vh] flex-col overflow-hidden rounded-2xl border border-white/15 bg-zinc-950/90 shadow-2xl"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <header className="flex shrink-0 items-start justify-between gap-3 border-b border-white/10 px-4 py-3">
+          <div className="min-w-0">
+            <p className="text-[10px] font-medium uppercase tracking-wider text-zinc-400">
+              {tf('stepN', { n: step.index + 1 })}
+            </p>
+            <p className="mt-0.5 truncate text-sm font-semibold text-white">{step.label}</p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            title={t('closeScreenshot')}
+            aria-label={t('closeScreenshot')}
+            className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-lg text-zinc-300 transition hover:bg-white/10 hover:text-white"
+          >
+            <X size={16} />
+          </button>
+        </header>
+
+        <div className="relative min-h-0 flex-1 bg-black/40 p-3 sm:p-4">
+          <div className="mx-auto aspect-video max-h-[min(72vh,720px)] w-full overflow-hidden rounded-xl bg-zinc-900">
+            <img
+              src={step.screenshotDataUrl}
+              alt={step.label}
+              className="h-full w-full object-contain object-top"
+            />
+          </div>
+
+          {hasPrev && (
+            <button
+              type="button"
+              title={t('previousScreenshot')}
+              aria-label={t('previousScreenshot')}
+              onClick={() => onActiveStepIdChange(steps[index - 1]!.stepId)}
+              className="absolute left-2 top-1/2 flex h-10 w-10 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full border border-white/15 bg-zinc-950/70 text-white shadow transition hover:bg-zinc-950/90 sm:left-3"
+            >
+              <ChevronLeft size={20} />
+            </button>
+          )}
+          {hasNext && (
+            <button
+              type="button"
+              title={t('nextScreenshot')}
+              aria-label={t('nextScreenshot')}
+              onClick={() => onActiveStepIdChange(steps[index + 1]!.stepId)}
+              className="absolute right-2 top-1/2 flex h-10 w-10 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full border border-white/15 bg-zinc-950/70 text-white shadow transition hover:bg-zinc-950/90 sm:right-3"
+            >
+              <ChevronRight size={20} />
+            </button>
+          )}
+        </div>
+      </div>
+    </div>,
+    document.body,
+  )
+}
+
+function StepDetailPanel({
+  step,
+  onExpandCapture,
+}: {
+  step: LastRunStepMetric
+  onExpandCapture: () => void
+}) {
   const { t, tf } = useLocale()
   const isFailed = step.status === 'failed'
   const statusLabel = isFailed ? t('statusFailing') : t('statusOk')
+  const hasShot = Boolean(step.screenshotDataUrl)
 
   return (
     <div className="mt-3 rounded-xl border border-zinc-200/80 bg-white p-4 dark:border-zinc-700/80 dark:bg-zinc-900">
       {/*
         Narrow monitoring: metrics stacked, large 16:9 capture below.
         Wide panel (other panels closed / monitoring expanded): metrics left, capture right.
-        Breakpoint uses the Monitoring scroll container width (@container/monitoring).
       */}
       <div className="flex flex-col gap-4 @[40rem]/monitoring:grid @[40rem]/monitoring:grid-cols-[minmax(14rem,0.95fr)_minmax(0,1.35fr)] @[40rem]/monitoring:items-start @[40rem]/monitoring:gap-5">
         <div className="min-w-0">
@@ -223,15 +396,39 @@ function StepDetailPanel({ step }: { step: LastRunStepMetric }) {
         </div>
 
         <div className="min-w-0 @[40rem]/monitoring:sticky @[40rem]/monitoring:top-0">
-          <p className="mb-2 text-[10px] font-medium uppercase tracking-wider text-zinc-400">
-            {t('monitoringCapture')}
-          </p>
-          <CaptureFrame
-            src={step.screenshotDataUrl}
-            failed={isFailed}
-            size="hero"
-            alt={tf('monitoringCaptureAlt', { label: step.label })}
-          />
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <p className="text-[10px] font-medium uppercase tracking-wider text-zinc-400">
+              {t('monitoringCapture')}
+            </p>
+            {hasShot && (
+              <button
+                type="button"
+                onClick={onExpandCapture}
+                title={t('expandScreenshot')}
+                className="flex cursor-pointer items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium text-zinc-500 transition hover:bg-zinc-100 hover:text-[#0071e3] dark:hover:bg-zinc-800"
+              >
+                <Expand size={12} />
+                {t('expandScreenshot')}
+              </button>
+            )}
+          </div>
+          {hasShot ? (
+            <button
+              type="button"
+              onClick={onExpandCapture}
+              className="block w-full cursor-pointer text-left"
+              title={t('expandScreenshot')}
+            >
+              <CaptureFrame
+                src={step.screenshotDataUrl}
+                failed={isFailed}
+                size="hero"
+                alt={tf('monitoringCaptureAlt', { label: step.label })}
+              />
+            </button>
+          ) : (
+            <CaptureFrame failed={isFailed} size="hero" />
+          )}
         </div>
       </div>
     </div>
