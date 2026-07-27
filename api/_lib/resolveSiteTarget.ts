@@ -52,6 +52,60 @@ function brandHostScore(url: string, brandTokens: string[]): number {
   }
 }
 
+function compactBrandToken(token: string): string {
+  return token.toLowerCase().replace(/[^a-z0-9]/g, '')
+}
+
+/** Error/login/auth subdomains are never a monitoring homepage. */
+function isJunkResolvedHost(url: string): boolean {
+  try {
+    const host = new URL(url).hostname.toLowerCase().replace(/^www\./, '')
+    if (
+      /^(error|errors|err|login|signin|signup|auth|account|passport|sso|oauth)\./i.test(
+        host,
+      )
+    ) {
+      return true
+    }
+    return false
+  } catch {
+    return true
+  }
+}
+
+/**
+ * Deterministic homepage guesses from the named brand — tried before Search
+ * so a bad grounding hit cannot invent an unrelated sibling host.
+ */
+function seedBrandHomepages(
+  brandTokens: string[],
+  preferredLanguage?: 'en' | 'fr' | null,
+): Array<{ url: string; title: string | null }> {
+  const out: Array<{ url: string; title: string | null }> = []
+  const seen = new Set<string>()
+  const push = (url: string) => {
+    try {
+      const key = new URL(url).hostname.toLowerCase()
+      if (seen.has(key)) return
+      seen.add(key)
+      out.push({ url, title: null })
+    } catch {
+      /* ignore */
+    }
+  }
+  for (const token of brandTokens) {
+    const compact = compactBrandToken(token)
+    if (compact.length < 3) continue
+    if (preferredLanguage === 'fr') {
+      push(`https://fr.${compact}.com`)
+      push(`https://www.${compact}.fr`)
+    }
+    push(`https://www.${compact}.com`)
+    push(`https://${compact}.com`)
+  }
+  return out
+}
+
 function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
   return new Promise((resolve) => {
     const timer = setTimeout(() => resolve(fallback), ms)
@@ -153,41 +207,80 @@ Rules:
       const grounded = urlsFromGrounding(result.response)
 
       const candidates = [
+        ...seedBrandHomepages(brandTokens, preferredLanguage),
         ...(fromText ? [{ url: fromText, title: null as string | null }] : []),
         ...grounded,
       ]
+        .filter((c) => !isJunkResolvedHost(c.url))
         .map((c) => ({
           ...c,
           brand: brandHostScore(c.url, brandTokens),
           locale: localeUrlScore(c.url, preferredLanguage),
         }))
         .sort((a, b) => b.brand - a.brand || b.locale - a.locale)
-        .slice(0, 6)
 
-      // Prefer candidates whose host contains the named brand; do not fall through
-      // to a reachable alternate host just because it answered first.
-      const brandMatched = candidates.filter((c) => c.brand > 0)
-      const tryList = brandMatched.length > 0 ? brandMatched : candidates
+      // Deduplicate by hostname while keeping the best score first.
+      const seenHosts = new Set<string>()
+      const unique: typeof candidates = []
+      for (const c of candidates) {
+        try {
+          const host = new URL(c.url).hostname.toLowerCase()
+          if (seenHosts.has(host)) continue
+          seenHosts.add(host)
+          unique.push(c)
+        } catch {
+          /* skip */
+        }
+      }
 
-      for (const candidate of tryList) {
-        // Quick reachability check — prefer a URL that actually responds
+      // HARD RULE: with named brand tokens, never accept a host that does not
+      // contain those tokens (no reachable-sibling fallback).
+      const brandMatched = unique.filter((c) => c.brand > 0).slice(0, 6)
+      if (brandMatched.length === 0) {
+        return {
+          url: null,
+          label: null,
+          note: 'Could not resolve a confident official URL from the brand/name',
+        }
+      }
+
+      for (const candidate of brandMatched) {
         const probe = await analyzePublicSite(candidate.url)
+        const finalUrl = probe.url || candidate.url
+
+        // Probe followed a redirect off-brand (e.g. aliexpress → error.taobao) —
+        // keep the brand-matching candidate URL, do not ship the junk host.
+        if (
+          isJunkResolvedHost(finalUrl) ||
+          brandHostScore(finalUrl, brandTokens) === 0
+        ) {
+          if (!isJunkResolvedHost(candidate.url) && brandHostScore(candidate.url, brandTokens) > 0) {
+            return {
+              url: candidate.url,
+              label: candidate.title,
+              note: `Resolved brand/name to ${candidate.url} (probe redirected off-brand)`,
+            }
+          }
+          continue
+        }
+
         if (probe.ok) {
           return {
-            url: probe.url,
+            url: finalUrl,
             label: candidate.title ?? probe.title,
-            note: `Resolved brand/name to ${probe.url}`,
+            note: `Resolved brand/name to ${finalUrl}`,
           }
         }
       }
 
       // Incomplete probe is OK only when the host still contains the named brand.
-      // Never fall back to an alternate host that does not match the brand tokens.
-      if (fromText && brandHostScore(fromText, brandTokens) > 0) {
+      const fallback =
+        brandMatched.find((c) => !isJunkResolvedHost(c.url)) ?? null
+      if (fallback) {
         return {
-          url: fromText,
-          label: null,
-          note: `Resolved brand/name to ${fromText} (page probe incomplete)`,
+          url: fallback.url,
+          label: fallback.title,
+          note: `Resolved brand/name to ${fallback.url} (page probe incomplete)`,
         }
       }
 
@@ -203,6 +296,27 @@ Rules:
   }
 
   const message = lastError instanceof Error ? lastError.message : 'brand resolve failed'
+
+  // Model/Search failed — still try deterministic www.{brand}.com guesses.
+  const seedOnly = seedBrandHomepages(brandTokens, preferredLanguage)
+  for (const seed of seedOnly) {
+    if (brandHostScore(seed.url, brandTokens) === 0 || isJunkResolvedHost(seed.url)) continue
+    const probe = await analyzePublicSite(seed.url)
+    const finalUrl = probe.url || seed.url
+    if (!isJunkResolvedHost(finalUrl) && brandHostScore(finalUrl, brandTokens) > 0 && probe.ok) {
+      return {
+        url: finalUrl,
+        label: probe.title,
+        note: `Resolved brand/name to ${finalUrl}`,
+      }
+    }
+    return {
+      url: seed.url,
+      label: null,
+      note: `Resolved brand/name to ${seed.url} (seed; Search unavailable: ${message})`,
+    }
+  }
+
   return { url: null, label: null, note: `Brand resolve unavailable (${message})` }
 }
 
@@ -269,6 +383,19 @@ export async function resolveSiteTarget(
       }
       lastNote = resolved.note
       lastLabel = resolved.label
+    }
+    // Last resort without a successful Gemini answer: still seed www.{brand}.com.
+    const seeds = seedBrandHomepages(brandTokens, options.preferredLanguage)
+    for (const seed of seeds) {
+      if (isJunkResolvedHost(seed.url) || brandHostScore(seed.url, brandTokens) === 0) continue
+      return {
+        url: seed.url,
+        source: 'brand_resolve',
+        label: seed.title,
+        note: lastNote
+          ? `${lastNote} — using ${seed.url}`
+          : `Resolved brand/name to ${seed.url}`,
+      }
     }
     return {
       url: null,
