@@ -16,6 +16,8 @@ import type { BrowserFrame } from '../types'
 interface BrowserPanelProps {
   frame: BrowserFrame | null
   isRunning?: boolean
+  /** Label of the action currently executing (frozen capture + overlay). */
+  runningActionLabel?: string | null
   embedded?: boolean
   /** Site URL to open automatically when recording starts. */
   startUrl?: string | null
@@ -29,20 +31,51 @@ type ControlPhase = 'closed' | 'checking' | 'missing' | 'ready' | 'recording' | 
 export default function BrowserPanel({
   frame,
   isRunning,
+  runningActionLabel,
   embedded,
   startUrl,
   onApplyRecording,
   disabled,
 }: BrowserPanelProps) {
   const { t, tf } = useLocale()
-  const hasScreenshot = Boolean(frame?.screenshotDataUrl)
   const [phase, setPhase] = useState<ControlPhase>('closed')
   const [stepCount, setStepCount] = useState(0)
   const [liveFrame, setLiveFrame] = useState<string | null>(null)
   const [liveUrl, setLiveUrl] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  /** Screenshot currently painted — kept frozen until the next one fully loads. */
+  const [heldShot, setHeldShot] = useState<string | null>(null)
+  /** Incoming screenshot decoding in the background. */
+  const [pendingShot, setPendingShot] = useState<string | null>(null)
+  const heldShotRef = useRef<string | null>(null)
   const onApplyRef = useRef(onApplyRecording)
   onApplyRef.current = onApplyRecording
+
+  useEffect(() => {
+    // Explicit null frame (run start / reset) clears the held capture.
+    if (frame === null) {
+      heldShotRef.current = null
+      setHeldShot(null)
+      setPendingShot(null)
+      return
+    }
+    const next = frame.screenshotDataUrl ?? null
+    if (!next) {
+      // Metadata-only updates (step_start) must keep the previous screenshot frozen.
+      return
+    }
+    if (next === heldShotRef.current) {
+      setPendingShot(null)
+      return
+    }
+    if (!heldShotRef.current) {
+      heldShotRef.current = next
+      setHeldShot(next)
+      setPendingShot(null)
+      return
+    }
+    setPendingShot(next)
+  }, [frame])
 
   useEffect(() => {
     if (phase !== 'recording') return
@@ -72,6 +105,12 @@ export default function BrowserPanel({
       setError(null)
     })
   }, [t])
+
+  const promotePendingShot = (src: string) => {
+    heldShotRef.current = src
+    setHeldShot(src)
+    setPendingShot((current) => (current === src ? null : current))
+  }
 
   const openTakeControl = async () => {
     if (disabled || isRunning) return
@@ -143,6 +182,8 @@ export default function BrowserPanel({
       : frame?.url ?? 'about:blank'
 
   const showLiveMirror = phase === 'recording' && Boolean(liveFrame)
+  const hasHeldShot = Boolean(heldShot)
+  const showActionOverlay = Boolean(isRunning && runningActionLabel && !showLiveMirror)
 
   return (
     <div
@@ -181,18 +222,29 @@ export default function BrowserPanel({
             alt={t('extensionLiveView')}
             className="h-full w-full object-contain object-top bg-white"
           />
+        ) : hasHeldShot ? (
+          <>
+            <img
+              src={heldShot!}
+              alt={frame?.title || frame?.url || t('browserScreenshotAlt')}
+              className="h-full w-full object-contain object-top bg-white"
+            />
+            {pendingShot && pendingShot !== heldShot && (
+              <img
+                src={pendingShot}
+                alt=""
+                aria-hidden
+                className="pointer-events-none absolute inset-0 h-full w-full object-contain object-top opacity-0"
+                onLoad={() => promotePendingShot(pendingShot)}
+                onError={() => setPendingShot(null)}
+              />
+            )}
+          </>
         ) : !frame ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
             <p className="text-sm font-medium text-zinc-500">{t('browserPreview')}</p>
             <p className="max-w-xs text-xs text-zinc-400">{t('browserPreviewHint')}</p>
           </div>
-        ) : hasScreenshot ? (
-          <img
-            key={frame.screenshotDataUrl}
-            src={frame.screenshotDataUrl}
-            alt={frame.title || frame.url || t('browserScreenshotAlt')}
-            className="h-full w-full object-contain object-top bg-white"
-          />
         ) : isRunning ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
             <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-500" />
@@ -203,6 +255,20 @@ export default function BrowserPanel({
           <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
             <p className="text-sm font-medium text-zinc-500">{t('browserPreview')}</p>
             <p className="max-w-xs text-xs text-zinc-400">{t('extensionHint')}</p>
+          </div>
+        )}
+
+        {showActionOverlay && (
+          <div className="pointer-events-none absolute inset-x-0 top-3 z-[5] flex justify-center px-3">
+            <div className="flex max-w-md items-center gap-2 rounded-full border border-white/20 bg-zinc-950/70 px-3 py-1.5 text-white shadow-lg backdrop-blur-sm">
+              <Loader2 size={13} className="shrink-0 animate-spin text-emerald-300" />
+              <div className="min-w-0">
+                <p className="text-[10px] font-medium uppercase tracking-wide text-white/70">
+                  {t('actionInProgress')}
+                </p>
+                <p className="truncate text-xs font-semibold leading-tight">{runningActionLabel}</p>
+              </div>
+            </div>
           </div>
         )}
 
@@ -343,10 +409,10 @@ export default function BrowserPanel({
             <Hand size={12} />
             {t('takeControl')}
           </button>
-          {hasScreenshot && (
+          {hasHeldShot && (
             <span className="text-[10px] text-zinc-400">{t('playwrightCapture')}</span>
           )}
-          {onApplyRecording && !hasScreenshot && (
+          {onApplyRecording && !hasHeldShot && (
             <span className="text-[10px] text-zinc-400">{t('extensionHint')}</span>
           )}
         </div>
