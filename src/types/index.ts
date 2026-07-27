@@ -19,7 +19,6 @@ export interface JourneyAction {
   timeout?: string
 }
 
-<<<<<<< HEAD
 export interface ChatAttachment {
   id: string
   filename: string
@@ -28,7 +27,6 @@ export interface ChatAttachment {
   text: string
 }
 
-=======
 /**
  * User-journey stage (milestone). May be empty — empty stages do nothing at run time.
  * Default product rule: 1 action = 1 stage; users can regroup actions into fewer stages.
@@ -42,7 +40,6 @@ export interface JourneyStage {
 /** @deprecated Prefer JourneyAction — kept as alias for runner/monitoring call sites. */
 export type JourneyStep = JourneyAction
 
->>>>>>> 492c0ac (feat(journey): hierarchical stages state in NewJourney workspace)
 export interface ChatMessage {
   id: string
   role: 'agent' | 'user'
