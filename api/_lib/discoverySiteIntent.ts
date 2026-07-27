@@ -204,6 +204,27 @@ export function messageRequestsSiteWork(text: string): boolean {
   return looksLikeAmbiguousBrandName(t)
 }
 
+/**
+ * User already named a concrete journey outcome (beyond brand alone).
+ * Used so proposals #1 must honor that ask after site confirm — not generic templates.
+ */
+export function summarizeStatedJourneyIntent(text: string): string | null {
+  const t = text.trim()
+  if (!t || t.length < 10) return null
+  if (looksLikeSiteConfirmation(t) || looksLikeSiteDecline(t) || looksLikeSocialChat(t)) {
+    return null
+  }
+  const hasJourneyVerb =
+    /\b(achat|acheter|commande|commander|panier|livraison|livrer|checkout|purchase|buy|buying|order|orders|cart|delivery|recherche|search|connexion|login|log[\s-]?in|inscription|signup|sign[\s-]?up|parcours|journey|réserver|reserver|book(?:ing)?|payer|pay|payment|tunnel)\b/i.test(
+      t,
+    )
+  if (!hasJourneyVerb) return null
+  // Brand-only leftovers like "Asos" / "monitor Boohoo" without a journey outcome → null
+  const withoutBrand = brandishLeftover(t)
+  if (!withoutBrand && !hasJourneyVerb) return null
+  return t.length > 280 ? `${t.slice(0, 277)}…` : t
+}
+
 /** Any answer string in a map looks like a site decline. */
 export function answersIncludeSiteDecline(
   answers: Record<string, string> | null | undefined,

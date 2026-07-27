@@ -20,6 +20,7 @@ import {
   looksLikeSiteConfirmation,
   looksLikeSiteDecline,
   messageRequestsSiteWork,
+  summarizeStatedJourneyIntent,
 } from './_lib/discoverySiteIntent.js'
 import {
   buildRelocalizeUserPrompt,
@@ -108,11 +109,21 @@ function buildUserPrompt(
   const attachSite = shouldAttachSiteEvidence(body)
   const confirmFirst = shouldConfirmBeforeExplore(body, target)
   const base = body.context ?? {}
+  const seed = typeof base.seed === 'string' ? base.seed.trim() : ''
+  // Latest user turn wins when they revise the journey; seed is the default otherwise.
+  const fromLatest = summarizeStatedJourneyIntent(body.userMessage)
+  const fromSeed = summarizeStatedJourneyIntent(seed)
+  const statedJourneyIntent = fromLatest ?? fromSeed
+  const intentSource = fromLatest ? 'latest' : fromSeed ? 'seed' : null
 
   const context = attachSite
     ? {
         ...base,
         preferredLanguage,
+        seed: seed || base.seed || null,
+        /** Original/latest journey ask — proposals MUST honor this when set. */
+        statedJourneyIntent,
+        statedJourneyIntentSource: intentSource,
         url: analysis?.url ?? target?.url ?? base.url ?? null,
         pageSnapshot: confirmFirst
           ? null
@@ -152,6 +163,7 @@ function buildUserPrompt(
         journeyName: base.journeyName ?? null,
         currentSteps: base.currentSteps ?? null,
         seed: null,
+        statedJourneyIntent: null,
         url: null,
         pageSnapshot: null,
         siteTarget: null,
@@ -160,12 +172,22 @@ function buildUserPrompt(
         siteConfirmation: { needed: false },
       }
 
+  // After a bare "oui", keep the seed journey ask visible; if they revised in this
+  // message, statedJourneyIntent already comes from the latest turn.
+  const userMessage =
+    !fromLatest &&
+    statedJourneyIntent &&
+    looksLikeSiteConfirmation(body.userMessage) &&
+    !confirmFirst
+      ? `${body.userMessage}\n\n[Original monitoring request — honor for proposals #1]: ${statedJourneyIntent}`
+      : body.userMessage
+
   return JSON.stringify(
     {
       mode: body.mode,
       phase: body.phase ?? null,
       preferredLanguage,
-      userMessage: body.userMessage,
+      userMessage,
       selectedProposal: body.selectedProposal ?? null,
       context,
       history: (body.history ?? []).slice(-16),

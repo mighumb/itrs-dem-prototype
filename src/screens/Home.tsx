@@ -8,8 +8,10 @@ import { useLocale } from '../context/LocaleContext'
 import { HOME_ROTATING_TARGETS } from '../i18n/messages'
 import {
   answersIncludeSiteDecline,
+  looksLikeSiteConfirmation,
   looksLikeSiteDecline,
   requestDiscoveryAi,
+  summarizeStatedJourneyIntent,
   type DiscoveryAiResult,
 } from '../lib/discoveryAi'
 import type { JourneyLaunchSession } from '../lib/journeyLaunch'
@@ -468,8 +470,12 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
     if (siteConfirmPending) {
       setSiteConfirmPending(false)
       setCtx(nextCtx)
-      // Affirm → chat with URL so the server explores, then may return proposals.
-      await replyWithAiChat(answerText || 'Oui', history, nextCtx)
+      // Affirm → chat with URL so the server explores; keep original journey ask visible.
+      const affirm =
+        nextCtx.seed.trim().length > 0
+          ? `${answerText || 'Oui'}\n\nBesoin initial: ${nextCtx.seed}`
+          : answerText || 'Oui'
+      await replyWithAiChat(affirm, history, nextCtx)
       return
     }
 
@@ -649,6 +655,14 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
         ? { ...ctx, url: null, pageSnapshot: null, seed: '', answers: {} }
         : null
       setSiteConfirmPending(false)
+      setCtx(chatCtx)
+    } else if (
+      chatCtx &&
+      summarizeStatedJourneyIntent(text) &&
+      !looksLikeSiteConfirmation(text)
+    ) {
+      // User revised the journey in chat — refresh seed so later proposes follow the new ask.
+      chatCtx = { ...chatCtx, seed: text.trim() }
       setCtx(chatCtx)
     }
 
