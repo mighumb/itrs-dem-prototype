@@ -95,11 +95,17 @@ export function enrichPlanStepsFromExplore(
       }
     }
 
-    // Navigate steps: prefer an observed URL mentioned in the label, else first page.
+    // Navigate steps: prefer an observed URL in the label.
+    // If that URL is a deep link, prefer the site homepage (deep link = destination, not entry).
     if ((/navigate|go to|open/i.test(action) || /https?:\/\//i.test(step.label)) && !next.href) {
       const urlMatch = step.label.match(/https?:\/\/[^\s"'<>]+/i)?.[0]
-      if (urlMatch) next.href = urlMatch.replace(/[.,);]+$/g, '')
-      else if (explore.pages[0]?.url) next.href = explore.pages[0].url
+      if (urlMatch) {
+        const cleaned = urlMatch.replace(/[.,);]+$/g, '')
+        next.href = isDeepUrl(cleaned) ? homepageOf(cleaned) : cleaned
+      } else if (explore.pages[0]?.url) {
+        const pageUrl = explore.pages[0].url
+        next.href = isDeepUrl(pageUrl) ? homepageOf(pageUrl) : pageUrl
+      }
     }
 
     // Click without hint: try to pull a strong noun phrase against inventory.
@@ -119,6 +125,152 @@ export function enrichPlanStepsFromExplore(
 
     return next
   })
+}
+
+/** Path beyond `/`, query, or hash → deep link (destination, not entry). */
+export function isDeepUrl(url: string): boolean {
+  try {
+    const u = new URL(url)
+    const path = u.pathname.replace(/\/+$/, '') || '/'
+    return path !== '/' || Boolean(u.search) || Boolean(u.hash)
+  } catch {
+    return false
+  }
+}
+
+export function homepageOf(url: string): string {
+  try {
+    return `${new URL(url).origin}/`
+  } catch {
+    return url
+  }
+}
+
+function sameOrigin(a: string, b: string): boolean {
+  try {
+    return new URL(a).origin === new URL(b).origin
+  } catch {
+    return false
+  }
+}
+
+/** Derive a human search query from a deep URL path slug. */
+export function queryFromDeepUrl(url: string): string | null {
+  try {
+    const u = new URL(url)
+    const parts = u.pathname.split('/').filter(Boolean)
+    if (parts.length === 0) return null
+    // Skip boring prefixes (wiki, product, p, …)
+    const skip = new Set(['wiki', 'w', 'product', 'products', 'p', 'dp', 'item', 'articles', 'article'])
+    let slug = parts[parts.length - 1] || ''
+    if (parts.length >= 2 && skip.has(parts[0]!.toLowerCase())) {
+      slug = parts[parts.length - 1] || slug
+    }
+    const decoded = decodeURIComponent(slug)
+      .replace(/[_+]+/g, ' ')
+      .replace(/\.[a-z0-9]{2,5}$/i, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+    return decoded.length >= 2 ? decoded : null
+  } catch {
+    return null
+  }
+}
+
+function isNavigateAction(step: GroundedPlanStep): boolean {
+  return /navigate|go to|open/i.test(step.action) || /navigate|va sur|ouvre https?/i.test(step.label)
+}
+
+function isSearchOrType(step: GroundedPlanStep): boolean {
+  return /type|search|fill|sais|recherch/i.test(`${step.action} ${step.label}`)
+}
+
+function hasTeleportEntry(steps: GroundedPlanStep[], contextUrl?: string | null): string | null {
+  const fromContext = contextUrl && isDeepUrl(contextUrl) ? contextUrl : null
+  const firstNav = steps.find(isNavigateAction)
+  const firstHref = firstNav?.href
+  if (firstHref && isDeepUrl(firstHref)) return firstHref
+  if (fromContext && firstHref && sameOrigin(firstHref, fromContext) && isDeepUrl(fromContext)) {
+    return fromContext
+  }
+  // Label embeds the deep context URL
+  if (fromContext && firstNav && firstNav.label.includes(fromContext)) return fromContext
+  return fromContext && steps.length > 0 && isNavigateAction(steps[0]!) ? fromContext : null
+}
+
+/**
+ * Deep-link URLs are destinations. If the plan teleports to them in step 1
+ * without a search/type path, rewrite to homepage → search → open result.
+ */
+export function naturalizeDeepLinkEntry(
+  steps: GroundedPlanStep[],
+  contextUrl?: string | null,
+): GroundedPlanStep[] {
+  if (steps.length === 0) return steps
+
+  const destination = hasTeleportEntry(steps, contextUrl)
+  if (!destination) return steps
+
+  // Already has a natural search/type step — only fix the first Navigate href.
+  if (steps.some(isSearchOrType)) {
+    return steps.map((step, index) => {
+      if (index !== 0 && !isNavigateAction(step)) return step
+      if (!isNavigateAction(step)) return step
+      // First navigate only
+      const firstNavIdx = steps.findIndex(isNavigateAction)
+      if (index !== firstNavIdx) return step
+      if (step.href && isDeepUrl(step.href) && sameOrigin(step.href, destination)) {
+        const home = homepageOf(destination)
+        return {
+          ...step,
+          href: home,
+          label: step.label.replace(step.href, home).replace(destination, home),
+        }
+      }
+      if (!step.href && contextUrl && isDeepUrl(contextUrl)) {
+        return { ...step, href: homepageOf(contextUrl) }
+      }
+      return step
+    })
+  }
+
+  const home = homepageOf(destination)
+  const query = queryFromDeepUrl(destination)
+  const langFr = /[àâäéèêëïîôùûüç]/i.test(steps.map((s) => s.label).join(' '))
+
+  const entry: GroundedPlanStep[] = [
+    {
+      action: 'Navigate',
+      label: langFr ? `Ouvrir la page d’accueil` : `Open the homepage`,
+      href: home,
+    },
+  ]
+  if (query) {
+    entry.push({
+      action: 'Type',
+      label: langFr ? `Rechercher « ${query} »` : `Search for "${query}"`,
+      targetHint: query,
+    })
+    entry.push({
+      action: 'Click',
+      label: langFr ? `Ouvrir « ${query} »` : `Open "${query}"`,
+      targetHint: query,
+    })
+  }
+
+  // Drop early Navigate teleports to the same deep URL; keep later click/verify work.
+  const rest = steps.filter((step) => {
+    if (!isNavigateAction(step)) return true
+    const href = step.href
+    if (href && isDeepUrl(href) && sameOrigin(href, destination)) return false
+    if (step.label.includes(destination)) return false
+    return true
+  })
+
+  // Avoid duplicating a leading verify-only skeleton
+  const merged = [...entry, ...rest]
+  // Cap at 8 steps (prompt budget)
+  return merged.slice(0, 8)
 }
 
 /**
@@ -149,6 +301,7 @@ export function groundingIssues(
 export function applyGroundingToPlan(
   plan: Record<string, unknown>,
   explore: SiteExploreResult | null,
+  contextUrl?: string | null,
 ): { plan: Record<string, unknown>; issues: string[] } {
   if (!plan || typeof plan !== 'object') return { plan, issues: [] }
   const rawSteps = Array.isArray(plan.steps) ? plan.steps : []
@@ -166,10 +319,15 @@ export function applyGroundingToPlan(
     })
     .filter((s): s is GroundedPlanStep => Boolean(s))
 
+  const seed =
+    contextUrl ||
+    explore?.pages?.[0]?.url ||
+    null
   const enriched = enrichPlanStepsFromExplore(steps, explore)
-  const issues = groundingIssues(enriched, explore)
+  const naturalized = naturalizeDeepLinkEntry(enriched, seed)
+  const issues = groundingIssues(naturalized, explore)
   return {
-    plan: { ...plan, steps: enriched },
+    plan: { ...plan, steps: naturalized },
     issues,
   }
 }

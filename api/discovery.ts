@@ -573,7 +573,11 @@ async function groundAndMaybeDryRunPlan(options: {
     return parsed
   }
 
-  const grounded = applyGroundingToPlan(parsed.plan as Record<string, unknown>, explore)
+  const grounded = applyGroundingToPlan(
+    parsed.plan as Record<string, unknown>,
+    explore,
+    analysis?.url ?? target?.url ?? body.context?.url ?? null,
+  )
   parsed = { ...parsed, plan: grounded.plan }
 
   if (grounded.issues.length > 0) {
