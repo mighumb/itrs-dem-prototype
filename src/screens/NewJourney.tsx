@@ -403,10 +403,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
   )
 
   const toggleEdit = () => {
-    setEditMode((on) => {
-      if (!on) hidePanel('monitoring')
-      return !on
-    })
+    setEditMode((on) => !on)
   }
 
   const stopRun = useCallback(() => {
