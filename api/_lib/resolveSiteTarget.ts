@@ -4,6 +4,7 @@ import { analyzePublicSite, extractHttpUrl, type SiteAnalysisResult } from './an
 import {
   extractBrandishTokens,
   looksLikeSocialChat,
+  messageRequestsSiteWork,
 } from './discoverySiteIntent.js'
 
 export type ResolvedSiteTarget = {
@@ -17,43 +18,59 @@ export type ResolvedSiteTarget = {
   note: string | null
 }
 
-const BRAND_RESOLVE_TIMEOUT_MS = 12_000
+const BRAND_RESOLVE_TIMEOUT_MS = 14_000
 
 function shouldTryBrandResolve(text: string): boolean {
   const t = text.trim()
   if (!t || t.length < 2) return false
-  // Ultra-short social / ping — never burn a brand Search call
   if (looksLikeSocialChat(t)) return false
-  // Pure greetings / ultra-short asks — don't burn a search call
   if (
     /^(hi|hello|hey|bonjour|salut|aide|help|coucou|test|ok)([.!?]|$)/i.test(t) &&
     t.split(/\s+/).length <= 2
   ) {
     return false
   }
+  // Holistic resolve: journey sentences, monitor verbs, or leftover brand tokens.
+  if (messageRequestsSiteWork(t)) return true
+  if (extractBrandishTokens(t).length > 0) return true
+  return /\b(achat|acheter|commande|livraison|purchase|order|buy|monitor|surveill|parcours|journey|website|site\s+web)\b/i.test(
+    t,
+  )
+}
 
-  // Only resolve when something brandish remains after stripping product intent
-  // vocabulary ("parcours" / "Construisons" must never become a Search query).
-  return extractBrandishTokens(t).length > 0
+function compactBrandToken(token: string): string {
+  return token.toLowerCase().replace(/[^a-z0-9]/g, '')
 }
 
 /** Prefer hosts that literally contain a user-named brand token. */
 function brandHostScore(url: string, brandTokens: string[]): number {
   try {
     const host = new URL(url).hostname.toLowerCase().replace(/^www\./, '')
-    let score = 0
+    const labels = host.split('.')
+    let best = 0
     for (const token of brandTokens) {
-      const compact = token.toLowerCase().replace(/[^a-z0-9]/g, '')
-      if (compact.length >= 3 && host.includes(compact)) score += 100
+      const compact = compactBrandToken(token)
+      if (compact.length < 2 || !host.includes(compact)) continue
+      // Longer brand token wins over short preposition leftovers (asos ≫ sur).
+      let score = compact.length * 20
+      if (labels.some((label) => label === compact)) score += 200
+      if (host === `${compact}.com` || host === `${compact}.fr`) score += 50
+      best = Math.max(best, score)
     }
-    return score
+    return best
   } catch {
     return 0
   }
 }
 
-function compactBrandToken(token: string): string {
-  return token.toLowerCase().replace(/[^a-z0-9]/g, '')
+/** Short lowercase function words must never be seeded as www.{token}.fr. */
+function isSeedableBrandToken(token: string): boolean {
+  const compact = compactBrandToken(token)
+  if (compact.length < 2) return false
+  if (compact.length >= 4) return true
+  if (/^[A-ZÀ-Ü]{2,3}$/u.test(token.replace(/\./g, ''))) return true
+  if (/^[A-ZÀ-Ü][a-zà-ü]{2,}$/u.test(token)) return true
+  return false
 }
 
 /** Error/login/auth subdomains are never a monitoring homepage. */
@@ -93,12 +110,17 @@ function seedBrandHomepages(
       /* ignore */
     }
   }
-  for (const token of brandTokens) {
+  const ordered = [...brandTokens].sort((a, b) => {
+    const ca = compactBrandToken(a)
+    const cb = compactBrandToken(b)
+    return cb.length - ca.length
+  })
+  for (const token of ordered) {
+    if (!isSeedableBrandToken(token)) continue
     const compact = compactBrandToken(token)
-    if (compact.length < 3) continue
     if (preferredLanguage === 'fr') {
-      push(`https://fr.${compact}.com`)
       push(`https://www.${compact}.fr`)
+      push(`https://fr.${compact}.com`)
     }
     push(`https://www.${compact}.com`)
     push(`https://${compact}.com`)
@@ -159,136 +181,217 @@ function urlsFromGrounding(response: {
   for (const chunk of chunks) {
     const uri = chunk.web?.uri
     if (!uri || !/^https?:\/\//i.test(uri)) continue
-    // Skip obvious non-homepages from search index noise when possible later
     out.push({ url: uri, title: chunk.web?.title ?? null })
   }
   return out
 }
 
+function parseHolisticBrandReply(text: string): {
+  brand: string | null
+  url: string | null
+} {
+  const trimmed = text.trim()
+  if (!trimmed || /^none\b/i.test(trimmed)) {
+    return { brand: null, url: null }
+  }
+  const jsonMatch = trimmed.match(/\{[\s\S]*\}/)
+  if (jsonMatch) {
+    try {
+      const parsed = JSON.parse(jsonMatch[0]) as {
+        brand?: unknown
+        url?: unknown
+        hostname?: unknown
+      }
+      const brand =
+        typeof parsed.brand === 'string' && parsed.brand.trim()
+          ? parsed.brand.trim()
+          : null
+      const rawUrl =
+        typeof parsed.url === 'string'
+          ? parsed.url
+          : typeof parsed.hostname === 'string'
+            ? parsed.hostname
+            : null
+      const url = rawUrl ? firstUrlFromText(rawUrl) ?? firstUrlFromText(`https://${rawUrl}`) : null
+      return { brand, url }
+    } catch {
+      /* fall through */
+    }
+  }
+  return { brand: null, url: firstUrlFromText(trimmed) }
+}
+
+function mergeBrandTokens(primary: string | null, heuristic: string[]): string[] {
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const token of [primary, ...heuristic]) {
+    if (!token || !isSeedableBrandToken(token)) continue
+    const key = compactBrandToken(token)
+    if (!key || seen.has(key)) continue
+    seen.add(key)
+    out.push(token)
+  }
+  return out
+}
+
+async function pickBestBrandUrl(options: {
+  brandTokens: string[]
+  preferredLanguage?: 'en' | 'fr' | null
+  fromModel: string | null
+  grounded: Array<{ url: string; title: string | null }>
+  labelHint: string | null
+}): Promise<{ url: string | null; label: string | null; note: string | null }> {
+  const { brandTokens, preferredLanguage, fromModel, grounded, labelHint } = options
+  if (brandTokens.length === 0) {
+    return {
+      url: null,
+      label: null,
+      note: 'Could not identify a brand/site in the message',
+    }
+  }
+
+  const candidates = [
+    ...seedBrandHomepages(brandTokens, preferredLanguage),
+    ...(fromModel ? [{ url: fromModel, title: labelHint }] : []),
+    ...grounded,
+  ]
+    .filter((c) => !isJunkResolvedHost(c.url))
+    .map((c) => ({
+      ...c,
+      brand: brandHostScore(c.url, brandTokens),
+      locale: localeUrlScore(c.url, preferredLanguage),
+    }))
+    .sort((a, b) => b.brand - a.brand || b.locale - a.locale)
+
+  const seenHosts = new Set<string>()
+  const unique: typeof candidates = []
+  for (const c of candidates) {
+    try {
+      const host = new URL(c.url).hostname.toLowerCase()
+      if (seenHosts.has(host)) continue
+      seenHosts.add(host)
+      unique.push(c)
+    } catch {
+      /* skip */
+    }
+  }
+
+  // HARD RULE: never accept a host that does not contain the named brand tokens.
+  const brandMatched = unique.filter((c) => c.brand > 0).slice(0, 6)
+  if (brandMatched.length === 0) {
+    return {
+      url: null,
+      label: labelHint,
+      note: 'Could not resolve a confident official URL from the brand/name',
+    }
+  }
+
+  for (const candidate of brandMatched) {
+    const probe = await analyzePublicSite(candidate.url)
+    const finalUrl = probe.url || candidate.url
+
+    if (isJunkResolvedHost(finalUrl) || brandHostScore(finalUrl, brandTokens) === 0) {
+      if (!isJunkResolvedHost(candidate.url) && brandHostScore(candidate.url, brandTokens) > 0) {
+        return {
+          url: candidate.url,
+          label: candidate.title ?? labelHint,
+          note: `Resolved brand/name to ${candidate.url} (probe redirected off-brand)`,
+        }
+      }
+      continue
+    }
+
+    if (probe.ok) {
+      return {
+        url: finalUrl,
+        label: candidate.title ?? probe.title ?? labelHint,
+        note: `Resolved brand/name to ${finalUrl}`,
+      }
+    }
+  }
+
+  const fallback = brandMatched.find((c) => !isJunkResolvedHost(c.url)) ?? null
+  if (fallback) {
+    return {
+      url: fallback.url,
+      label: fallback.title ?? labelHint,
+      note: `Resolved brand/name to ${fallback.url} (page probe incomplete)`,
+    }
+  }
+
+  return {
+    url: null,
+    label: labelHint,
+    note: 'Could not resolve a confident official URL from the brand/name',
+  }
+}
+
+/**
+ * Holistic brand→URL: read the full user sentence (like a chat LLM), extract the
+ * intended brand, then validate/lock a matching official homepage.
+ */
 async function resolveBrandWithGemini(
-  brandTokens: string[],
+  userText: string,
   apiKey: string,
   preferredLanguage?: 'en' | 'fr' | null,
 ): Promise<{ url: string | null; label: string | null; note: string | null }> {
-  const query = brandTokens.join(' ')
+  const heuristicTokens = extractBrandishTokens(userText)
   const genAI = new GoogleGenerativeAI(apiKey)
   const modelCandidates = geminiModelCandidates('free')
 
   const localeHint =
     preferredLanguage === 'fr'
-      ? 'User language/market is French — strongly prefer the official .fr (or local FR/BE/CH) consumer site over .us / .com global/US sites when both exist (e.g. clubmed.fr not clubmed.us).'
+      ? 'User language/market is French — prefer the official .fr (or FR/BE/CH) consumer site when it exists (e.g. asos.fr / fr.asos.com over a random unrelated .fr).'
       : preferredLanguage === 'en'
-        ? 'User language is English — prefer the primary consumer site for that brand in English-speaking markets when ambiguous.'
+        ? 'User language is English — prefer the primary consumer site for English-speaking markets when ambiguous.'
         : 'Prefer the primary official consumer homepage for the brand.'
 
   let lastError: unknown
   for (const modelName of modelCandidates) {
     try {
-      // Gemini 2.x requires googleSearch (not deprecated googleSearchRetrieval).
-      // Cast: @google/generative-ai typings may still only list the old tool.
       const model = genAI.getGenerativeModel({
         model: modelName,
         tools: [{ googleSearch: {} }] as never,
-        systemInstruction: `You resolve a brand, company, product, organization, or website name (including acronyms / abbreviations) to its official consumer homepage URL.
+        systemInstruction: `You resolve a monitoring target from a natural-language user message (French or English).
+Reason over the WHOLE sentence like a careful assistant — not like a keyword splitter.
+
 Rules:
-- Prefer the official brand/org website (not social networks, app stores, Wikipedia, news, or booking aggregators unless that IS the product).
-- Acronyms and abbreviations count: expand to the most likely official organization in the user's market, then that org's official homepage (use Search grounding). Prefer the local TLD when preferredLanguage/market implies it.
-- If the query names a specific brand, return THAT brand's official site — never a sibling, parent-group, or "related" property the user did not name.
+- Identify the brand / company / website the user wants to monitor.
+- Ignore journey vocabulary and grammar words (achat, commande, livraison, sur, en, le, site, web, purchase, order, delivery, on, for, website…).
+- Return THAT brand's official consumer homepage for the user's market.
+- Never confuse sibling / parent-group / "related" properties the user did not name.
+- Never return error/login/auth subdomains.
+- Acronyms count (expand with Search when needed).
+- If there is no brand/site (greeting, pure chat, vague "I want a journey" with no target), reply NONE.
 - ${localeHint}
-- Reply with ONLY one line: either a single https URL, or the word NONE.
-- No markdown, no commentary.`,
+
+Reply with ONLY one line of JSON (no markdown, no commentary):
+{"brand":"<Brand>","url":"https://..."}
+or the single word NONE`,
       })
 
       const result = await model.generateContent(
-        `Official homepage URL for this site/brand/org/acronym (monitoring target): ${query}`,
+        `User message to interpret as a monitoring target:\n"""${userText.trim()}"""`,
       )
       const text = result.response.text().trim()
-      const fromText = firstUrlFromText(text)
-      const grounded = urlsFromGrounding(result.response)
-
-      const candidates = [
-        ...seedBrandHomepages(brandTokens, preferredLanguage),
-        ...(fromText ? [{ url: fromText, title: null as string | null }] : []),
-        ...grounded,
-      ]
-        .filter((c) => !isJunkResolvedHost(c.url))
-        .map((c) => ({
-          ...c,
-          brand: brandHostScore(c.url, brandTokens),
-          locale: localeUrlScore(c.url, preferredLanguage),
-        }))
-        .sort((a, b) => b.brand - a.brand || b.locale - a.locale)
-
-      // Deduplicate by hostname while keeping the best score first.
-      const seenHosts = new Set<string>()
-      const unique: typeof candidates = []
-      for (const c of candidates) {
-        try {
-          const host = new URL(c.url).hostname.toLowerCase()
-          if (seenHosts.has(host)) continue
-          seenHosts.add(host)
-          unique.push(c)
-        } catch {
-          /* skip */
-        }
-      }
-
-      // HARD RULE: with named brand tokens, never accept a host that does not
-      // contain those tokens (no reachable-sibling fallback).
-      const brandMatched = unique.filter((c) => c.brand > 0).slice(0, 6)
-      if (brandMatched.length === 0) {
+      const holistic = parseHolisticBrandReply(text)
+      if (!holistic.brand && !holistic.url && /^none\b/i.test(text.trim())) {
         return {
           url: null,
           label: null,
-          note: 'Could not resolve a confident official URL from the brand/name',
+          note: 'No brand/site identified in the message',
         }
       }
 
-      for (const candidate of brandMatched) {
-        const probe = await analyzePublicSite(candidate.url)
-        const finalUrl = probe.url || candidate.url
-
-        // Probe followed a redirect off-brand (e.g. aliexpress → error.taobao) —
-        // keep the brand-matching candidate URL, do not ship the junk host.
-        if (
-          isJunkResolvedHost(finalUrl) ||
-          brandHostScore(finalUrl, brandTokens) === 0
-        ) {
-          if (!isJunkResolvedHost(candidate.url) && brandHostScore(candidate.url, brandTokens) > 0) {
-            return {
-              url: candidate.url,
-              label: candidate.title,
-              note: `Resolved brand/name to ${candidate.url} (probe redirected off-brand)`,
-            }
-          }
-          continue
-        }
-
-        if (probe.ok) {
-          return {
-            url: finalUrl,
-            label: candidate.title ?? probe.title,
-            note: `Resolved brand/name to ${finalUrl}`,
-          }
-        }
-      }
-
-      // Incomplete probe is OK only when the host still contains the named brand.
-      const fallback =
-        brandMatched.find((c) => !isJunkResolvedHost(c.url)) ?? null
-      if (fallback) {
-        return {
-          url: fallback.url,
-          label: fallback.title,
-          note: `Resolved brand/name to ${fallback.url} (page probe incomplete)`,
-        }
-      }
-
-      return {
-        url: null,
-        label: null,
-        note: 'Could not resolve a confident official URL from the brand/name',
-      }
+      const brandTokens = mergeBrandTokens(holistic.brand, heuristicTokens)
+      const grounded = urlsFromGrounding(result.response)
+      return await pickBestBrandUrl({
+        brandTokens,
+        preferredLanguage,
+        fromModel: holistic.url,
+        grounded,
+        labelHint: holistic.brand,
+      })
     } catch (error) {
       lastError = error
       console.error(`[resolveSiteTarget] model ${modelName} failed`, error)
@@ -296,24 +399,20 @@ Rules:
   }
 
   const message = lastError instanceof Error ? lastError.message : 'brand resolve failed'
-
-  // Model/Search failed — still try deterministic www.{brand}.com guesses.
-  const seedOnly = seedBrandHomepages(brandTokens, preferredLanguage)
-  for (const seed of seedOnly) {
-    if (brandHostScore(seed.url, brandTokens) === 0 || isJunkResolvedHost(seed.url)) continue
-    const probe = await analyzePublicSite(seed.url)
-    const finalUrl = probe.url || seed.url
-    if (!isJunkResolvedHost(finalUrl) && brandHostScore(finalUrl, brandTokens) > 0 && probe.ok) {
+  const seedTokens = mergeBrandTokens(null, heuristicTokens)
+  if (seedTokens.length > 0) {
+    const seeded = await pickBestBrandUrl({
+      brandTokens: seedTokens,
+      preferredLanguage,
+      fromModel: null,
+      grounded: [],
+      labelHint: seedTokens[0] ?? null,
+    })
+    if (seeded.url) {
       return {
-        url: finalUrl,
-        label: probe.title,
-        note: `Resolved brand/name to ${finalUrl}`,
+        ...seeded,
+        note: `${seeded.note} (seed; Search unavailable: ${message})`,
       }
-    }
-    return {
-      url: seed.url,
-      label: null,
-      note: `Resolved brand/name to ${seed.url} (seed; Search unavailable: ${message})`,
     }
   }
 
@@ -322,7 +421,7 @@ Rules:
 
 /**
  * Resolve whatever the user typed into an inspectable site URL when possible:
- * explicit URL → bare domain → brand/name via Gemini + Google Search grounding.
+ * explicit URL → bare domain → holistic brand/name via Gemini + Google Search grounding.
  */
 export async function resolveSiteTarget(
   userText: string,
@@ -348,24 +447,22 @@ export async function resolveSiteTarget(
     }
   }
 
-  const brandTokens = extractBrandishTokens(userText)
   const keys = [
     ...(options.apiKeys ?? []),
     ...(options.apiKey ? [options.apiKey] : []),
   ].filter((key, index, all) => Boolean(key) && all.indexOf(key) === index)
 
-  // New brand/name in the message → resolve it; do not glue the previous site.
-  if (
-    brandTokens.length > 0 &&
+  const tryResolve =
     keys.length > 0 &&
     shouldTryBrandResolve(userText) &&
     (options.preferMessageOverExisting || !options.existingUrl)
-  ) {
+
+  if (tryResolve) {
     let lastNote: string | null = null
     let lastLabel: string | null = null
     for (const apiKey of keys) {
       const resolved = await withTimeout(
-        resolveBrandWithGemini(brandTokens, apiKey, options.preferredLanguage),
+        resolveBrandWithGemini(userText, apiKey, options.preferredLanguage),
         BRAND_RESOLVE_TIMEOUT_MS,
         {
           url: null,
@@ -384,14 +481,18 @@ export async function resolveSiteTarget(
       lastNote = resolved.note
       lastLabel = resolved.label
     }
-    // Last resort without a successful Gemini answer: still seed www.{brand}.com.
-    const seeds = seedBrandHomepages(brandTokens, options.preferredLanguage)
+    // Last resort: heuristic tokens → www.{brand}.com (never grammar leftovers).
+    const seeds = seedBrandHomepages(
+      extractBrandishTokens(userText),
+      options.preferredLanguage,
+    )
     for (const seed of seeds) {
-      if (isJunkResolvedHost(seed.url) || brandHostScore(seed.url, brandTokens) === 0) continue
+      const tokens = extractBrandishTokens(userText)
+      if (isJunkResolvedHost(seed.url) || brandHostScore(seed.url, tokens) === 0) continue
       return {
         url: seed.url,
         source: 'brand_resolve',
-        label: seed.title,
+        label: seed.title ?? tokens[0] ?? null,
         note: lastNote
           ? `${lastNote} — using ${seed.url}`
           : `Resolved brand/name to ${seed.url}`,
@@ -416,7 +517,7 @@ export async function resolveSiteTarget(
     }
   }
 
-  if (keys.length === 0 || !shouldTryBrandResolve(userText) || brandTokens.length === 0) {
+  if (keys.length === 0 || !shouldTryBrandResolve(userText)) {
     return { url: null, source: 'none', label: null, note: null }
   }
 
@@ -424,7 +525,7 @@ export async function resolveSiteTarget(
   let lastLabel: string | null = null
   for (const apiKey of keys) {
     const resolved = await withTimeout(
-      resolveBrandWithGemini(brandTokens, apiKey, options.preferredLanguage),
+      resolveBrandWithGemini(userText, apiKey, options.preferredLanguage),
       BRAND_RESOLVE_TIMEOUT_MS,
       {
         url: null,
