@@ -37,7 +37,7 @@ function shouldTryBrandResolve(text: string): boolean {
   return extractBrandishTokens(t).length > 0
 }
 
-/** Prefer hosts that literally contain a user-named brand token (aliexpress ≠ taobao). */
+/** Prefer hosts that literally contain a user-named brand token. */
 function brandHostScore(url: string, brandTokens: string[]): number {
   try {
     const host = new URL(url).hostname.toLowerCase().replace(/^www\./, '')
@@ -139,7 +139,7 @@ async function resolveBrandWithGemini(
 Rules:
 - Prefer the official brand/org website (not social networks, app stores, Wikipedia, news, or booking aggregators unless that IS the product).
 - Acronyms and abbreviations count: expand to the most likely official organization in the user's market, then that org's official homepage (use Search grounding). Prefer the local TLD when preferredLanguage/market implies it.
-- If the query names a specific brand (e.g. AliExpress), return THAT brand's official site — never a sibling marketplace (e.g. Taobao for AliExpress, or vice versa).
+- If the query names a specific brand, return THAT brand's official site — never a sibling, parent-group, or "related" property the user did not name.
 - ${localeHint}
 - Reply with ONLY one line: either a single https URL, or the word NONE.
 - No markdown, no commentary.`,
@@ -165,7 +165,7 @@ Rules:
         .slice(0, 6)
 
       // Prefer candidates whose host contains the named brand; do not fall through
-      // to a reachable sibling marketplace just because it answered first.
+      // to a reachable alternate host just because it answered first.
       const brandMatched = candidates.filter((c) => c.brand > 0)
       const tryList = brandMatched.length > 0 ? brandMatched : candidates
 
@@ -182,7 +182,7 @@ Rules:
       }
 
       // Incomplete probe is OK only when the host still contains the named brand.
-      // Never fall back to a sibling marketplace (AliExpress → Taobao).
+      // Never fall back to an alternate host that does not match the brand tokens.
       if (fromText && brandHostScore(fromText, brandTokens) > 0) {
         return {
           url: fromText,

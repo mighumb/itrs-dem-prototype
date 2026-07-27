@@ -644,22 +644,21 @@ function buildResultPayload(
   const fr = lang === 'fr'
   const host = candidateHostLabel(target?.url)
 
-  // Server-enforced URL fact-check: never leave confirmFirst without a floating form.
+  // Server-owned URL fact-check UI: always the candidate host + decline.
+  // Never ship model-invented alternate hosts as soft options.
   if (confirmFirst && !declined) {
     const yes = fr ? `Oui, ${host}` : `Yes, ${host}`
     const no = fr ? 'Non, autre site' : 'No, another site'
-    if (!questions || questions.length === 0) {
-      questions = [
-        {
-          id: 'site-confirm',
-          prompt: fr
-            ? `Le site à surveiller est-il bien ${host} ?`
-            : `Is ${host} the site to monitor?`,
-          options: [yes, no],
-          allowOther: true,
-        },
-      ]
-    }
+    questions = [
+      {
+        id: 'site-confirm',
+        prompt: fr
+          ? `Le site à surveiller est-il bien ${host} ?`
+          : `Is ${host} the site to monitor?`,
+        options: [yes, no],
+        allowOther: true,
+      },
+    ]
   }
 
   const rawFormTitle =
@@ -690,12 +689,16 @@ function buildResultPayload(
       ? 'Voici ce que je propose.'
       : 'Here is what I suggest.'
 
+  // While confirming, prefer a host-locked message — model copy can invent alternate sites.
+  const message = confirmFirst
+    ? fallbackMessage
+    : typeof parsed.message === 'string' && parsed.message.trim()
+      ? parsed.message
+      : fallbackMessage
+
   return {
     type: 'result' as const,
-    message:
-      typeof parsed.message === 'string' && parsed.message.trim()
-        ? parsed.message
-        : fallbackMessage,
+    message,
     workTrace: normalizeWorkTrace(
       parsed.workTrace,
       declined ? null : analysis,

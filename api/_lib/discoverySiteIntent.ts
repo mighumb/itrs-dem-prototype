@@ -20,7 +20,7 @@ const INTENT_ONLY_RE =
 
 /**
  * Strip product / journey vocabulary so a sentence like
- * « achat d'un produit aliexpress jusqu'à la livraison » keeps only « aliexpress ».
+ * « achat d'un produit {marque} jusqu'à la livraison » keeps only the brand token.
  */
 const INTENT_STOPWORD_RE =
   /\b(je|j|tu|on|nous|vous|veux|voudrais|aimerais|besoin|faire|créer|cree|construire|construisons|build|create|make|start|commencer|surveiller|monitor(?:er|ing)?|parcours|journey|journeys|site|website|web|pour|avec|de|du|des|le|la|les|un|une|the|a|an|to|for|of|on|in|dans|please|svp|aide[- ]?moi|help\s+me|i\s+want|i'd\s+like|can\s+you|could\s+you|quel(?:le)?s?|what|which|aujourd['’]?hui|today|achat|acheter|produit|produits|commande|commandes|livraison|livrer|panier|checkout|cart|order|orders|purchase|buy|buying|product|products|delivery|until|jusqu(?:['’]?à)?|vers|avant|après|complete|complet|complète|full)\b/gi
@@ -150,7 +150,7 @@ export function looksLikeAmbiguousBrandName(text: string): boolean {
   }
   const words = extractBrandishTokens(t)
   // After stopword stripping, a journey sentence collapses to the brand
-  // (« … aliexpress … livraison » → ["aliexpress"]). Cap keeps multi-word orgs.
+  // (« … {marque} … livraison » → ["marque"]). Cap keeps multi-word orgs.
   if (words.length === 0 || words.length > 4) return false
   const leftover = words.join(' ')
   const letters = leftover.replace(/[^A-Za-zÀ-ü]/g, '')
