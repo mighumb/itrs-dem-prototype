@@ -1005,19 +1005,31 @@ export default function Home({
 
           <div className="mt-8">
             <p className="mb-3 text-center text-xs text-zinc-400">{t('sampleJourneys')}</p>
-            <div className="space-y-2">
+            {/* Mobile: keep the current 4-row list. Desktop (md+): 2×2 rectangles with larger logos. */}
+            <div className="space-y-2 md:grid md:grid-cols-2 md:gap-3 md:space-y-0">
               {getHomeExamples(locale).map((example) => (
                 <button
                   key={example.id}
                   type="button"
                   onClick={() => void handleExample(example)}
-                  className="flex w-full cursor-pointer items-center gap-3 rounded-xl border border-zinc-200/70 bg-zinc-50 px-4 py-3 text-left transition hover:border-zinc-300 hover:bg-white dark:border-zinc-700/50 dark:bg-zinc-900/60 dark:hover:border-zinc-600 dark:hover:bg-zinc-800"
+                  className="flex w-full cursor-pointer items-center gap-3 rounded-xl border border-zinc-200/70 bg-zinc-50 px-4 py-3 text-left transition hover:border-zinc-300 hover:bg-white dark:border-zinc-700/50 dark:bg-zinc-900/60 dark:hover:border-zinc-600 dark:hover:bg-zinc-800 md:min-h-[7.5rem] md:flex-col md:items-start md:gap-3 md:px-4 md:py-4"
                 >
-                  <img
-                    src={example.logoSrc}
-                    alt=""
-                    className="h-7 w-7 shrink-0 object-contain"
-                  />
+                  <span className="relative flex h-7 w-7 shrink-0 items-center justify-start md:h-10 md:w-auto md:max-w-[7.5rem]">
+                    <img
+                      src={example.logoSrc}
+                      alt=""
+                      className={`h-7 w-7 object-contain md:h-10 md:w-auto md:max-h-10 ${
+                        example.logoSrcDark ? 'dark:hidden' : ''
+                      }`}
+                    />
+                    {example.logoSrcDark ? (
+                      <img
+                        src={example.logoSrcDark}
+                        alt=""
+                        className="hidden h-7 w-7 object-contain dark:block md:h-10 md:w-auto md:max-h-10"
+                      />
+                    ) : null}
+                  </span>
                   <span className="min-w-0">
                     <span className="block text-xs font-medium text-zinc-500 dark:text-zinc-400">
                       {example.company}
