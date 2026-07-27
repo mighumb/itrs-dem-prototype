@@ -334,10 +334,8 @@ async function executeStepWithCapture(
     (Boolean(url) && /navigate|go to|open url|va sur|ouvre https?/i.test(blob)) ||
     (/navigate|go to|open url|va sur|ouvre https?/i.test(blob) && Boolean(url || seedUrl))
   ) {
-    let dest = url || seedUrl
+    const dest = url || seedUrl
     if (!dest) throw new Error('No URL to navigate to')
-    // Never teleport: if this navigate targets a deep link while seed is homepage, keep dest
-    // only when the step intentionally navigates — deep dest is OK for rare one-shots.
     await page.goto(dest, { waitUntil: 'domcontentloaded', timeout: 35000 })
     await dismissNoise(page)
     return captureFrame(page)
