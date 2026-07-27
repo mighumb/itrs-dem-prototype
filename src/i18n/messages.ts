@@ -107,6 +107,10 @@ export const messages = {
     browserPreview: 'Browser preview',
     browserPreviewHint: 'Run a journey to watch real Playwright screenshots step by step',
     browserScreenshotAlt: 'Browser screenshot',
+    expandScreenshot: 'Enlarge screenshot',
+    closeScreenshot: 'Close screenshot',
+    previousScreenshot: 'Previous screenshot',
+    nextScreenshot: 'Next screenshot',
 
     // Monitoring
     availability: 'Availability',
