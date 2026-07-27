@@ -840,12 +840,16 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
 
   const runContinueAfterFix = useCallback(
     async (startIndex: number, stepsSnapshot: JourneyStep[]) => {
-      if (isRunningRef.current || stepsSnapshot.length === 0) {
+      const abortContinue = () => {
         fixContinueInFlightRef.current = false
+        setFixActionsResolved(false)
+      }
+      if (isRunningRef.current || stepsSnapshot.length === 0) {
+        abortContinue()
         return
       }
       if (startIndex < 0 || startIndex >= stepsSnapshot.length) {
-        fixContinueInFlightRef.current = false
+        abortContinue()
         return
       }
       const runId = ++runIdRef.current
