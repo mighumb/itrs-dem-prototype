@@ -231,20 +231,6 @@ function StepDetailPanel({ step }: { step: LastRunStepMetric }) {
           {step.error}
         </p>
       )}
-
-      <div className="mt-3 overflow-hidden rounded-lg border border-zinc-100 bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800">
-        {step.screenshotDataUrl ? (
-          <img
-            src={step.screenshotDataUrl}
-            alt={t('browserScreenshotAlt')}
-            className="aspect-video w-full object-cover object-top"
-          />
-        ) : (
-          <div className="flex aspect-video w-full items-center justify-center text-xs text-zinc-400">
-            —
-          </div>
-        )}
-      </div>
     </div>
   )
 }
