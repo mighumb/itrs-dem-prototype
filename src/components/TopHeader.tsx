@@ -29,7 +29,9 @@ function BrandMark({
 }) {
   // Light UI → dark glyph; dark UI → light glyph (assets named for the mode they serve).
   const src =
-    theme === 'dark' ? '/itrs-favicon-dark-mode.svg' : '/itrs-favicon-light-mode.svg'
+    theme === 'dark'
+      ? '/logos/itrs-favicon-dark-mode.svg'
+      : '/logos/itrs-favicon-light-mode.svg'
   return (
     <img
       src={src}
