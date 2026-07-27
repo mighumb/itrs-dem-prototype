@@ -16,7 +16,6 @@ import { DISCOVERY_SYSTEM_PROMPT } from './_lib/discoverySystemPrompt.js'
 import {
   answersIncludeSiteDecline,
   hasExplicitSiteLocator,
-  hostnameMatchesBrandTokens,
   looksLikeAmbiguousBrandName,
   looksLikeSiteConfirmation,
   looksLikeSiteDecline,
@@ -86,17 +85,15 @@ function shouldAttachSiteEvidence(body: DiscoveryAiRequest): boolean {
   return false
 }
 
-/** Resolve name → URL only; ask the user before crawling / proposing journeys. */
+/** Brand→URL was inferred — always confirm destination before crawl / proposals. */
 function shouldConfirmBeforeExplore(
   body: DiscoveryAiRequest,
   target: ResolvedSiteTarget | null,
 ): boolean {
   if (body.mode !== 'bootstrap' && body.mode !== 'chat') return false
-  if (!looksLikeAmbiguousBrandName(body.userMessage)) return false
   if (!target?.url || target.source !== 'brand_resolve') return false
-  // Named brand already locked in the hostname (aliexpress → aliexpress.com):
-  // skip the sibling-marketplace quiz and explore that site.
-  if (hostnameMatchesBrandTokens(target.url, body.userMessage)) return false
+  // User already affirmed the candidate this turn — proceed to explore.
+  if (looksLikeSiteConfirmation(body.userMessage) && body.context?.url) return false
   return true
 }
 
@@ -614,6 +611,15 @@ async function groundAndMaybeDryRunPlan(options: {
   return parsed
 }
 
+function candidateHostLabel(url: string | null | undefined): string {
+  if (!url) return 'this site'
+  try {
+    return new URL(url).hostname.replace(/^www\./, '')
+  } catch {
+    return url.replace(/^https?:\/\//i, '').replace(/^www\./, '').split('/')[0] || url
+  }
+}
+
 function buildResultPayload(
   parsed: Record<string, unknown>,
   analysis: SiteAnalysisResult | null,
@@ -629,13 +635,33 @@ function buildResultPayload(
   // user declined the candidate (e.g. « c'était juste un souhait »).
   const proposals =
     confirmFirst || declined || !Array.isArray(parsed.proposals) ? null : parsed.proposals
-  const questions = declined
+  let questions = declined
     ? null
     : Array.isArray(parsed.questions)
       ? parsed.questions
       : null
   const lang = body.preferredLanguage ?? body.context?.preferredLanguage ?? 'en'
   const fr = lang === 'fr'
+  const host = candidateHostLabel(target?.url)
+
+  // Server-enforced URL fact-check: never leave confirmFirst without a floating form.
+  if (confirmFirst && !declined) {
+    const yes = fr ? `Oui, ${host}` : `Yes, ${host}`
+    const no = fr ? 'Non, autre site' : 'No, another site'
+    if (!questions || questions.length === 0) {
+      questions = [
+        {
+          id: 'site-confirm',
+          prompt: fr
+            ? `Le site à surveiller est-il bien ${host} ?`
+            : `Is ${host} the site to monitor?`,
+          options: [yes, no],
+          allowOther: true,
+        },
+      ]
+    }
+  }
+
   const rawFormTitle =
     typeof parsed.formTitle === 'string' && parsed.formTitle.trim()
       ? parsed.formTitle.trim().slice(0, 80)
@@ -656,14 +682,20 @@ function buildResultPayload(
     }
   }
 
+  const fallbackMessage = confirmFirst
+    ? fr
+      ? `J’ai trouvé ${host} comme site officiel. Tu confirmes que c’est bien l’URL à surveiller ?`
+      : `I found ${host} as the official site. Confirm this is the URL to monitor?`
+    : fr
+      ? 'Voici ce que je propose.'
+      : 'Here is what I suggest.'
+
   return {
     type: 'result' as const,
     message:
       typeof parsed.message === 'string' && parsed.message.trim()
         ? parsed.message
-        : fr
-          ? 'Voici ce que je propose.'
-          : 'Here is what I suggest.',
+        : fallbackMessage,
     workTrace: normalizeWorkTrace(
       parsed.workTrace,
       declined ? null : analysis,
