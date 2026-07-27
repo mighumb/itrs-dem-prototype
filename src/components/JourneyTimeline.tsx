@@ -211,10 +211,24 @@ export default function JourneyTimeline({
   }
 
   const toggleCheckedStage = (id: string) => {
+    const stage = stages.find((s) => s.id === id)
+    const actionIds = stage?.actions.map((a) => a.id) ?? []
+    const selecting = !checkedStageIds.has(id)
+
     setCheckedStageIds((prev) => {
       const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
+      if (selecting) next.add(id)
+      else next.delete(id)
+      return next
+    })
+
+    // Selecting a stage also selects all actions inside it; deselect clears them.
+    setCheckedActionIds((prev) => {
+      const next = new Set(prev)
+      for (const actionId of actionIds) {
+        if (selecting) next.add(actionId)
+        else next.delete(actionId)
+      }
       return next
     })
   }
