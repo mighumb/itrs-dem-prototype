@@ -317,7 +317,7 @@ async function pickBestBrandUrl(options: {
     // rather than falling through to a foreign .com that happens to answer.
     if (
       preferredLanguage === 'fr' &&
-      localeUrlScore(candidate.url, 'fr') >= 100 &&
+      localeUrlScore(candidate.url, 'fr') >= 90 &&
       brandHostScore(candidate.url, brandTokens) > 0
     ) {
       return {
