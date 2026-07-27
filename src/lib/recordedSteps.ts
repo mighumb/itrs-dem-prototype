@@ -1,9 +1,10 @@
 import type { RecordedBrowserStep } from './extensionBridge'
-import type { JourneyStep } from '../types'
+import type { JourneyAction, JourneyStage } from '../types'
+import { actionsToStages } from './journeyStages'
 
-/** Turn extension-recorded actions into workspace journey steps. */
-export function recordedStepsToJourneySteps(recorded: RecordedBrowserStep[]): JourneyStep[] {
-  const out: JourneyStep[] = []
+/** Turn extension-recorded gestures into flat journey actions. */
+export function recordedStepsToJourneySteps(recorded: RecordedBrowserStep[]): JourneyAction[] {
+  const out: JourneyAction[] = []
   let lastNav = ''
 
   for (const step of recorded) {
@@ -39,7 +40,12 @@ export function recordedStepsToJourneySteps(recorded: RecordedBrowserStep[]): Jo
     })
   }
 
-  return out.slice(0, 40)
+  return out
+}
+
+/** Default: 1 recorded action → 1 stage. */
+export function recordedStepsToJourneyStages(recorded: RecordedBrowserStep[]): JourneyStage[] {
+  return actionsToStages(recordedStepsToJourneySteps(recorded))
 }
 
 function normalizeAction(action: string): string {
