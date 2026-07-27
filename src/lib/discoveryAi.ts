@@ -1,3 +1,9 @@
+import {
+  answersIncludeSiteDecline,
+  looksLikeSiteConfirmation,
+  looksLikeSiteDecline,
+  messageRequestsSiteWork,
+} from '../../api/_lib/discoverySiteIntent'
 import type {
   DiscoveryContext,
   DiscoveryPlan,
@@ -6,6 +12,15 @@ import type {
 } from '../mock/discovery'
 import { t, type Locale } from '../i18n/messages'
 import type { ChatMessage } from '../types'
+
+export {
+  answersIncludeSiteDecline,
+  looksLikeAmbiguousBrandName,
+  looksLikeSiteConfirmation,
+  looksLikeSiteDecline,
+  looksLikeSocialChat,
+  messageRequestsSiteWork,
+} from '../../api/_lib/discoverySiteIntent'
 
 export type DiscoveryAiMode = 'bootstrap' | 'chat' | 'propose' | 'configure' | 'plan' | 'iterate'
 
@@ -186,15 +201,24 @@ function finalizeDiscoveryResult(options: {
   preferredLanguage: 'en' | 'fr'
   source: 'gemini' | 'unavailable'
   mode?: DiscoveryAiMode
+  /** User utterance for this turn — used to avoid reviving proposals after a decline. */
+  userMessage?: string
+  answers?: Record<string, string> | null
 }): DiscoveryAiResult {
   const siteAnalysis = normalizeSiteAnalysis(options.siteAnalysis)
   const awaitingConfirm = siteAnalysis?.reason === 'awaiting_user_confirmation'
-  const questions = normalizeQuestions(options.questions)
-  let proposals = awaitingConfirm ? null : normalizeProposals(options.proposals)
+  const declined =
+    looksLikeSiteDecline(options.userMessage ?? '') ||
+    answersIncludeSiteDecline(options.answers)
+  const questions = declined ? null : normalizeQuestions(options.questions)
+  let proposals =
+    awaitingConfirm || declined ? null : normalizeProposals(options.proposals)
   let message = options.message.trim()
 
   // Never turn "1. Oui / 2. Non" confirm copy into journey proposal cards.
-  if (!proposals && !questions && !awaitingConfirm) {
+  // Also never revive proposals from prose after the user declined a site candidate
+  // (API already nulls proposals[]; recovery must not undo that hard gate).
+  if (!proposals && !questions && !awaitingConfirm && !declined) {
     proposals = recoverProposalsFromMessage(message, options.fallbackPrompt)
   }
 
@@ -303,97 +327,6 @@ export function looksLikeHttpUrl(text: string): boolean {
   return /https?:\/\/[^\s]+/i.test(text) || /\b[a-z0-9-]+\.[a-z]{2,}(?:\/|\b)/i.test(text)
 }
 
-const CHAT_NOISE_RE =
-  /^(hi|hello|hey|bonjour|salut|coucou|test|essai|ok|oui|non|merci|thanks|aide|help|ping)$/i
-const ACRONYM_NOISE_RE =
-  /^(OK|KO|LOL|MDR|WTF|FYI|ASAP|PDF|FAQ|IMO|BTW|IDK)$/i
-const BRAND_BLOCKLIST_RE =
-  /^(parcours|journey|journeys|site|sites|idées|ideas|aide|help|test|essai|chat|monitoring|surveillance|ok|oui|non|parfait|nickel|go|sure|exact|okay|merci|thanks|ping)$/i
-const INTENT_ONLY_RE =
-  /^(je\s+veux|j['’]aimerais|i\s+want|i['’]d\s+like|un\s+parcours|des\s+idées|des\s+parcours|construisons(?:\s+un\s+parcours)?|test\s+chat|aide[- ]moi|help\s+me|un\s+site|montre[- ]moi|des\s+idées)$/i
-const INTENT_STOPWORD_RE =
-  /\b(je|j|tu|on|nous|vous|veux|voudrais|aimerais|besoin|faire|créer|cree|construire|construisons|build|create|make|start|commencer|surveiller|monitor(?:er|ing)?|parcours|journey|journeys|site|website|web|pour|avec|de|du|des|le|la|les|un|une|the|a|an|to|for|of|on|in|dans|please|svp|aide[- ]?moi|help\s+me|i\s+want|i'd\s+like|can\s+you|could\s+you|quel(?:le)?s?|what|which|aujourd['’]?hui|today)\b/gi
-
-function hasExplicitSiteLocator(text: string): boolean {
-  const t = text.trim()
-  return (
-    /https?:\/\/[^\s]+/i.test(t) ||
-    /\b(?:www\.)?[a-z0-9][a-z0-9-]*\.[a-z]{2,}(?:\/[^\s]*)?\b/i.test(t)
-  )
-}
-
-function hasMonitorVerbWithTarget(text: string): boolean {
-  return /\b(?:monitor(?:er|ing)?|surveill(?:er|ance)?|parcours(?:\s+(?:sur|pour))?|journey(?:\s+(?:on|for))?|check(?:er)?)\s+[\wÀ-ü][\wÀ-ü&'.-]{1,}/i.test(
-    text.trim(),
-  )
-}
-
-/** User affirming a previously proposed site candidate. */
-export function looksLikeSiteConfirmation(text: string): boolean {
-  const t = text.trim()
-  if (!t || t.length > 80) return false
-  if (
-    /^(oui|ouais|yes|yep|yeah|yup|ok|okay|d['’]?accord|exact|exactement|sure|confirme(?:d)?|vas[- ]y|go|nickel|parfait)([.!]|$)/i.test(
-      t,
-    )
-  ) {
-    return true
-  }
-  if (
-    /^(oui|yes|ok)\b.{0,48}$/i.test(t) &&
-    /\b(c['’]?est\s+(?:ça|bien|bon|celui)|celui[- ]là|ce\s+site|that(?:'s|\s+is)\s+(?:it|right)|correct)\b/i.test(
-      t,
-    )
-  ) {
-    return true
-  }
-  return false
-}
-
-function brandishLeftover(text: string): string {
-  return text
-    .replace(INTENT_STOPWORD_RE, ' ')
-    .replace(/\s*&\s*/g, ' ')
-    .replace(/[^\p{L}\p{N}.'-]+/gu, ' ')
-    .trim()
-}
-
-/** Short brand / acronym without URL — confirm before proposals (server mirrors this). */
-export function looksLikeAmbiguousBrandName(text: string): boolean {
-  const t = text.trim()
-  if (!t || hasExplicitSiteLocator(t) || hasMonitorVerbWithTarget(t)) return false
-  if (looksLikeSiteConfirmation(t) || INTENT_ONLY_RE.test(t) || CHAT_NOISE_RE.test(t)) {
-    return false
-  }
-  const leftover = brandishLeftover(t)
-  if (!leftover) return false
-  const words = leftover.split(/\s+/).filter(Boolean)
-  if (words.length === 0 || words.length > 6) return false
-  if (words.every((w) => BRAND_BLOCKLIST_RE.test(w))) return false
-  const letters = leftover.replace(/[^A-Za-zÀ-ü]/g, '')
-  if (/^[A-ZÀ-Ü]{2,6}$/.test(letters) && !ACRONYM_NOISE_RE.test(letters)) return true
-  if (/^(?:la|le|l['’]|les|the|el|die)\s+[A-Za-zÀ-ü][A-Za-zÀ-ü'.-]{1,40}$/i.test(t)) {
-    return true
-  }
-  if (
-    words.length <= 3 &&
-    words.every((w) => /^[\p{L}'.-]{2,}$/u.test(w)) &&
-    !words.every((w) => BRAND_BLOCKLIST_RE.test(w))
-  ) {
-    return true
-  }
-  return false
-}
-
-/** Client mirror of server gate: only send site evidence when this turn needs it. */
-export function messageRequestsSiteWork(text: string): boolean {
-  const t = text.trim()
-  if (!t) return false
-  if (looksLikeSiteConfirmation(t)) return false
-  if (hasExplicitSiteLocator(t) || hasMonitorVerbWithTarget(t)) return true
-  return looksLikeAmbiguousBrandName(t)
-}
-
 export async function requestDiscoveryAi(options: {
   mode: DiscoveryAiMode
   userMessage: string
@@ -467,13 +400,20 @@ export async function requestDiscoveryAi(options: {
               }
             : null,
         context: (() => {
+          const declined =
+            Boolean(context?.url) &&
+            (looksLikeSiteDecline(userMessage) ||
+              Object.values(context?.answers ?? {}).some(
+                (value) => typeof value === 'string' && looksLikeSiteDecline(value),
+              ))
           const attachSite =
-            mode === 'propose' ||
-            mode === 'configure' ||
-            mode === 'plan' ||
-            mode === 'iterate' ||
-            messageRequestsSiteWork(userMessage) ||
-            (looksLikeSiteConfirmation(userMessage) && Boolean(context?.url))
+            !declined &&
+            (mode === 'propose' ||
+              mode === 'configure' ||
+              mode === 'plan' ||
+              mode === 'iterate' ||
+              messageRequestsSiteWork(userMessage) ||
+              (looksLikeSiteConfirmation(userMessage) && Boolean(context?.url)))
           if (!context) {
             return { preferredLanguage, journeyName, currentSteps }
           }
@@ -482,7 +422,7 @@ export async function requestDiscoveryAi(options: {
               preferredLanguage,
               journeyName,
               currentSteps,
-              answers: context.answers,
+              answers: declined ? {} : context.answers,
               selectedProposalId: context.selectedProposalId,
               seed: null,
               url: null,
@@ -579,6 +519,8 @@ export async function requestDiscoveryAi(options: {
         preferredLanguage,
         source: message ? 'gemini' : 'unavailable',
         mode,
+        userMessage,
+        answers: context?.answers ?? null,
       })
     }
 
@@ -608,6 +550,8 @@ export async function requestDiscoveryAi(options: {
       preferredLanguage,
       source: message ? 'gemini' : 'unavailable',
       mode,
+      userMessage,
+      answers: context?.answers ?? null,
     })
   } catch (error) {
     if (

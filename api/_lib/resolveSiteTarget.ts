@@ -1,6 +1,7 @@
 import { GoogleGenerativeAI } from '@google/generative-ai'
 import { geminiModelCandidates } from './geminiModels.js'
 import { analyzePublicSite, extractHttpUrl, type SiteAnalysisResult } from './analyzeSite.js'
+import { looksLikeSocialChat } from './discoverySiteIntent.js'
 
 export type ResolvedSiteTarget = {
   /** URL we will/tried to inspect */
@@ -22,6 +23,8 @@ const BRAND_RESOLVE_TIMEOUT_MS = 12_000
 function shouldTryBrandResolve(text: string): boolean {
   const t = text.trim()
   if (!t || t.length < 2) return false
+  // Ultra-short social / ping — never burn a brand Search call
+  if (looksLikeSocialChat(t)) return false
   // Pure greetings / ultra-short asks — don't burn a search call
   if (
     /^(hi|hello|hey|bonjour|salut|aide|help|coucou|test|ok)([.!?]|$)/i.test(t) &&
