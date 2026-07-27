@@ -174,6 +174,7 @@ Ne pas exposer le raisonnement brut complet. Le message final reste court ; le d
   - FR : **Lancer**
 - Si l’utilisateur **repart en itération**, l’encart **disparaît** jusqu’à ce qu’un plan complet soit de nouveau affiché.
 - Un plan affiché n’est pas auto-lancé : le lancement passe par **Run / Lancer** (ou équivalent d’acceptation explicite si on l’ajoute plus tard).
+- **Pas de téléportation** : une URL collée (deep link, article, fiche produit, ancre…) est la **destination à vérifier**, pas le point d’entrée. Le 1er Navigate ouvre la **homepage** du site ; ensuite le plan reconstruit le chemin d’un utilisateur normal (recherche, clics, menus). Ne jamais commencer par un Navigate direct vers l’URL profonde sauf demande explicite one-shot.
 
 ## 13. Send / Stop (UX chat)
 
