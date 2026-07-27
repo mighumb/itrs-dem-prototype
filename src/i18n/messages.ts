@@ -54,6 +54,7 @@ export const messages = {
     requestDemo: 'Request demo',
     fullName: 'Full name',
     agentThinking: 'Thinking…',
+    agentTranslating: 'Translating the form…',
 
     // Workspace chrome
     panelAgent: 'Agent',
@@ -325,6 +326,7 @@ export const messages = {
     requestDemo: 'Demander une démo',
     fullName: 'Nom complet',
     agentThinking: 'Réflexion en cours…',
+    agentTranslating: 'Traduction du formulaire…',
 
     panelAgent: 'Agent',
     panelSteps: 'Étapes',
