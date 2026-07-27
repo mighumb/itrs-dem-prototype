@@ -1,4 +1,5 @@
 import {
+  answersIncludeSiteDecline,
   looksLikeSiteConfirmation,
   looksLikeSiteDecline,
   messageRequestsSiteWork,
@@ -200,15 +201,24 @@ function finalizeDiscoveryResult(options: {
   preferredLanguage: 'en' | 'fr'
   source: 'gemini' | 'unavailable'
   mode?: DiscoveryAiMode
+  /** User utterance for this turn — used to avoid reviving proposals after a decline. */
+  userMessage?: string
+  answers?: Record<string, string> | null
 }): DiscoveryAiResult {
   const siteAnalysis = normalizeSiteAnalysis(options.siteAnalysis)
   const awaitingConfirm = siteAnalysis?.reason === 'awaiting_user_confirmation'
-  const questions = normalizeQuestions(options.questions)
-  let proposals = awaitingConfirm ? null : normalizeProposals(options.proposals)
+  const declined =
+    looksLikeSiteDecline(options.userMessage ?? '') ||
+    answersIncludeSiteDecline(options.answers)
+  const questions = declined ? null : normalizeQuestions(options.questions)
+  let proposals =
+    awaitingConfirm || declined ? null : normalizeProposals(options.proposals)
   let message = options.message.trim()
 
   // Never turn "1. Oui / 2. Non" confirm copy into journey proposal cards.
-  if (!proposals && !questions && !awaitingConfirm) {
+  // Also never revive proposals from prose after the user declined a site candidate
+  // (API already nulls proposals[]; recovery must not undo that hard gate).
+  if (!proposals && !questions && !awaitingConfirm && !declined) {
     proposals = recoverProposalsFromMessage(message, options.fallbackPrompt)
   }
 
@@ -509,6 +519,8 @@ export async function requestDiscoveryAi(options: {
         preferredLanguage,
         source: message ? 'gemini' : 'unavailable',
         mode,
+        userMessage,
+        answers: context?.answers ?? null,
       })
     }
 
@@ -538,6 +550,8 @@ export async function requestDiscoveryAi(options: {
       preferredLanguage,
       source: message ? 'gemini' : 'unavailable',
       mode,
+      userMessage,
+      answers: context?.answers ?? null,
     })
   } catch (error) {
     if (

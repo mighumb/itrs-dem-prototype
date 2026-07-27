@@ -515,6 +515,32 @@ export default function Home({ userName = 'there', onStart }: HomeProps) {
 
   /** Close floating UI without treating it as a user message — agent stays silent. */
   const handleCloseStack = () => {
+    // Dismiss must not leave a haunted confirm/configure context that biases the next turn.
+    if (siteConfirmPending) {
+      setSiteConfirmPending(false)
+      setCtx((prev) =>
+        prev
+          ? {
+              ...prev,
+              url: null,
+              pageSnapshot: null,
+              seed: '',
+              answers: {},
+            }
+          : prev,
+      )
+    } else if (configuring) {
+      setCtx((prev) =>
+        prev
+          ? {
+              ...prev,
+              selectedProposalId: null,
+              selectedProposal: null,
+              answers: {},
+            }
+          : prev,
+      )
+    }
     setConfiguring(false)
     setQuestions([])
     setProposals([])
