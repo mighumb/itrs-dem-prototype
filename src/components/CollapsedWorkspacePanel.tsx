@@ -1,10 +1,14 @@
-import { GripVertical, Plus } from 'lucide-react'
+import { Check, GripVertical, Loader2, Plus, X } from 'lucide-react'
 import type { DragEvent } from 'react'
 import { useLocale } from '../context/LocaleContext'
+
+export type CollapsedPanelStatus = 'running' | 'ok' | 'failed' | null
 
 interface CollapsedWorkspacePanelProps {
   id: string
   title: string
+  /** Status chip — only meaningful while the panel is reduced. */
+  status?: CollapsedPanelStatus
   isDragging?: boolean
   isDropTarget?: boolean
   onRestore: () => void
@@ -17,6 +21,7 @@ interface CollapsedWorkspacePanelProps {
 export default function CollapsedWorkspacePanel({
   id,
   title,
+  status = null,
   isDragging,
   isDropTarget,
   onRestore,
@@ -30,7 +35,7 @@ export default function CollapsedWorkspacePanel({
     <div
       onDragOver={(event) => onDragOver(event, id)}
       onDrop={(event) => onDrop(event, id)}
-      className={`flex w-[168px] shrink-0 self-start flex-col overflow-hidden rounded-2xl border border-zinc-200/70 bg-white dark:border-zinc-700/80 dark:bg-zinc-900 ${
+      className={`flex w-[200px] shrink-0 self-start flex-col overflow-hidden rounded-2xl border border-zinc-200/70 bg-white dark:border-zinc-700/80 dark:bg-zinc-900 ${
         isDragging ? 'opacity-45' : ''
       } ${isDropTarget ? 'ring-2 ring-[#0071e3]/35 ring-offset-2 ring-offset-[#f5f5f7] dark:ring-offset-zinc-950' : ''}`}
     >
@@ -48,6 +53,33 @@ export default function CollapsedWorkspacePanel({
           {title}
         </p>
         <div className="flex shrink-0 items-center gap-0.5">
+          {status === 'running' && (
+            <span
+              title={t('running')}
+              aria-label={t('running')}
+              className="flex h-5 w-5 items-center justify-center text-[#0071e3]"
+            >
+              <Loader2 size={14} className="animate-spin" />
+            </span>
+          )}
+          {status === 'ok' && (
+            <span
+              title={t('journeyRunOk')}
+              aria-label={t('journeyRunOk')}
+              className="flex h-5 w-5 items-center justify-center rounded-md bg-emerald-500 text-white"
+            >
+              <Check size={12} strokeWidth={2.5} />
+            </span>
+          )}
+          {status === 'failed' && (
+            <span
+              title={t('journeyRunFailed')}
+              aria-label={t('journeyRunFailed')}
+              className="flex h-5 w-5 items-center justify-center rounded-md bg-red-500 text-white"
+            >
+              <X size={12} strokeWidth={2.5} />
+            </span>
+          )}
           <button
             type="button"
             onClick={onRestore}
