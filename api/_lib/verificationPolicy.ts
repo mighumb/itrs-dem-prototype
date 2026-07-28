@@ -59,7 +59,10 @@ function hostOf(url: string | null | undefined): string | null {
   }
 }
 
-function classifyUserChangeHints(userMessage: string): VerificationSignals['changeHints'] & {
+function classifyUserChangeHints(
+  userMessage: string,
+  existingUrl?: string | null,
+): VerificationSignals['changeHints'] & {
   userAskedExplicitVerify: boolean
 } {
   const text = userMessage.trim()
@@ -70,9 +73,19 @@ function classifyUserChangeHints(userMessage: string): VerificationSignals['chan
       text,
     )
 
+  const existingHost = hostOf(existingUrl)
+  const urlsInMessage = text.match(/https?:\/\/[^\s<>"']+/gi) ?? []
+  const messageMentionsOtherHost = urlsInMessage.some((raw) => {
+    const host = hostOf(raw.replace(/[.,);]+$/g, ''))
+    if (!host) return false
+    // Same host as the known destination → not a site switch (plan prompts often restate the URL).
+    if (existingHost && host === existingHost) return false
+    return true
+  })
+
   const newUrlOrSite =
-    /https?:\/\/[^\s<>"']+/i.test(text) ||
-    /\b(autre site|new (site|url|domain)|change[r]? (d['’])?(url|site)|bascul|switch (to )?site|go to )\b/i.test(
+    messageMentionsOtherHost ||
+    /\b(autre site|new (site|url|domain)|change[r]? (d['’])?(url|site)|bascul|switch (to )?site)\b/i.test(
       lower,
     )
 
@@ -90,11 +103,7 @@ function classifyUserChangeHints(userMessage: string): VerificationSignals['chan
     !newUrlOrSite &&
     !editOrAddStep &&
     !replaceWholeJourney &&
-    !userAskedExplicitVerify &&
-    (/\b(email|e-mail|t[eé]l[eé]phone|phone|nom|pr[eé]nom|password|mot de passe|ville|city|date|sku)\b/i.test(
-      text,
-    ) ||
-      text.length < 280)
+    !userAskedExplicitVerify
 
   return {
     userAskedExplicitVerify,
@@ -174,7 +183,7 @@ export function computeVerificationSignals(options: {
   )
   const answers = options.answers ?? {}
   const hasAnswers = Object.values(answers).some((v) => String(v ?? '').trim().length > 0)
-  const hints = classifyUserChangeHints(options.userMessage)
+  const hints = classifyUserChangeHints(options.userMessage, options.contextUrl)
   const suggestion = suggestFromSignals({
     hasPriorExplore,
     urlChanged,
@@ -296,6 +305,27 @@ export function resolveVerificationExecution(options: {
     scope = signals.changeHints.editOrAddStep ? 'delta' : 'full'
     reason = 'User asked to verify — honoring explicit request'
     source = 'safety'
+  }
+
+  // Params-only after a prior explore: do NOT re-run Playwright just because the
+  // model asked for full/delta. The first explore already mapped the fields; this
+  // turn only injects answers. (Explicit verify / URL / step edits still verify.)
+  const paramsOnlyAfterExplore =
+    signals.hasPriorExplore &&
+    !signals.userAskedExplicitVerify &&
+    !signals.urlChanged &&
+    !signals.changeHints.newUrlOrSite &&
+    !signals.changeHints.replaceWholeJourney &&
+    !signals.changeHints.editOrAddStep &&
+    (signals.changeHints.paramsOrAnswersOnly ||
+      (signals.hasAnswers && (signals.mode === 'plan' || signals.mode === 'configure')))
+
+  if (paramsOnlyAfterExplore && scope !== 'none') {
+    scope = 'none'
+    reason =
+      'Prior explore already mapped this page; params/answers only — skipped redundant dry-run'
+    source = 'safety'
+    stepIndexes = []
   }
 
   if (scope === 'delta') {
