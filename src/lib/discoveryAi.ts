@@ -70,17 +70,23 @@ function historyFromMessages(messages: ChatMessage[]) {
   })
 }
 
-/** Options that duplicate the footer “Autre chose…” free-text field. */
-function isRedundantOtherOption(option: string): boolean {
-  return /saisir\s+un\s+autre|entrer\s+un\s+autre|enter\s+another|other\s*\(|autre\s+e-?mail|autre\s+email|type\s+another|specify\s+other|saisir\s+ici/i.test(
-    option.trim(),
-  )
-}
-
-/** Obvious fake contact values that real lead forms will reject. */
-function isFakeContactOption(option: string): boolean {
-  return /@example\.com\b|@test\.|test\.[a-z0-9.+_-]+@|555-0100|\+33\s*0{5,}|000000000/i.test(
-    option.trim(),
+/**
+ * Meta options that duplicate the footer “Autre chose…” free-text field.
+ * Never shown in the list — custom values are typed in the footer.
+ */
+export function isRedundantOtherOption(option: string): boolean {
+  const o = option.trim()
+  if (!o) return true
+  // Bare labels: "Autre", "Other", "Autre email", "Autre mail", "Other email"…
+  if (
+    /^(autre|other|custom|personnalis[ée]|saisir|entrer|enter|specify)(\b|$)/i.test(o) &&
+    !/@/.test(o) &&
+    !/\d{3,}/.test(o)
+  ) {
+    return true
+  }
+  return /saisir\s+un\s+autre|entrer\s+un\s+autre|enter\s+another|other\s*\(|autre\s+e-?mails?|autre\s+mails?|autre\s+adresse|other\s+e-?mails?|type\s+another|specify\s+other|saisir\s+ici|free[\s-]?text|votre\s+propre/i.test(
+    o,
   )
 }
 
@@ -91,18 +97,19 @@ function normalizeQuestions(raw: unknown): DiscoveryQuestion[] | null {
       if (!item || typeof item !== 'object') return null
       const q = item as Record<string, unknown>
       if (typeof q.prompt !== 'string' || !q.prompt.trim()) return null
-      const options = Array.isArray(q.options)
-        ? q.options
-            .filter((o): o is string => typeof o === 'string' && o.trim().length > 0)
-            .filter((o) => !isRedundantOtherOption(o) && !isFakeContactOption(o))
-            .slice(0, 3)
-        : []
-      // Free-text fields (name/email/phone) may have 0 options — user uses “Autre chose…”.
-      // Choice questions need at least 2 real options.
+      // Free-text / PII: at most ONE suggested preset; custom = footer only.
+      // Never keep meta rows like “Autre email” (that is the footer’s job).
       const looksFreeText =
         /e-?mail|mail|téléphone|telephone|phone|prénom|prenom|first\s*name|nom\b|last\s*name|coordonn/i.test(
           q.prompt,
         )
+      let options = Array.isArray(q.options)
+        ? q.options
+            .filter((o): o is string => typeof o === 'string' && o.trim().length > 0)
+            .filter((o) => !isRedundantOtherOption(o))
+            .slice(0, looksFreeText ? 1 : 3)
+        : []
+      // Choice questions need at least 2 real options.
       if (!looksFreeText && options.length < 2) return null
       return {
         id: typeof q.id === 'string' ? q.id : `q-${index + 1}`,

@@ -42,7 +42,7 @@ Ne suppose pas une phrase type « je veux monitorer X ». Accepte toute forme d�
 2. **Diagnostiquer** le besoin de monitoring (faits vs hypothèses).
 3. **Clarifier** si besoin (chat et/ou questionnaire flottant).
 4. **Proposer** 2 ou 3 parcours prioritaires (pas plus par défaut).
-5. **Dériver** les paramètres nécessaires ; demander **en une seule fois** (questionnaire flottant, une question par champ) **toutes** les infos obligatoires du formulaire cible (ex. brochure HETIC → Nom + Prénom + Email + Téléphone) — pas un champ par tour de chat. Demander **uniquement** ce dont les steps ont besoin ; suggérer, ou choisir si délégation. Ne jamais inventer de secrets ni d’e-mails \`@example.com\` pour un vrai lead/téléchargement. Pas d’option « Saisir un autre e-mail » (le pied « Autre chose… » suffit). Pas de questions inutiles sur un parcours purement navigationnel.
+5. **Dériver** les paramètres nécessaires ; demander **en une seule fois** (questionnaire flottant, une question par champ) **toutes** les infos obligatoires du formulaire cible (ex. brochure HETIC → Nom + Prénom + Email + Téléphone) — pas un champ par tour de chat. Demander **uniquement** ce dont les steps ont besoin. Pour email/téléphone/nom : **au plus une** proposition cliquable (ex. email de test) ; la saisie perso = uniquement le pied « Autre chose… » — **jamais** une option liste « Autre email ». Pas de questions inutiles sur un parcours purement navigationnel.
 6. **Établir le plan** et l’afficher complètement.
 7. **Itérer** en chat tant que l’utilisateur ajuste.
 8. **Lancer** uniquement via Run / Lancer quand le plan est affiché en entier.

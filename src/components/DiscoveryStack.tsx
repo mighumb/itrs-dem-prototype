@@ -1,6 +1,7 @@
 import { ChevronLeft, ChevronRight, Pencil, X } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useLocale } from '../context/LocaleContext'
+import { isRedundantOtherOption } from '../lib/discoveryAi'
 import type { DiscoveryQuestion, JourneyProposal } from '../mock/discovery'
 
 type StackMode = 'questions' | 'proposals'
@@ -42,6 +43,7 @@ export default function DiscoveryStack({
   const [canScrollDown, setCanScrollDown] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const peekWrapRef = useRef<HTMLDivElement>(null)
+  const otherInputRef = useRef<HTMLInputElement>(null)
   const question = questions[questionIndex]
   const total = mode === 'questions' ? questions.length : proposals.length
   const current = mode === 'questions' ? questionIndex + 1 : 1
@@ -209,7 +211,14 @@ export default function DiscoveryStack({
                       type="button"
                       data-stack-item
                       onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => onSelectOption?.(question.id, option)}
+                      onClick={() => {
+                        // Meta “Autre email” must never commit — custom = footer input.
+                        if (isRedundantOtherOption(option)) {
+                          otherInputRef.current?.focus()
+                          return
+                        }
+                        onSelectOption?.(question.id, option)
+                      }}
                       className={`flex w-full cursor-pointer items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm transition ${
                         selected
                           ? 'bg-[#0071e3]/12 font-medium text-zinc-900 dark:bg-[#0071e3]/20 dark:text-zinc-100'
@@ -280,6 +289,7 @@ export default function DiscoveryStack({
             className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-400"
           />
           <input
+            ref={otherInputRef}
             value={otherText}
             onChange={(e) => setOtherText(e.target.value)}
             onKeyDown={(e) => {
