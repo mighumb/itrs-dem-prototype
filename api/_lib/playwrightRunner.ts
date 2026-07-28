@@ -230,17 +230,59 @@ async function fillLikelySearch(page: Page, query: string): Promise<Locator> {
   return loc
 }
 
-function searchQueryFromStep(step: RunnableStep): string {
+/** Prefer quoted payload in labels: "…", '…', « … », “ … ”. */
+function extractQuotedText(text: string): string | null {
+  const patterns = [
+    /"([^"]+)"/,
+    /'([^']+)'/,
+    /«\s*([^»]+)\s*»/,
+    /“([^”]+)”/,
+  ]
+  for (const re of patterns) {
+    const m = text.match(re)
+    const value = m?.[1]?.trim()
+    if (value) return value
+  }
+  return null
+}
+
+function looksLikeCssSelector(value: string): boolean {
+  return /^(?:[#.\[a-z]|input|textarea|button|form)/i.test(value.trim()) && /[#.\[\]=>:]/.test(value)
+}
+
+/**
+ * Value to type into a field. Order:
+ * 1) quoted text in the label (e.g. Taper 'Kylian Mbappé' …)
+ * 2) targetHint when it is a query, not a CSS selector
+ * 3) instructional prefix patterns (Type / Taper / Search / …)
+ * 4) full label (last resort)
+ */
+export function searchQueryFromStep(step: RunnableStep): string {
   const label = step.label
+
+  const quoted = extractQuotedText(label)
+  if (quoted) return quoted
+
+  if (step.targetHint) {
+    const hint = step.targetHint.trim()
+    if (hint && !looksLikeCssSelector(hint) && hint.length < 120) return hint
+  }
+
   const patterns = [
     /search(?:\s+for)?\s+(.+)/i,
     /recherch(?:e|er)?\s+(.+)/i,
-    /type\s+(.+)/i,
+    /(?:type|taper|tape)\s+(.+)/i,
     /sais(?:ir|ie)\s+(.+)/i,
   ]
   for (const re of patterns) {
     const m = label.match(re)
-    if (m?.[1]) return m[1].replace(/\s+and\b.*$/i, '').trim()
+    if (m?.[1]) {
+      return m[1]
+        .replace(/\s+and\b.*$/i, '')
+        .replace(/\s+(?:dans|in|into|on)\b.*$/i, '')
+        .replace(/^["'«“]+|["'»”]+$/g, '')
+        .trim()
+    }
   }
   return label
 }
@@ -276,8 +318,7 @@ async function resolveClickLocator(page: Page, step: RunnableStep): Promise<Loca
 
   const textHints = [
     step.targetHint,
-    step.label.match(/"([^"]+)"/)?.[1],
-    step.label.match(/«\s*([^»]+)\s*»/)?.[1],
+    extractQuotedText(step.label),
     step.label
       .replace(/^(click|select|choose|open|choisis|sélectionne|ouvre|clique)\s+/i, '')
       .split(/\s+and\b/i)[0]
@@ -356,8 +397,15 @@ async function executeStepWithCapture(
       loc = await fillLikelySearch(page, value)
     }
     const frame = await captureHighlighted(page, loc)
-    await page.keyboard.press('Enter')
-    await page.waitForLoadState('domcontentloaded', { timeout: 15000 }).catch(() => undefined)
+    // Submit via Enter only for Search-style steps. Plain Type (e.g. FR « Taper … »)
+    // leaves submit to a following Click (« Rechercher ») so we don't skip that button.
+    const shouldSubmitWithEnter =
+      /^search$/i.test(step.action.trim()) ||
+      /^(search|recherch)/i.test(step.label.trim())
+    if (shouldSubmitWithEnter) {
+      await page.keyboard.press('Enter')
+      await page.waitForLoadState('domcontentloaded', { timeout: 15000 }).catch(() => undefined)
+    }
     return frame
   }
 
