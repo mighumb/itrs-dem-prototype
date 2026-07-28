@@ -8,6 +8,15 @@ import type {
 import { templateActions } from '../types'
 import { tf, type Locale } from '../i18n/messages'
 
+/**
+ * Desktop optical logo balance for homepage sample cards (md+).
+ * AXA is the visual reference (scale 1).
+ *
+ * Rollback: set to `false` to restore equal h-10 sizing (pre-balance behavior).
+ * Instant revert without git — then tune or remove the per-logo scales.
+ */
+export const HOME_SAMPLE_LOGO_OPTICAL_BALANCE = true
+
 /** Homepage sample cards — company + short journey title (not full step-by-step prompts). */
 export type HomeJourneyExample = {
   id: 'salesforce' | 'axa' | 'amazon' | 'airbnb'
@@ -15,6 +24,13 @@ export type HomeJourneyExample = {
   logoSrc: string
   /** Optional light-on-dark wordmark (e.g. Amazon black → white). */
   logoSrcDark?: string
+  /**
+   * Desktop-only optical scale vs AXA (=1). Ignored when
+   * {@link HOME_SAMPLE_LOGO_OPTICAL_BALANCE} is false.
+   */
+  logoScaleDesktop?: number
+  /** Desktop max width for wide wordmarks (e.g. Salesforce). */
+  logoMaxWidthDesktop?: string
   /** Market homepage used as context.url for the sample (locale-aware). */
   url: { en: string; fr: string }
   journeyTitle: { en: string; fr: string }
@@ -33,6 +49,9 @@ export const HOME_JOURNEY_EXAMPLES: readonly HomeJourneyExample[] = [
     id: 'salesforce',
     company: 'Salesforce',
     logoSrc: '/logos/salesforce.svg',
+    // Slightly larger so the wordmark stays readable; wider slot for cloud+text.
+    logoScaleDesktop: 1.2,
+    logoMaxWidthDesktop: '9rem',
     url: {
       en: 'https://www.salesforce.com',
       fr: 'https://www.salesforce.com/fr/',
@@ -50,6 +69,8 @@ export const HOME_JOURNEY_EXAMPLES: readonly HomeJourneyExample[] = [
     id: 'axa',
     company: 'AXA',
     logoSrc: '/logos/axa.svg',
+    // Visual reference — leave at 1.
+    logoScaleDesktop: 1,
     url: {
       en: 'https://www.axa.fr',
       fr: 'https://www.axa.fr',
@@ -68,6 +89,8 @@ export const HOME_JOURNEY_EXAMPLES: readonly HomeJourneyExample[] = [
     company: 'Amazon',
     logoSrc: '/logos/amazon.svg',
     logoSrcDark: '/logos/amazon-dark.svg',
+    // Dense wide wordmark reads oversized at equal height.
+    logoScaleDesktop: 0.75,
     url: {
       en: 'https://www.amazon.com',
       fr: 'https://www.amazon.fr',
@@ -85,6 +108,8 @@ export const HOME_JOURNEY_EXAMPLES: readonly HomeJourneyExample[] = [
     id: 'airbnb',
     company: 'Airbnb',
     logoSrc: '/logos/airbnb.svg',
+    // Solid Bélo fills the height and reads heavy vs AXA.
+    logoScaleDesktop: 0.8,
     url: {
       en: 'https://www.airbnb.com',
       fr: 'https://www.airbnb.fr',

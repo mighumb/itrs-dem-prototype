@@ -1,5 +1,5 @@
 import { ArrowUp, Play } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import DiscoveryStack from '../components/DiscoveryStack'
 import { AgentMessage } from '../components/GlobalAgent'
 import AgentWorkStatus from '../components/AgentWorkStatus'
@@ -15,7 +15,11 @@ import {
   type DiscoveryAiResult,
 } from '../lib/discoveryAi'
 import type { JourneyLaunchSession } from '../lib/journeyLaunch'
-import { getHomeExamples, type HomeJourneyExample } from '../mock/data'
+import {
+  getHomeExamples,
+  HOME_SAMPLE_LOGO_OPTICAL_BALANCE,
+  type HomeJourneyExample,
+} from '../mock/data'
 import {
   createDiscoveryContext,
   formatPlanMessage,
@@ -1014,19 +1018,52 @@ export default function Home({
                   onClick={() => void handleExample(example)}
                   className="flex w-full cursor-pointer items-center gap-3 rounded-xl border border-zinc-200/70 bg-zinc-50 px-4 py-3 text-left transition hover:border-zinc-300 hover:bg-white dark:border-zinc-700/50 dark:bg-zinc-900/60 dark:hover:border-zinc-600 dark:hover:bg-zinc-800 md:min-h-[7.5rem] md:flex-col md:items-start md:gap-3 md:px-4 md:py-4"
                 >
-                  <span className="relative flex h-7 w-7 shrink-0 items-center justify-start md:h-10 md:w-auto md:max-w-[7.5rem]">
+                  <span
+                    className="relative flex h-7 w-7 shrink-0 items-center justify-start md:h-10 md:w-auto md:max-w-[var(--logo-max-w,7.5rem)]"
+                    style={
+                      HOME_SAMPLE_LOGO_OPTICAL_BALANCE && example.logoMaxWidthDesktop
+                        ? ({
+                            ['--logo-max-w' as string]: example.logoMaxWidthDesktop,
+                          } as CSSProperties)
+                        : undefined
+                    }
+                  >
+                    {/*
+                      Desktop optical scale (md+). Mobile unchanged.
+                      Rollback: set HOME_SAMPLE_LOGO_OPTICAL_BALANCE = false in mock/data.ts
+                    */}
                     <img
                       src={example.logoSrc}
                       alt=""
-                      className={`h-7 w-7 object-contain md:h-10 md:w-auto md:max-h-10 ${
-                        example.logoSrcDark ? 'dark:hidden' : ''
-                      }`}
+                      className={`h-7 w-7 object-contain md:h-10 md:w-auto md:max-h-10 md:origin-left ${
+                        HOME_SAMPLE_LOGO_OPTICAL_BALANCE
+                          ? 'md:[transform:scale(var(--logo-scale,1))]'
+                          : ''
+                      } ${example.logoSrcDark ? 'dark:hidden' : ''}`}
+                      style={
+                        HOME_SAMPLE_LOGO_OPTICAL_BALANCE && example.logoScaleDesktop != null
+                          ? ({
+                              ['--logo-scale' as string]: String(example.logoScaleDesktop),
+                            } as CSSProperties)
+                          : undefined
+                      }
                     />
                     {example.logoSrcDark ? (
                       <img
                         src={example.logoSrcDark}
                         alt=""
-                        className="hidden h-7 w-7 object-contain dark:block md:h-10 md:w-auto md:max-h-10"
+                        className={`hidden h-7 w-7 object-contain dark:block md:h-10 md:w-auto md:max-h-10 md:origin-left ${
+                          HOME_SAMPLE_LOGO_OPTICAL_BALANCE
+                            ? 'md:[transform:scale(var(--logo-scale,1))]'
+                            : ''
+                        }`}
+                        style={
+                          HOME_SAMPLE_LOGO_OPTICAL_BALANCE && example.logoScaleDesktop != null
+                            ? ({
+                                ['--logo-scale' as string]: String(example.logoScaleDesktop),
+                              } as CSSProperties)
+                            : undefined
+                        }
                       />
                     ) : null}
                   </span>
