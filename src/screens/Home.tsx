@@ -113,13 +113,18 @@ export default function Home({
     onDiscoverySessionChange?.(inSession)
   }, [inSession, onDiscoverySessionChange])
 
-  // Follow the latest message. Do NOT scrollTo(0) or yank the page when the
-  // floating form / Autre field gains focus — that hid the composer.
+  // Keep the composer / Run / floating form reachable after long agent replies.
+  // Document-scroll layout: without this, a tall plan leaves the input below the fold
+  // and the user must scroll manually (avoidable friction).
   useEffect(() => {
-    if (showStack || showRun) return
     const id = window.setTimeout(() => {
-      chatEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
-    }, 0)
+      const dock = formDockRef.current
+      if (dock) {
+        dock.scrollIntoView({ behavior: 'smooth', block: 'end' })
+        return
+      }
+      chatEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+    }, 40)
     return () => window.clearTimeout(id)
   }, [messages, agentTyping, workStatus, showStack, showRun])
 
