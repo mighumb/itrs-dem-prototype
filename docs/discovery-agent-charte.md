@@ -175,6 +175,8 @@ Ne pas exposer le raisonnement brut complet. Le message final reste court ; le d
 - Si l’utilisateur **repart en itération**, l’encart **disparaît** jusqu’à ce qu’un plan complet soit de nouveau affiché.
 - Un plan affiché n’est pas auto-lancé : le lancement passe par **Run / Lancer** (ou équivalent d’acceptation explicite si on l’ajoute plus tard).
 - **Pas de téléportation** : une URL collée (deep link, article, fiche produit, ancre…) est la **destination à vérifier**, pas le point d’entrée. Le 1er Navigate ouvre la **homepage** du site ; ensuite le plan reconstruit le chemin d’un utilisateur normal (recherche, clics, menus). Ne jamais commencer par un Navigate direct vers l’URL profonde sauf demande explicite one-shot.
+- **Aller au bout du but** : si l’utilisateur demande une section / onglet / stats / panier / devis, le plan doit **cliquer jusqu’à cette destination** avant le Verify final — s’arrêter sur la page profil / article / résultats ne suffit pas (ex. Wikipédia → Click « Statistiques » puis onglets utiles, pas seulement la page Mbappé).
+- **Inférence proactive** : un prompt imparfait reste interprétable. « page statistiques internationales de Mbappé sur wikipédia » = aller jusqu’aux stats internationales (pas un Verify « le mot Statistiques est présent »). Le parcours #1 doit être la lecture la plus riche plausible ; les variantes plus courtes vont en propositions secondaires.
 
 ## 13. Send / Stop (UX chat)
 

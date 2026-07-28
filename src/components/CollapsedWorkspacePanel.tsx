@@ -66,14 +66,14 @@ export default function CollapsedWorkspacePanel({
             <span
               title={t('journeyRunOk')}
               aria-label={t('journeyRunOk')}
-              className="h-2.5 w-2.5 rounded-full bg-emerald-500"
+              className="h-1.5 w-1.5 rounded-full bg-emerald-500"
             />
           )}
           {status === 'failed' && (
             <span
               title={t('journeyRunFailed')}
               aria-label={t('journeyRunFailed')}
-              className="h-2.5 w-2.5 rounded-full bg-red-500"
+              className="h-1.5 w-1.5 rounded-full bg-red-500"
             />
           )}
           <button

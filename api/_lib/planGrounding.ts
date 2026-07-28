@@ -177,6 +177,70 @@ export function queryFromDeepUrl(url: string): string | null {
   }
 }
 
+/** Human label from URL hash (e.g. #Statistiques → Statistiques). */
+export function sectionFromHash(url: string): string | null {
+  try {
+    const raw = new URL(url).hash.replace(/^#/, '').trim()
+    if (!raw) return null
+    const decoded = decodeURIComponent(raw)
+      .replace(/[_+]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+    return decoded.length >= 2 ? decoded : null
+  } catch {
+    return null
+  }
+}
+
+function planMentionsSection(steps: GroundedPlanStep[], section: string): boolean {
+  const needle = section.toLowerCase()
+  return steps.some((step) => {
+    const blob = `${step.label} ${step.targetHint ?? ''} ${step.href ?? ''}`.toLowerCase()
+    return blob.includes(needle)
+  })
+}
+
+/** Ensure a Click (+ optional Verify retarget) for a hash/section destination. */
+function ensureSectionDepth(
+  steps: GroundedPlanStep[],
+  destination: string,
+  langFr: boolean,
+): GroundedPlanStep[] {
+  const section = sectionFromHash(destination)
+  if (!section || planMentionsSection(steps, section)) return steps
+
+  const click: GroundedPlanStep = {
+    action: 'Click',
+    label: langFr ? `Ouvrir la section « ${section} »` : `Open the "${section}" section`,
+    targetHint: section,
+  }
+
+  const withoutTrailingVerify = [...steps]
+  let trailingVerify: GroundedPlanStep | null = null
+  const last = withoutTrailingVerify[withoutTrailingVerify.length - 1]
+  if (last && /verify|vérif|check/i.test(`${last.action} ${last.label}`)) {
+    trailingVerify = withoutTrailingVerify.pop() ?? null
+  }
+
+  const verify: GroundedPlanStep = trailingVerify
+    ? {
+        ...trailingVerify,
+        label: langFr
+          ? `Vérifier la section « ${section} »`
+          : `Verify the "${section}" section`,
+        targetHint: trailingVerify.targetHint || section,
+      }
+    : {
+        action: 'Verify',
+        label: langFr
+          ? `Vérifier la section « ${section} »`
+          : `Verify the "${section}" section`,
+        targetHint: section,
+      }
+
+  return [...withoutTrailingVerify, click, verify].slice(0, 8)
+}
+
 function isNavigateAction(step: GroundedPlanStep): boolean {
   return /navigate|go to|open/i.test(step.action) || /navigate|va sur|ouvre https?/i.test(step.label)
 }
@@ -213,7 +277,7 @@ export function naturalizeDeepLinkEntry(
 
   // Already has a natural search/type step — only fix the first Navigate href.
   if (steps.some(isSearchOrType)) {
-    return steps.map((step, index) => {
+    const rewritten = steps.map((step, index) => {
       if (index !== 0 && !isNavigateAction(step)) return step
       if (!isNavigateAction(step)) return step
       // First navigate only
@@ -232,6 +296,8 @@ export function naturalizeDeepLinkEntry(
       }
       return step
     })
+    const langFr = /[àâäéèêëïîôùûüç]/i.test(rewritten.map((s) => s.label).join(' '))
+    return ensureSectionDepth(rewritten, destination, langFr)
   }
 
   const home = homepageOf(destination)
@@ -269,8 +335,7 @@ export function naturalizeDeepLinkEntry(
 
   // Avoid duplicating a leading verify-only skeleton
   const merged = [...entry, ...rest]
-  // Cap at 8 steps (prompt budget)
-  return merged.slice(0, 8)
+  return ensureSectionDepth(merged, destination, langFr).slice(0, 8)
 }
 
 /**
