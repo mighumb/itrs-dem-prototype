@@ -1,6 +1,6 @@
 /**
  * Records Navigate / Click / Type while recording is ON.
- * Shows a clear REC bar on the site tab being recorded.
+ * Shows a REC bar only on tabs in the recording lineage (source + opener chain).
  */
 ;(function () {
   if (window.__ITRS_DEM_RECORDER__) return
@@ -76,6 +76,9 @@
     bannerEl.innerHTML = `
       <span class="itrs-dem-rec-dot" aria-hidden="true"></span>
       <span class="itrs-dem-rec-text"><strong>ITRS DEM</strong> · Enregistrement en cours</span>
+      <button type="button" class="itrs-dem-rec-abort" id="itrs-dem-rec-abort">
+        Abandonner
+      </button>
       <button type="button" class="itrs-dem-rec-stop" id="itrs-dem-rec-stop">
         Arrêter et importer
       </button>
@@ -110,22 +113,33 @@
         animation: itrs-dem-pulse 1.2s ease-out infinite;
         pointer-events: none !important;
       }
-      #itrs-dem-rec-banner .itrs-dem-rec-stop {
+      #itrs-dem-rec-banner .itrs-dem-rec-stop,
+      #itrs-dem-rec-banner .itrs-dem-rec-abort {
         flex-shrink: 0 !important;
-        margin-left: auto !important;
         cursor: pointer !important;
         border: 0 !important;
         border-radius: 8px !important;
         padding: 7px 12px !important;
+        font: 650 12px/1.2 system-ui, -apple-system, sans-serif !important;
+      }
+      #itrs-dem-rec-banner .itrs-dem-rec-stop {
         background: #fff !important;
         color: #b91c1c !important;
-        font: 650 12px/1.2 system-ui, -apple-system, sans-serif !important;
         box-shadow: 0 1px 2px rgba(0,0,0,.12) !important;
       }
       #itrs-dem-rec-banner .itrs-dem-rec-stop:hover {
         background: #fef2f2 !important;
       }
-      #itrs-dem-rec-banner .itrs-dem-rec-stop:disabled {
+      #itrs-dem-rec-banner .itrs-dem-rec-abort {
+        background: transparent !important;
+        color: #fff !important;
+        border: 1px solid rgba(255,255,255,.55) !important;
+      }
+      #itrs-dem-rec-banner .itrs-dem-rec-abort:hover {
+        background: rgba(255,255,255,.12) !important;
+      }
+      #itrs-dem-rec-banner .itrs-dem-rec-stop:disabled,
+      #itrs-dem-rec-banner .itrs-dem-rec-abort:disabled {
         opacity: 0.7 !important;
         cursor: wait !important;
       }
@@ -138,20 +152,38 @@
       body.itrs-dem-recording { padding-top: 48px !important; }
     `
     bannerEl.prepend(style)
+
     const stopBtn = bannerEl.querySelector('#itrs-dem-rec-stop')
+    const abortBtn = bannerEl.querySelector('#itrs-dem-rec-abort')
+
     if (stopBtn instanceof HTMLButtonElement) {
       stopBtn.addEventListener('click', (event) => {
         event.preventDefault()
         event.stopPropagation()
         if (stopBtn.disabled) return
         stopBtn.disabled = true
+        if (abortBtn instanceof HTMLButtonElement) abortBtn.disabled = true
         stopBtn.textContent = 'Import…'
         chrome.runtime.sendMessage({ type: 'stop_and_import' }, () => {
           void chrome.runtime.lastError
-          // Banner will disappear when recording flag clears.
         })
       })
     }
+
+    if (abortBtn instanceof HTMLButtonElement) {
+      abortBtn.addEventListener('click', (event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        if (abortBtn.disabled) return
+        abortBtn.disabled = true
+        if (stopBtn instanceof HTMLButtonElement) stopBtn.disabled = true
+        abortBtn.textContent = '…'
+        chrome.runtime.sendMessage({ type: 'abort_recording' }, () => {
+          void chrome.runtime.lastError
+        })
+      })
+    }
+
     document.documentElement.classList.add('itrs-dem-recording')
     document.body?.classList.add('itrs-dem-recording')
     ;(document.body || document.documentElement).appendChild(bannerEl)
@@ -172,17 +204,16 @@
   }
 
   function recordNavigate(reason) {
-    if (isDemAppPage()) return
+    if (!recording || isDemAppPage()) return
     const url = location.href
     if (!url || url === lastNavUrl) return
     lastNavUrl = url
     sendStep({
       id: `nav-${Date.now()}`,
       action: 'Navigate',
-      label: document.title?.trim() || url,
+      label: `Navigate (${reason})`,
       url,
       href: url,
-      targetHint: reason === 'load' ? document.title?.trim() : undefined,
       at: Date.now(),
     })
   }
@@ -192,22 +223,20 @@
     const target = event.target
     if (!(target instanceof Element)) return
     if (target.closest('#itrs-dem-rec-banner')) return
-    const clickable = target.closest(
-      'a,button,input[type="submit"],input[type="button"],[role="button"],[onclick]',
-    )
-    if (!clickable) return
+    const clickable =
+      target.closest('a,button,input,select,textarea,[role="button"],[onclick]') || target
+    if (!(clickable instanceof Element)) return
+    if (isSensitive(clickable)) return
 
-    const href =
-      clickable instanceof HTMLAnchorElement
-        ? clickable.href
-        : clickable.getAttribute('href') || undefined
+    let href
+    if (clickable instanceof HTMLAnchorElement && clickable.href) href = clickable.href
 
     sendStep({
       id: `click-${Date.now()}`,
       action: 'Click',
-      label: labelFor(clickable),
+      label: `Click ${labelFor(clickable)}`,
       url: location.href,
-      href: href || undefined,
+      href,
       targetHint: labelFor(clickable),
       selector: shortSelector(clickable),
       at: Date.now(),
@@ -217,13 +246,7 @@
   function onChange(event) {
     if (!recording || isDemAppPage()) return
     const el = event.target
-    if (
-      !(
-        el instanceof HTMLInputElement ||
-        el instanceof HTMLTextAreaElement ||
-        el instanceof HTMLSelectElement
-      )
-    ) {
+    if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement)) {
       return
     }
     if (isSensitive(el)) return
@@ -245,20 +268,26 @@
   }
 
   async function syncFlag() {
-    const data = await chrome.storage.local.get(['itrsDemRecordingFlag', 'itrsDemRecordingTabId'])
+    const data = await chrome.storage.local.get([
+      'itrsDemRecordingFlag',
+      'itrsDemRecordingTabIds',
+      'itrsDemRecordingTabId',
+    ])
     const next = Boolean(data.itrsDemRecordingFlag)
     const was = recording
     recording = next
 
-    const tabHint = data.itrsDemRecordingTabId
+    const tabIds = Array.isArray(data.itrsDemRecordingTabIds)
+      ? data.itrsDemRecordingTabIds.filter((id) => typeof id === 'number')
+      : typeof data.itrsDemRecordingTabId === 'number'
+        ? [data.itrsDemRecordingTabId]
+        : []
 
-    // Resolve this tab's id, then show the banner ONLY on the dedicated recording tab.
-    // Never fall back to "all tabs" when id is unknown — hide until we know.
     chrome.runtime.sendMessage({ type: 'whoami' }, (res) => {
       void chrome.runtime.lastError
       const myTabId = res?.tabId
       const onRecordingTab =
-        typeof tabHint === 'number' && typeof myTabId === 'number' && myTabId === tabHint
+        typeof myTabId === 'number' && tabIds.length > 0 && tabIds.includes(myTabId)
 
       if (recording && onRecordingTab && !isDemAppPage()) {
         ensureBanner()
@@ -275,7 +304,9 @@
   chrome.storage.onChanged.addListener((changes, area) => {
     if (
       area === 'local' &&
-      (changes.itrsDemRecordingFlag || changes.itrsDemRecordingTabId)
+      (changes.itrsDemRecordingFlag ||
+        changes.itrsDemRecordingTabIds ||
+        changes.itrsDemRecordingTabId)
     ) {
       void syncFlag()
     }

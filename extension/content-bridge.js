@@ -43,7 +43,7 @@
     )
   })
 
-  // Extension → page: stop & import from the recording-tab banner
+  // Extension → page: stop & import / abort from the recording-tab banner
   chrome.runtime.onMessage.addListener((message) => {
     if (!message || typeof message !== 'object') return
     if (message.type === 'import_recording' && Array.isArray(message.steps)) {
@@ -52,6 +52,15 @@
           source: EXT,
           type: 'import_recording',
           steps: message.steps,
+        },
+        window.location.origin,
+      )
+    }
+    if (message.type === 'abort_recording') {
+      window.postMessage(
+        {
+          source: EXT,
+          type: 'abort_recording',
         },
         window.location.origin,
       )
