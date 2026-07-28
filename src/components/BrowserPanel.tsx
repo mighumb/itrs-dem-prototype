@@ -2,12 +2,14 @@ import { ExternalLink, Hand, Loader2 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useLocale } from '../context/LocaleContext'
 import {
+  abortExtensionRecording,
   focusRecordingTab,
   getExtensionFrame,
   getExtensionSteps,
   pingExtension,
   startExtensionRecording,
   stopExtensionRecording,
+  subscribeAbortRecording,
   subscribeImportRecording,
   type RecordedBrowserStep,
 } from '../lib/extensionBridge'
@@ -106,6 +108,17 @@ export default function BrowserPanel({
     })
   }, [t])
 
+  // Abort from Chrome recording-tab banner ("Abandonner").
+  useEffect(() => {
+    return subscribeAbortRecording(() => {
+      setPhase('closed')
+      setStepCount(0)
+      setLiveFrame(null)
+      setLiveUrl(null)
+      setError(null)
+    })
+  }, [])
+
   const promotePendingShot = (src: string) => {
     heldShotRef.current = src
     setHeldShot(src)
@@ -171,7 +184,24 @@ export default function BrowserPanel({
     }
   }
 
+  const handleAbortRecording = async () => {
+    setError(null)
+    try {
+      await abortExtensionRecording()
+    } catch {
+      // Still close the UI even if the extension is unreachable.
+    }
+    setPhase('closed')
+    setStepCount(0)
+    setLiveFrame(null)
+    setLiveUrl(null)
+  }
+
   const handleCancel = () => {
+    if (phase === 'recording') {
+      void handleAbortRecording()
+      return
+    }
     setPhase('closed')
     setError(null)
   }
@@ -391,10 +421,10 @@ export default function BrowserPanel({
             </button>
             <button
               type="button"
-              onClick={handleCancel}
-              className="rounded-lg px-2.5 py-1.5 text-xs font-medium text-zinc-500"
+              onClick={() => void handleAbortRecording()}
+              className="rounded-lg border border-red-300 bg-white px-2.5 py-1.5 text-xs font-medium text-red-800"
             >
-              {t('dismiss')}
+              {t('extensionAbort')}
             </button>
           </div>
         </div>

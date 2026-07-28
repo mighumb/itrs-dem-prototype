@@ -15,6 +15,7 @@ type BridgeRequestType =
   | 'ping'
   | 'start_recording'
   | 'stop_recording'
+  | 'abort_recording'
   | 'get_steps'
   | 'get_state'
   | 'get_frame'
@@ -118,6 +119,12 @@ export async function stopExtensionRecording(): Promise<RecordedBrowserStep[]> {
   return Array.isArray(res.steps) ? res.steps : []
 }
 
+/** Stop recording and discard all captured steps (no import). */
+export async function abortExtensionRecording(): Promise<boolean> {
+  const res = await requestExtension('abort_recording', { timeoutMs: 2500 })
+  return Boolean(res.ok)
+}
+
 export async function getExtensionSteps(): Promise<RecordedBrowserStep[]> {
   const res = await requestExtension('get_steps', { timeoutMs: 2000 })
   return Array.isArray(res.steps) ? res.steps : []
@@ -162,6 +169,22 @@ export function subscribeImportRecording(
     if (data.type !== 'import_recording') return
     if (!Array.isArray(data.steps)) return
     onImport(data.steps as RecordedBrowserStep[])
+  }
+
+  window.addEventListener('message', onMessage)
+  return () => window.removeEventListener('message', onMessage)
+}
+
+/** Listen for Abort from the Chrome recording-tab banner. */
+export function subscribeAbortRecording(onAbort: () => void): () => void {
+  if (!isBrowser()) return () => undefined
+
+  const onMessage = (event: MessageEvent) => {
+    if (event.source !== window) return
+    const data = event.data as Record<string, unknown> | null
+    if (!data || data.source !== EXT) return
+    if (data.type !== 'abort_recording') return
+    onAbort()
   }
 
   window.addEventListener('message', onMessage)

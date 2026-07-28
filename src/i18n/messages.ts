@@ -93,13 +93,14 @@ export const messages = {
     extensionStart: 'Start recording',
     extensionRecordingTitle: 'Recording — use the Chrome tab with the red bar',
     extensionRecordingBody:
-      'Interact in that tab. This panel mirrors it when the tab is focused. Passwords are ignored.',
+      'Interact in that tab (or tabs/windows opened from it). This panel mirrors the focused recording tab. Passwords are ignored.',
     extensionMirrorHint:
       'Focus the Chrome tab with the red REC bar to see the live view here, then keep browsing there.',
     extensionLiveView: 'Live view of recording tab',
     extensionFocusTab: 'Show / reopen recording tab',
     extensionStepCount: '{count} step(s) captured',
     extensionStopImport: 'Stop & import steps',
+    extensionAbort: 'Discard',
     extensionStartFailed: 'Could not reach the extension. Is it enabled on this page?',
     extensionNoSteps: 'No steps recorded yet. Browse the site, then try again.',
     extensionImported: 'Imported {count} step(s) from your Chrome recording. You can edit or Run them.',
@@ -392,13 +393,14 @@ export const messages = {
     extensionStart: 'Démarrer l’enregistrement',
     extensionRecordingTitle: 'Enregistrement — utilisez l’onglet Chrome avec la barre rouge',
     extensionRecordingBody:
-      'Cliquez dans cet onglet. Ce panneau le reflète quand il est au premier plan. Les mots de passe sont ignorés.',
+      'Naviguez dans cet onglet (ou les onglets/fenêtres ouverts depuis celui-ci). Ce panneau reflète l’onglet d’enregistrement au premier plan. Les mots de passe sont ignorés.',
     extensionMirrorHint:
       'Mettez au premier plan l’onglet Chrome avec la barre REC rouge pour voir la vue live ici, puis continuez à naviguer là-bas.',
     extensionLiveView: 'Vue live de l’onglet d’enregistrement',
     extensionFocusTab: 'Afficher / rouvrir l’onglet',
     extensionStepCount: '{count} étape(s) capturée(s)',
     extensionStopImport: 'Arrêter et importer',
+    extensionAbort: 'Abandonner',
     extensionStartFailed: 'Extension inaccessible. Est-elle activée sur cette page ?',
     extensionNoSteps: 'Aucune étape pour l’instant. Naviguez sur le site, puis réessayez.',
     extensionImported: '{count} étape(s) importée(s) depuis Chrome. Vous pouvez les modifier ou Lancer.',

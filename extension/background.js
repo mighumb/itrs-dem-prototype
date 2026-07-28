@@ -2,8 +2,13 @@
 
 const STATE_KEY = 'itrsDemRecording'
 
+/** Root tab opened by Take control. */
 /** @type {number | null} */
-let recordingTabId = null
+let sourceTabId = null
+/** Source + tabs/windows opened from the lineage (openerTabId chain). */
+/** @type {Set<number>} */
+const recordingTabIds = new Set()
+
 /** @type {string | null} */
 let lastFrame = null
 /** @type {string | null} */
@@ -23,13 +28,61 @@ async function getState() {
   )
 }
 
+/** Restore in-memory lineage after service worker restart. */
+async function hydrateLineageFromStorage() {
+  const data = await chrome.storage.local.get([
+    'itrsDemRecordingTabIds',
+    'itrsDemRecordingTabId',
+    STATE_KEY,
+  ])
+  const ids = Array.isArray(data.itrsDemRecordingTabIds)
+    ? data.itrsDemRecordingTabIds.filter((id) => typeof id === 'number')
+    : typeof data.itrsDemRecordingTabId === 'number'
+      ? [data.itrsDemRecordingTabId]
+      : []
+  recordingTabIds.clear()
+  for (const id of ids) recordingTabIds.add(id)
+  sourceTabId =
+    typeof data.itrsDemRecordingTabId === 'number'
+      ? data.itrsDemRecordingTabId
+      : ids[0] ?? null
+  const state = data[STATE_KEY]
+  if (state?.recording && recordingTabIds.size > 0) {
+    startCaptureLoop()
+  }
+}
+
+void hydrateLineageFromStorage()
+
+async function persistLineage() {
+  const ids = [...recordingTabIds]
+  await chrome.storage.local.set({
+    itrsDemRecordingTabIds: ids,
+    // Back-compat: primary/source id (content scripts prefer the array).
+    itrsDemRecordingTabId: sourceTabId,
+  })
+}
+
 async function setState(next) {
   await chrome.storage.local.set({
     [STATE_KEY]: next,
     itrsDemRecordingFlag: Boolean(next.recording),
     itrsDemStepCount: Array.isArray(next.steps) ? next.steps.length : 0,
-    itrsDemRecordingTabId: recordingTabId,
+    itrsDemRecordingTabIds: [...recordingTabIds],
+    itrsDemRecordingTabId: sourceTabId,
   })
+}
+
+function clearLineage() {
+  recordingTabIds.clear()
+  sourceTabId = null
+}
+
+function addToLineage(tabId) {
+  if (typeof tabId !== 'number') return false
+  if (recordingTabIds.has(tabId)) return false
+  recordingTabIds.add(tabId)
+  return true
 }
 
 function stopCaptureLoop() {
@@ -46,13 +99,31 @@ function startCaptureLoop() {
   }, 700)
 }
 
-async function captureRecordingTab() {
-  if (!recordingTabId) return
+/** Prefer an active lineage tab; fall back to source. */
+async function resolveCaptureTab() {
+  if (recordingTabIds.size === 0) return null
   try {
-    const tab = await chrome.tabs.get(recordingTabId)
-    if (!tab || tab.discarded) return
+    const tabs = await chrome.tabs.query({ active: true })
+    const activeInLineage = tabs.find((tab) => tab.id != null && recordingTabIds.has(tab.id))
+    if (activeInLineage?.id != null) return activeInLineage
+  } catch {
+    // continue
+  }
+  const preferred = sourceTabId ?? [...recordingTabIds][0]
+  if (preferred == null) return null
+  try {
+    return await chrome.tabs.get(preferred)
+  } catch {
+    return null
+  }
+}
+
+async function captureRecordingTab() {
+  if (recordingTabIds.size === 0) return
+  try {
+    const tab = await resolveCaptureTab()
+    if (!tab || tab.discarded || tab.id == null) return
     lastFrameUrl = tab.url || lastFrameUrl
-    // captureVisibleTab only works when this tab is active in its window.
     if (!tab.active) return
     const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, {
       format: 'jpeg',
@@ -73,8 +144,10 @@ async function openRecordingTab(url) {
       : 'https://www.google.com/'
 
   const tab = await chrome.tabs.create({ url: target, active: true })
-  recordingTabId = tab.id ?? null
-  await chrome.storage.local.set({ itrsDemRecordingTabId: recordingTabId })
+  clearLineage()
+  sourceTabId = tab.id ?? null
+  if (sourceTabId != null) recordingTabIds.add(sourceTabId)
+  await persistLineage()
   return tab
 }
 
@@ -93,20 +166,27 @@ function resolveResumeUrl(state) {
   return 'https://www.google.com/'
 }
 
-/** Focus the recording tab, or reopen it at the last URL without clearing steps. */
+/** Focus a lineage tab, or reopen at the last URL without clearing steps. */
 async function focusOrReopenRecordingTab() {
-  if (recordingTabId != null) {
+  // Prefer source, then any remaining lineage tab.
+  const candidates = [
+    sourceTabId,
+    ...[...recordingTabIds].filter((id) => id !== sourceTabId),
+  ].filter((id) => typeof id === 'number')
+
+  for (const id of candidates) {
     try {
-      const tab = await chrome.tabs.get(recordingTabId)
+      const tab = await chrome.tabs.get(id)
       if (tab?.id != null) {
         if (tab.windowId != null) {
           await chrome.windows.update(tab.windowId, { focused: true })
         }
-        await chrome.tabs.update(recordingTabId, { active: true })
+        await chrome.tabs.update(id, { active: true })
         return { ok: true, reopened: false, url: tab.url || lastFrameUrl }
       }
     } catch {
-      recordingTabId = null
+      recordingTabIds.delete(id)
+      if (sourceTabId === id) sourceTabId = null
     }
   }
 
@@ -119,7 +199,7 @@ async function focusOrReopenRecordingTab() {
   await openRecordingTab(url)
   lastFrameUrl = url
   startCaptureLoop()
-  const tabId = recordingTabId
+  const tabId = sourceTabId
   setTimeout(() => {
     if (tabId == null) return
     void chrome.tabs.update(tabId, { active: true }).catch(() => undefined)
@@ -144,7 +224,21 @@ function isDemAppUrl(url) {
 async function stopRecordingInternal() {
   const state = await getState()
   stopCaptureLoop()
+  clearLineage()
   await setState({ ...state, recording: false })
+  return getState()
+}
+
+async function abortRecordingInternal() {
+  stopCaptureLoop()
+  clearLineage()
+  lastFrame = null
+  await setState({
+    recording: false,
+    steps: [],
+    startedAt: null,
+    openUrl: null,
+  })
   return getState()
 }
 
@@ -174,11 +268,43 @@ async function notifyDemTabsImport(steps) {
   return demTabs.length
 }
 
-chrome.tabs.onRemoved.addListener((tabId) => {
-  if (tabId === recordingTabId) {
-    recordingTabId = null
-    void chrome.storage.local.set({ itrsDemRecordingTabId: null })
+async function notifyDemTabsAbort() {
+  const tabs = await chrome.tabs.query({})
+  const demTabs = tabs.filter((tab) => typeof tab.url === 'string' && isDemAppUrl(tab.url))
+  for (const tab of demTabs) {
+    if (tab.id == null) continue
+    try {
+      await chrome.tabs.sendMessage(tab.id, { type: 'abort_recording' })
+    } catch {
+      // ignore
+    }
   }
+  return demTabs.length
+}
+
+function lineagePayload() {
+  return {
+    recordingTabId: sourceTabId,
+    recordingTabIds: [...recordingTabIds],
+  }
+}
+
+// Child tabs / windows opened from a lineage tab join the recording set.
+chrome.tabs.onCreated.addListener((tab) => {
+  if (tab.id == null) return
+  const opener = tab.openerTabId
+  if (typeof opener === 'number' && recordingTabIds.has(opener)) {
+    if (addToLineage(tab.id)) void persistLineage()
+  }
+})
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+  if (!recordingTabIds.has(tabId)) return
+  recordingTabIds.delete(tabId)
+  if (sourceTabId === tabId) {
+    sourceTabId = [...recordingTabIds][0] ?? null
+  }
+  void persistLineage()
 })
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -190,7 +316,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
 
       if (message.type === 'whoami') {
-        sendResponse({ ok: true, tabId: sender.tab?.id ?? null })
+        sendResponse({
+          ok: true,
+          tabId: sender.tab?.id ?? null,
+          inLineage:
+            typeof sender.tab?.id === 'number' && recordingTabIds.has(sender.tab.id),
+        })
         return
       }
 
@@ -201,8 +332,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           installed: true,
           recording: state.recording,
           stepCount: state.steps.length,
-          recordingTabId,
           frameUrl: lastFrameUrl,
+          ...lineagePayload(),
         })
         return
       }
@@ -213,8 +344,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           ok: true,
           ...state,
           stepCount: state.steps.length,
-          recordingTabId,
           frameUrl: lastFrameUrl,
+          ...lineagePayload(),
         })
         return
       }
@@ -227,7 +358,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           stepCount: state.steps.length,
           frame: lastFrame,
           frameUrl: lastFrameUrl,
-          recordingTabId,
+          ...lineagePayload(),
         })
         return
       }
@@ -254,16 +385,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           openUrl,
         })
         startCaptureLoop()
-        // Give the new tab a moment, then focus again (DEM page may steal focus).
         setTimeout(() => {
-          void focusRecordingTab()
+          void focusOrReopenRecordingTab()
         }, 400)
         sendResponse({
           ok: true,
           recording: true,
           steps: [],
-          recordingTabId,
           openedUrl: openUrl,
+          ...lineagePayload(),
         })
         return
       }
@@ -275,6 +405,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           recording: false,
           steps: next.steps,
           frame: lastFrame,
+          ...lineagePayload(),
         })
         return
       }
@@ -289,6 +420,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           steps,
           notified,
           frame: lastFrame,
+          ...lineagePayload(),
+        })
+        return
+      }
+
+      if (message.type === 'abort_recording') {
+        await abortRecordingInternal()
+        const notified = await notifyDemTabsAbort()
+        sendResponse({
+          ok: true,
+          recording: false,
+          steps: [],
+          aborted: true,
+          notified,
+          ...lineagePayload(),
         })
         return
       }
@@ -306,11 +452,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           sendResponse({ ok: false, error: 'not_recording' })
           return
         }
-        // Prefer steps from the dedicated recording tab when known.
+        // Only accept steps from tabs in the recording lineage.
         if (
-          recordingTabId != null &&
+          recordingTabIds.size > 0 &&
           sender.tab?.id != null &&
-          sender.tab.id !== recordingTabId
+          !recordingTabIds.has(sender.tab.id)
         ) {
           sendResponse({ ok: true, ignored: true, steps: state.steps })
           return
@@ -342,6 +488,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           recording: state.recording,
           frame: lastFrame,
           frameUrl: lastFrameUrl,
+          ...lineagePayload(),
         })
         return
       }
