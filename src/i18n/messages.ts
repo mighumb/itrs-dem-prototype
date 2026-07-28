@@ -374,7 +374,7 @@ export const messages = {
     stopRun: 'Arrêter le run',
     runJourneyInBrowser: 'Lancer le parcours dans le navigateur',
     edit: 'Modifier',
-    done: 'OK',
+    done: 'Terminer',
     editSteps: 'Modifier les étapes',
     doneEditing: 'Terminer la modification',
     live: 'Live',
