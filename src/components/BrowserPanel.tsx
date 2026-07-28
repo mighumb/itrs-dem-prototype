@@ -290,16 +290,20 @@ export default function BrowserPanel({
 
         {showActionOverlay && (
           <div
-            className="pointer-events-none absolute inset-0 z-[5] flex items-center justify-center bg-zinc-950/55 px-4 backdrop-blur-[1px]"
+            className="pointer-events-none absolute inset-x-0 bottom-0 z-[5] flex justify-center bg-gradient-to-t from-zinc-950/80 via-zinc-950/40 to-transparent px-4 pb-4 pt-16"
             aria-live="polite"
             aria-busy="true"
           >
-            <div className="flex max-w-sm flex-col items-center gap-2 rounded-2xl border border-white/15 bg-zinc-950/80 px-5 py-4 text-center text-white shadow-xl">
-              <Loader2 size={18} className="animate-spin text-emerald-300" />
-              <p className="text-[10px] font-medium uppercase tracking-wide text-white/70">
-                {t('actionInProgress')}
-              </p>
-              <p className="text-sm font-semibold leading-snug text-white">{runningActionLabel}</p>
+            <div className="flex max-w-sm items-center gap-2.5 rounded-2xl border border-white/15 bg-zinc-950/85 px-4 py-2.5 text-white shadow-xl backdrop-blur-sm">
+              <Loader2 size={16} className="shrink-0 animate-spin text-emerald-300" />
+              <div className="min-w-0 text-left">
+                <p className="text-[10px] font-medium uppercase tracking-wide text-white/70">
+                  {t('actionInProgress')}
+                </p>
+                <p className="truncate text-sm font-semibold leading-snug text-white">
+                  {runningActionLabel}
+                </p>
+              </div>
             </div>
           </div>
         )}

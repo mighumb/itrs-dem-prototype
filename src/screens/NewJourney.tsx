@@ -229,6 +229,11 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
   const lastFailedStepRef = useRef<RunFailureInfo | null>(null)
   const lastRunStepsRef = useRef<LastRunStepMetric[]>([])
   const lastRunModeRef = useRef<'playwright' | 'simulated'>('playwright')
+  const lastRunRef = useRef<LastRunSnapshot | null>(null)
+
+  useEffect(() => {
+    lastRunRef.current = lastRun
+  }, [lastRun])
 
   const beginLastRunCapture = useCallback((mode: 'playwright' | 'simulated', keepUntilIndex?: number) => {
     lastRunModeRef.current = mode
@@ -237,16 +242,38 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
     } else {
       lastRunStepsRef.current = []
     }
-    setLastRun(null)
+    // Keep prior Monitoring captures visible while the new run is in flight.
+    // commitLastRun() replaces them when fresh Playwright screenshots arrive.
   }, [])
 
   const commitLastRun = useCallback(() => {
-    setLastRun({
+    const next: LastRunSnapshot = {
       mode: lastRunModeRef.current,
       finishedAt: Date.now(),
       steps: [...lastRunStepsRef.current],
-    })
+    }
+    lastRunRef.current = next
+    setLastRun(next)
   }, [])
+
+  /** Prefer real Playwright captures over empty simulated fallbacks after an edit/re-run. */
+  const commitLastRunOrKeepPrior = useCallback(() => {
+    const hasNewShots = lastRunStepsRef.current.some((s) => Boolean(s.screenshotDataUrl))
+    if (lastRunModeRef.current === 'playwright' && hasNewShots) {
+      commitLastRun()
+      return
+    }
+    const prior = lastRunRef.current
+    if (
+      prior?.mode === 'playwright' &&
+      prior.steps.some((s) => Boolean(s.screenshotDataUrl))
+    ) {
+      // Keep prior highlighted captures; simulated/empty runs must not wipe them.
+      setLastRun(prior)
+      return
+    }
+    commitLastRun()
+  }, [commitLastRun])
 
   const recordLastRunStep = useCallback((metric: LastRunStepMetric) => {
     lastRunStepsRef.current = upsertLastRunStep(lastRunStepsRef.current, metric)
@@ -989,7 +1016,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
 
     if (runIdRef.current !== runId) return
 
-    commitLastRun()
+    commitLastRunOrKeepPrior()
     setIsRunning(false)
     setRunningActionLabel(null)
     finishJourneyRunStatus(!failedStep)
@@ -1010,7 +1037,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
     runSimulatedSteps,
     session.messages.length,
     beginLastRunCapture,
-    commitLastRun,
+    commitLastRunOrKeepPrior,
     tf,
   ])
 
@@ -1139,7 +1166,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
       if (!failedStep) lastFailedStepRef.current = null
       fixContinueInFlightRef.current = false
       isRunningRef.current = false
-      commitLastRun()
+      commitLastRunOrKeepPrior()
       setIsRunning(false)
       setRunningActionLabel(null)
       finishJourneyRunStatus(!failedStep)
@@ -1158,7 +1185,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
       runStepsWithPlaywright,
       tf,
       beginLastRunCapture,
-      commitLastRun,
+      commitLastRunOrKeepPrior,
       recordLastRunStep,
     ],
   )
@@ -1199,7 +1226,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
 
     if (runIdRef.current !== runId) return
 
-    commitLastRun()
+    commitLastRunOrKeepPrior()
     setIsRunning(false)
     setRunningActionLabel(null)
     finishJourneyRunStatus(!failedStep)
@@ -1218,7 +1245,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
     runStepsWithPlaywright,
     runSimulatedSteps,
     beginLastRunCapture,
-    commitLastRun,
+    commitLastRunOrKeepPrior,
     tf,
     locale,
   ])

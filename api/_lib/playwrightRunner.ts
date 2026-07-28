@@ -98,7 +98,7 @@ async function paintHighlight(
   page: Page,
   box: { x: number; y: number; width: number; height: number },
 ): Promise<void> {
-  const pad = 4
+  const pad = 6
   const painted = {
     x: Math.max(0, box.x - pad),
     y: Math.max(0, box.y - pad),
@@ -117,10 +117,10 @@ async function paintHighlight(
           top: `${b.y}px`,
           width: `${b.width}px`,
           height: `${b.height}px`,
-          border: '3px solid #0071e3',
-          borderRadius: '4px',
-          boxShadow: '0 0 0 3px rgba(0, 113, 227, 0.28)',
-          background: 'rgba(0, 113, 227, 0.06)',
+          border: '4px solid #0071e3',
+          borderRadius: '6px',
+          boxShadow: '0 0 0 4px rgba(0, 113, 227, 0.35), 0 0 24px rgba(0, 113, 227, 0.45)',
+          background: 'rgba(0, 113, 227, 0.1)',
           pointerEvents: 'none',
           zIndex: '2147483647',
           boxSizing: 'border-box',
@@ -134,17 +134,36 @@ async function paintHighlight(
 
 async function clearHighlight(page: Page): Promise<void> {
   await page
-    .evaluate((id) => document.getElementById(id)?.remove(), HIGHLIGHT_ID)
+    .evaluate((id) => {
+      document.getElementById(id)?.remove()
+      document.querySelectorAll<HTMLElement>('[data-dem-hl-outline]').forEach((el) => {
+        el.style.outline = el.getAttribute('data-dem-hl-outline') || ''
+        el.style.outlineOffset = el.getAttribute('data-dem-hl-outline-offset') || ''
+        el.removeAttribute('data-dem-hl-outline')
+        el.removeAttribute('data-dem-hl-outline-offset')
+      })
+    }, HIGHLIGHT_ID)
     .catch(() => undefined)
 }
 
 async function highlightLocator(page: Page, locator: Locator): Promise<boolean> {
   try {
     await locator.scrollIntoViewIfNeeded({ timeout: 2000 }).catch(() => undefined)
+    // Outline on the real element (survives some compositing quirks) + overlay box.
+    await locator
+      .evaluate((el) => {
+        const html = el as HTMLElement
+        html.setAttribute('data-dem-hl-outline', html.style.outline || '')
+        html.setAttribute('data-dem-hl-outline-offset', html.style.outlineOffset || '')
+        html.style.outline = '4px solid #0071e3'
+        html.style.outlineOffset = '3px'
+      })
+      .catch(() => undefined)
     const box = await locator.boundingBox()
-    if (!box || box.width < 2 || box.height < 2) return false
-    await paintHighlight(page, box)
-    await page.waitForTimeout(160)
+    if (box && box.width >= 2 && box.height >= 2) {
+      await paintHighlight(page, box)
+    }
+    await page.waitForTimeout(220)
     return true
   } catch {
     return false
@@ -462,13 +481,43 @@ async function executeStepWithCapture(
     // Fallback: direct navigation when only an href is known (no visible target).
     const href = step.href || (step.target && /^https?:\/\//i.test(step.target) ? step.target : null)
     if (href) {
+      // Last try: find any link whose href contains the path, highlight, then click.
+      try {
+        let pathOnly = ''
+        try {
+          pathOnly = new URL(href).pathname
+        } catch {
+          pathOnly = ''
+        }
+        const soft = page
+          .locator(
+            [
+              `a[href="${href}"]`,
+              pathOnly ? `a[href="${pathOnly}"]` : '',
+              pathOnly ? `a[href*="${pathOnly}"]` : '',
+            ]
+              .filter(Boolean)
+              .join(', '),
+          )
+          .first()
+        if (await soft.isVisible({ timeout: 700 })) {
+          const frame = await captureHighlighted(page, soft)
+          await performClick(page, soft)
+          return frame
+        }
+      } catch {
+        // fall through to goto
+      }
       await page.goto(href, { waitUntil: 'domcontentloaded', timeout: 25000 })
       await dismissNoise(page)
       return captureFrame(page)
     }
-    // “Lancer la recherche” / Search submit with no visible button → Enter in focused field.
+    // “Lancer la recherche” / Search submit with no visible button → highlight field, then Enter.
     if (isSearchSubmitClickLabel(step.label)) {
-      const frame = await captureFrame(page)
+      const searchLoc = await findSearchLocator(page)
+      const frame = searchLoc
+        ? await captureHighlighted(page, searchLoc)
+        : await captureFrame(page)
       await page.keyboard.press('Enter')
       await page.waitForLoadState('domcontentloaded', { timeout: 15000 }).catch(() => undefined)
       return frame
