@@ -90,7 +90,7 @@ export const HOME_JOURNEY_EXAMPLES: readonly HomeJourneyExample[] = [
     logoSrc: '/logos/amazon.svg',
     logoSrcDark: '/logos/amazon-dark.svg',
     // Dense wide wordmark reads oversized at equal height.
-    logoScaleDesktop: 0.75,
+    logoScaleDesktop: 0.68,
     url: {
       en: 'https://www.amazon.com',
       fr: 'https://www.amazon.fr',
@@ -109,7 +109,7 @@ export const HOME_JOURNEY_EXAMPLES: readonly HomeJourneyExample[] = [
     company: 'Airbnb',
     logoSrc: '/logos/airbnb.svg',
     // Solid Bélo fills the height and reads heavy vs AXA.
-    logoScaleDesktop: 0.8,
+    logoScaleDesktop: 0.9,
     url: {
       en: 'https://www.airbnb.com',
       fr: 'https://www.airbnb.fr',
