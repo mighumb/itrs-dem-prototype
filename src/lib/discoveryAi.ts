@@ -69,19 +69,43 @@ function historyFromMessages(messages: ChatMessage[]) {
   })
 }
 
+/** Options that duplicate the footer “Autre chose…” free-text field. */
+function isRedundantOtherOption(option: string): boolean {
+  return /saisir\s+un\s+autre|entrer\s+un\s+autre|enter\s+another|other\s*\(|autre\s+e-?mail|autre\s+email|type\s+another|specify\s+other|saisir\s+ici/i.test(
+    option.trim(),
+  )
+}
+
+/** Obvious fake contact values that real lead forms will reject. */
+function isFakeContactOption(option: string): boolean {
+  return /@example\.com\b|@test\.|test\.[a-z0-9.+_-]+@|555-0100|\+33\s*0{5,}|000000000/i.test(
+    option.trim(),
+  )
+}
+
 function normalizeQuestions(raw: unknown): DiscoveryQuestion[] | null {
   if (!Array.isArray(raw) || raw.length === 0) return null
   const next = raw
     .map((item, index) => {
       if (!item || typeof item !== 'object') return null
       const q = item as Record<string, unknown>
+      if (typeof q.prompt !== 'string' || !q.prompt.trim()) return null
       const options = Array.isArray(q.options)
-        ? q.options.filter((o): o is string => typeof o === 'string').slice(0, 3)
+        ? q.options
+            .filter((o): o is string => typeof o === 'string' && o.trim().length > 0)
+            .filter((o) => !isRedundantOtherOption(o) && !isFakeContactOption(o))
+            .slice(0, 3)
         : []
-      if (typeof q.prompt !== 'string' || options.length < 2) return null
+      // Free-text fields (name/email/phone) may have 0 options — user uses “Autre chose…”.
+      // Choice questions need at least 2 real options.
+      const looksFreeText =
+        /e-?mail|mail|téléphone|telephone|phone|prénom|prenom|first\s*name|nom\b|last\s*name|coordonn/i.test(
+          q.prompt,
+        )
+      if (!looksFreeText && options.length < 2) return null
       return {
         id: typeof q.id === 'string' ? q.id : `q-${index + 1}`,
-        prompt: q.prompt,
+        prompt: q.prompt.trim(),
         options,
       }
     })

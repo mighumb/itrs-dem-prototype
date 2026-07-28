@@ -68,7 +68,9 @@ export default function Home({
   const [siteConfirmPending, setSiteConfirmPending] = useState(false)
   const chatEndRef = useRef<HTMLDivElement>(null)
   const formDockRef = useRef<HTMLDivElement>(null)
-  const inputRef = useRef<HTMLInputElement>(null)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
+  /** Tab held — Tab+Enter inserts a newline (Enter alone sends). */
+  const tabHeldRef = useRef(false)
   const abortRef = useRef<AbortController | null>(null)
   const messagesRef = useRef<ChatMessage[]>([])
   messagesRef.current = messages
@@ -111,18 +113,15 @@ export default function Home({
     onDiscoverySessionChange?.(inSession)
   }, [inSession, onDiscoverySessionChange])
 
-  // Smart scroll: when a floating form appears, bring the dock into view
-  // (document scroll). Otherwise follow the latest message.
+  // Follow the latest message. Do NOT scrollTo(0) or yank the page when the
+  // floating form / Autre field gains focus — that hid the composer.
   useEffect(() => {
+    if (showStack || showRun) return
     const id = window.setTimeout(() => {
-      if (showStack || showRun) {
-        formDockRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
-        return
-      }
-      chatEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
-    }, showStack || showRun ? 60 : 0)
+      chatEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    }, 0)
     return () => window.clearTimeout(id)
-  }, [messages, agentTyping, workStatus, showStack, showRun, proposals, questions])
+  }, [messages, agentTyping, workStatus, showStack, showRun])
 
   const pushMessages = (...next: ChatMessage[]) => {
     setMessages((prev) => {
@@ -933,49 +932,90 @@ export default function Home({
           ? t('placeholderPlanning')
           : t('placeholderBrainstorm')
 
+  const insertNewlineAtCursor = (el: HTMLTextAreaElement) => {
+    const start = el.selectionStart ?? el.value.length
+    const end = el.selectionEnd ?? el.value.length
+    const next = `${el.value.slice(0, start)}\n${el.value.slice(end)}`
+    setInput(next)
+    requestAnimationFrame(() => {
+      const pos = start + 1
+      el.selectionStart = pos
+      el.selectionEnd = pos
+    })
+  }
+
   const composer = (
-    <form
-      className="relative"
-      onSubmit={(e) => {
-        e.preventDefault()
-        if (agentTyping) return
-        void handleSubmit(input)
-      }}
-    >
-      <input
-        ref={inputRef}
-        value={input}
-        onChange={(e) => setInput(e.target.value)}
-        onFocus={() => {
-          // Stop iOS from panning the focused field mid-viewport; sticky
-          // bottom + --keyboard-inset already pins the dock above the keyboard.
-          window.scrollTo(0, 0)
+    <div className="relative">
+      <form
+        className="relative"
+        onSubmit={(e) => {
+          e.preventDefault()
+          if (agentTyping) return
+          void handleSubmit(input)
         }}
-        placeholder={inputPlaceholder}
-        disabled={agentTyping}
-        readOnly={agentTyping}
-        className="w-full rounded-2xl border border-zinc-200/80 bg-white py-4 pl-5 pr-14 text-base outline-none shadow-[0_4px_24px_rgba(0,0,0,0.06)] transition placeholder:text-zinc-400 focus:border-[#0071e3] focus:ring-4 focus:ring-[#0071e3]/10 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:shadow-[0_4px_28px_rgba(0,0,0,0.45)] dark:placeholder:text-zinc-500 dark:focus:ring-[#0071e3]/20"
-      />
-      {agentTyping ? (
-        <button
-          type="button"
-          onClick={handleStop}
-          className="absolute right-2 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-xl bg-[#0071e3] text-white transition hover:bg-[#0077ed]"
-          aria-label={t('stop')}
-        >
-          <span className="block h-3.5 w-3.5 rounded-[3px] bg-white" />
-        </button>
-      ) : (
-        <button
-          type="submit"
-          disabled={!input.trim()}
-          className="absolute right-2 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-xl bg-[#0071e3] text-white transition hover:bg-[#0077ed] disabled:cursor-not-allowed disabled:opacity-40"
-          aria-label={t('send')}
-        >
-          <ArrowUp size={18} />
-        </button>
-      )}
-    </form>
+      >
+        <textarea
+          ref={inputRef}
+          value={input}
+          rows={1}
+          onChange={(e) => {
+            setInput(e.target.value)
+            const el = e.target
+            el.style.height = 'auto'
+            el.style.height = `${Math.min(el.scrollHeight, 160)}px`
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Tab') {
+              // Keep focus so Tab+Enter can insert a newline.
+              e.preventDefault()
+              tabHeldRef.current = true
+              return
+            }
+            if (e.key !== 'Enter') return
+            if (tabHeldRef.current || e.shiftKey) {
+              e.preventDefault()
+              insertNewlineAtCursor(e.currentTarget)
+              return
+            }
+            e.preventDefault()
+            if (agentTyping || !input.trim()) return
+            void handleSubmit(input)
+          }}
+          onKeyUp={(e) => {
+            if (e.key === 'Tab') tabHeldRef.current = false
+          }}
+          onBlur={() => {
+            tabHeldRef.current = false
+          }}
+          placeholder={inputPlaceholder}
+          disabled={agentTyping}
+          readOnly={agentTyping}
+          className="max-h-40 min-h-[3.25rem] w-full resize-none overflow-y-auto rounded-2xl border border-zinc-200/80 bg-white py-4 pl-5 pr-14 text-base outline-none shadow-[0_4px_24px_rgba(0,0,0,0.06)] transition placeholder:text-zinc-400 focus:border-[#0071e3] focus:ring-4 focus:ring-[#0071e3]/10 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:shadow-[0_4px_28px_rgba(0,0,0,0.45)] dark:placeholder:text-zinc-500 dark:focus:ring-[#0071e3]/20"
+        />
+        {agentTyping ? (
+          <button
+            type="button"
+            onClick={handleStop}
+            className="absolute right-2 top-3 flex h-10 w-10 items-center justify-center rounded-xl bg-[#0071e3] text-white transition hover:bg-[#0077ed]"
+            aria-label={t('stop')}
+          >
+            <span className="block h-3.5 w-3.5 rounded-[3px] bg-white" />
+          </button>
+        ) : (
+          <button
+            type="submit"
+            disabled={!input.trim()}
+            className="absolute right-2 top-3 flex h-10 w-10 items-center justify-center rounded-xl bg-[#0071e3] text-white transition hover:bg-[#0077ed] disabled:cursor-not-allowed disabled:opacity-40"
+            aria-label={t('send')}
+          >
+            <ArrowUp size={18} />
+          </button>
+        )}
+      </form>
+      <p className="mt-1.5 text-center text-[11px] text-zinc-400 dark:text-zinc-500">
+        {t('composerNewlineHint')}
+      </p>
+    </div>
   )
 
   if (!inSession) {
@@ -1111,12 +1151,6 @@ export default function Home({
         style={{
           bottom: 'var(--keyboard-inset, 0px)',
           paddingBottom: 'var(--dock-pad-bottom, max(1rem, env(safe-area-inset-bottom, 0px)))',
-        }}
-        onFocusCapture={() => {
-          // iOS scrolls focused inputs into the upper visual viewport, which
-          // fights sticky+keyboard-inset and leaves a large gap above the keyboard.
-          window.scrollTo(0, 0)
-          requestAnimationFrame(() => window.scrollTo(0, 0))
         }}
       >
         {showStack && phase === 'questionnaire' && (

@@ -144,6 +144,7 @@ export default function DiscoveryStack({
             <button
               type="button"
               disabled={questionIndex <= 0}
+              onMouseDown={(e) => e.preventDefault()}
               onClick={() => onQuestionIndexChange?.(questionIndex - 1)}
               className="cursor-pointer rounded-md p-1 transition hover:bg-zinc-100 hover:text-zinc-700 disabled:cursor-not-allowed disabled:opacity-30 dark:hover:bg-zinc-800"
               aria-label={t('previousQuestion')}
@@ -156,6 +157,7 @@ export default function DiscoveryStack({
             <button
               type="button"
               disabled={questionIndex >= total - 1}
+              onMouseDown={(e) => e.preventDefault()}
               onClick={() => onQuestionIndexChange?.(questionIndex + 1)}
               className="cursor-pointer rounded-md p-1 transition hover:bg-zinc-100 hover:text-zinc-700 disabled:cursor-not-allowed disabled:opacity-30 dark:hover:bg-zinc-800"
               aria-label={t('nextQuestion')}
@@ -196,6 +198,7 @@ export default function DiscoveryStack({
                       key={option}
                       type="button"
                       data-stack-item
+                      onMouseDown={(e) => e.preventDefault()}
                       onClick={() => onSelectOption?.(question.id, option)}
                       className={`flex w-full cursor-pointer items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm transition ${
                         selected
@@ -281,11 +284,6 @@ export default function DiscoveryStack({
             autoComplete="off"
             autoCorrect="off"
             spellCheck={false}
-            onFocus={() => {
-              // Keep the floating dock pinned; iOS focus-pan leaves a void above the keyboard.
-              window.scrollTo(0, 0)
-              requestAnimationFrame(() => window.scrollTo(0, 0))
-            }}
             placeholder={mode === 'proposals' ? t('other') : t('somethingElse')}
             className={`w-full rounded-xl border py-2.5 pl-8 pr-3 text-base outline-none transition placeholder:text-zinc-400 focus:border-[#0071e3] focus:bg-white dark:focus:bg-zinc-900 ${
               isCustomAnswer || (mode === 'questions' && otherText.trim())
