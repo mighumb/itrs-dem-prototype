@@ -230,9 +230,20 @@ export function applyAgentStepFix(
   const label = step.label.toLowerCase()
   const kind = classifyRunFailure(failure?.error, failure?.action ?? step.action, step.label)
 
-  if (/cookie|bandeau|consent|rgpd|gdpr/i.test(label)) {
-    newTarget =
-      '#onetrust-accept-btn-handler, button:has-text("Accept"), button:has-text("Tout accepter"), [aria-label*="accept" i]'
+  if (/cookie|bandeau|consent|rgpd|gdpr|didomi|sans accepter|tout accepter|tout refuser/i.test(label)) {
+    newTarget = [
+      'button:has-text("Continuer sans accepter")',
+      '#didomi-notice-disagree-button',
+      '#didomi-notice-agree-button',
+      '#onetrust-reject-all-handler',
+      '#onetrust-accept-btn-handler',
+      'button:has-text("Tout refuser")',
+      'button:has-text("Tout accepter")',
+      'button:has-text("Accept all")',
+      'button:has-text("Accept")',
+      '[aria-label*="Refuse" i]',
+      '[aria-label*="accept" i]',
+    ].join(', ')
   } else if (kind === 'click_blocked' || (/télécharge|download|brochure|submit|envoyer/i.test(label) && step.action === 'Click')) {
     newTarget = [
       'button:has-text("télécharge")',

@@ -1,4 +1,4 @@
-import type { Browser, Locator, Page } from 'playwright-core'
+import type { Browser, Frame, Locator, Page } from 'playwright-core'
 
 export type RunnableStep = {
   id: string
@@ -175,28 +175,115 @@ async function captureHighlighted(
   }
 }
 
-export async function dismissNoise(page: Page) {
-  const candidates = [
-    'button:has-text("Accept")',
-    'button:has-text("Accept all")',
-    'button:has-text("I agree")',
-    'button:has-text("Agree")',
-    'button:has-text("Tout accepter")',
-    'button:has-text("Accepter")',
-    'button:has-text("OK")',
-    '[aria-label="Close"]',
-    'button[aria-label="Close"]',
-  ]
-  for (const sel of candidates) {
+const CONSENT_REFUSE_SELECTORS = [
+  'button:has-text("Continuer sans accepter")',
+  'button:has-text("Tout refuser")',
+  'button:has-text("Refuser et fermer")',
+  'button:has-text("Refuser")',
+  'button:has-text("Reject all")',
+  'button:has-text("Reject All")',
+  'button:has-text("Reject")',
+  'button:has-text("Deny")',
+  'button:has-text("Decline")',
+  '#didomi-notice-disagree-button',
+  '#onetrust-reject-all-handler',
+  '[aria-label*="Refuse" i]',
+  '[aria-label*="Disagree" i]',
+  '[aria-label*="Reject" i]',
+]
+
+const CONSENT_ACCEPT_SELECTORS = [
+  '#didomi-notice-agree-button',
+  '#onetrust-accept-btn-handler',
+  'button:has-text("Tout accepter")',
+  'button:has-text("Accept all")',
+  'button:has-text("Accept All")',
+  'button:has-text("Accept & Close")',
+  'button:has-text("Agree and close")',
+  'button:has-text("I agree")',
+  'button:has-text("Agree")',
+  'button:has-text("Accepter")',
+  'button:has-text("Accept")',
+  'button:has-text("OK")',
+]
+
+export function isConsentStep(step: { label: string; action?: string; targetHint?: string }): boolean {
+  const blob = `${step.action ?? ''} ${step.label} ${step.targetHint ?? ''}`
+  return /cookie|bandeau|consent|rgpd|gdpr|didomi|onetrust|sans accepter|tout accepter|tout refuser|accepte?r les cookies|accept cookies|reject all/i.test(
+    blob,
+  )
+}
+
+async function firstVisibleInRoot(
+  root: Page | Frame,
+  selectors: string[],
+  timeoutMs = 350,
+): Promise<Locator | null> {
+  for (const sel of selectors) {
     try {
-      const loc = page.locator(sel).first()
-      if (await loc.isVisible({ timeout: 400 })) {
-        await loc.click({ timeout: 1000 })
-        await page.waitForTimeout(300)
-        return
-      }
+      const loc = root.locator(sel).first()
+      if (await loc.isVisible({ timeout: timeoutMs })) return loc
     } catch {
-      // ignore
+      // try next
+    }
+  }
+  return null
+}
+
+/** Prefer refuse / continue-without; fall back to accept. Searches main page + frames (Didomi). */
+async function findConsentButton(
+  page: Page,
+  prefer: 'refuse' | 'accept' | 'auto' = 'auto',
+  hint?: string | null,
+): Promise<Locator | null> {
+  const refuseFirst =
+    prefer === 'refuse' ||
+    (prefer === 'auto' &&
+      (!hint || /sans accepter|refus|reject|deny|disagree|decline/i.test(hint)))
+
+  const ordered = refuseFirst
+    ? [...CONSENT_REFUSE_SELECTORS, ...CONSENT_ACCEPT_SELECTORS]
+    : [...CONSENT_ACCEPT_SELECTORS, ...CONSENT_REFUSE_SELECTORS]
+
+  if (hint && hint.trim().length > 2) {
+    const escaped = hint.trim().slice(0, 48).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    ordered.unshift(`button:has-text("${hint.trim().slice(0, 48).replace(/"/g, '')}")`)
+    ordered.unshift(`#didomi-notice-disagree-button`)
+    try {
+      const byRole = page.getByRole('button', { name: new RegExp(escaped, 'i') }).first()
+      if (await byRole.isVisible({ timeout: 500 })) return byRole
+    } catch {
+      // continue with selectors
+    }
+  }
+
+  const roots: Array<Page | Frame> = [page, ...page.frames().filter((f) => f !== page.mainFrame())]
+  for (const root of roots) {
+    const loc = await firstVisibleInRoot(root, ordered, 280)
+    if (loc) return loc
+  }
+  return null
+}
+
+async function consentBannerVisible(page: Page): Promise<boolean> {
+  return Boolean(await findConsentButton(page, 'auto'))
+}
+
+/**
+ * Dismiss cookie / CMP banners (Didomi, OneTrust, …). Retries briefly because
+ * CMPs often inject after first paint. Prefer “continue without accepting”
+ * when present so we match typical FR demo plans.
+ */
+export async function dismissNoise(page: Page) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) await page.waitForTimeout(450)
+    const loc = await findConsentButton(page, 'auto')
+    if (!loc) return
+    try {
+      await loc.click({ timeout: 1500 })
+      await page.waitForTimeout(350)
+    } catch {
+      // try again
     }
   }
 }
@@ -650,6 +737,8 @@ async function executeStepWithCapture(
     const dest = url || seedUrl
     if (!dest) throw new Error('No URL to navigate to')
     await page.goto(dest, { waitUntil: 'domcontentloaded', timeout: 35000 })
+    // CMPs (Didomi…) often inject after first paint — wait then dismiss once.
+    await page.waitForTimeout(700)
     await dismissNoise(page)
     return captureFrame(page)
   }
@@ -687,6 +776,42 @@ async function executeStepWithCapture(
   }
 
   if (shouldExecuteAsClick(step)) {
+    // Cookie / CMP steps: resolve Didomi/OneTrust (incl. “Continuer sans accepter”),
+    // highlight before click, and no-op if the banner was already cleared.
+    if (isConsentStep(step)) {
+      const hint =
+        step.targetHint ||
+        extractQuotedText(step.label) ||
+        step.label
+          .replace(/^(click|cliquer|clique|select|choisis)\s+(sur\s+)?/i, '')
+          .trim()
+      const prefer: 'refuse' | 'accept' | 'auto' = /sans accepter|refus|reject|deny|disagree/i.test(
+        `${step.label} ${hint}`,
+      )
+        ? 'refuse'
+        : /tout accepter|accept all|agree/i.test(`${step.label} ${hint}`)
+          ? 'accept'
+          : 'auto'
+      let loc = await findConsentButton(page, prefer, hint)
+      if (!loc) {
+        await page.waitForTimeout(600)
+        loc = await findConsentButton(page, prefer, hint)
+      }
+      if (loc) {
+        const frame = await captureHighlighted(page, loc)
+        await loc.click({ timeout: 4000 }).catch(() => undefined)
+        await page.waitForTimeout(400)
+        await dismissNoise(page)
+        return frame
+      }
+      // Banner already gone (auto-dismissed on Navigate) — don't invent a second cookie fail.
+      await dismissNoise(page)
+      if (!(await consentBannerVisible(page))) {
+        return captureFrame(page)
+      }
+      throw new Error(`Could not click consent control for: ${step.label}`)
+    }
+
     const loc = await resolveClickLocator(page, step)
     if (loc) {
       // Capture with blue box BEFORE the click (element may disappear after navigation).

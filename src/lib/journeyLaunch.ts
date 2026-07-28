@@ -186,14 +186,32 @@ export function buildJourneyFromDiscovery(options: {
     }
   })
 
+  // Keep at most one cookie/CMP step — duplicates after later navigations confuse the run.
+  const isConsentLabel = (label: string) =>
+    /cookie|bandeau|consent|rgpd|gdpr|didomi|sans accepter|tout accepter|tout refuser|accepte?r les cookies/i.test(
+      label,
+    )
+  let sawConsent = false
+  const dedupedActions = actions.filter((step) => {
+    if (!isConsentLabel(step.label)) return true
+    if (sawConsent) return false
+    sawConsent = true
+    return true
+  })
+  const finalActions = dedupedActions.length > 0 ? dedupedActions : actions
+  // Re-id after filter so timeline stays contiguous.
+  finalActions.forEach((step, index) => {
+    step.id = `discovery-${index + 1}`
+  })
+
   // Guarantee at least one Navigate target when we know the site URL.
   if (
     seedUrl &&
-    actions.length > 0 &&
-    !actions.some((s) => s.action === 'Navigate' && (s.target || s.href))
+    finalActions.length > 0 &&
+    !finalActions.some((s) => s.action === 'Navigate' && (s.target || s.href))
   ) {
-    const first = actions[0]!
-    actions[0] = {
+    const first = finalActions[0]!
+    finalActions[0] = {
       ...first,
       action: 'Navigate',
       target: seedUrl,
@@ -211,8 +229,8 @@ export function buildJourneyFromDiscovery(options: {
   return {
     id: 'discovery-plan',
     name,
-    stages: stagesFromActions(actions, locale),
-    browserFrames: framesForActions(actions, seedUrl),
+    stages: stagesFromActions(finalActions, locale),
+    browserFrames: framesForActions(finalActions, seedUrl),
     monitoring: genericMonitoring(name, locale),
   }
 }
