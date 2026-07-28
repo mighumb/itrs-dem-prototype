@@ -366,8 +366,8 @@ function StepDetailPanel({
   return (
     <div className="mt-3 rounded-xl border border-zinc-200/80 bg-white p-4 dark:border-zinc-700/80 dark:bg-zinc-900">
       {/*
-        Narrow monitoring: metrics stacked, large 16:9 capture below.
-        Wide panel (other panels closed / monitoring expanded): metrics left, capture right.
+        Narrow monitoring: metrics stacked, large capture below (panel scrolls).
+        Wide panel: metrics left, capture right — both in the same scroll flow.
       */}
       <div className="flex flex-col gap-4 @[40rem]/monitoring:grid @[40rem]/monitoring:grid-cols-[minmax(14rem,0.95fr)_minmax(0,1.35fr)] @[40rem]/monitoring:items-start @[40rem]/monitoring:gap-5">
         <div className="min-w-0">
@@ -401,7 +401,7 @@ function StepDetailPanel({
           )}
         </div>
 
-        <div className="min-w-0 self-start @[40rem]/monitoring:max-h-[min(70vh,640px)] @[40rem]/monitoring:sticky @[40rem]/monitoring:top-0">
+        <div className="min-w-0">
           <div className="mb-2 flex items-center justify-between gap-2">
             <p className="text-[10px] font-medium uppercase tracking-wider text-zinc-400">
               {t('monitoringCapture')}
@@ -433,7 +433,8 @@ function StepDetailPanel({
 
 /**
  * Thumb: cropped 16:9 cover.
- * Hero: 16:9 viewport with vertical scroll so the full Playwright page can be reviewed.
+ * Hero: full-height capture in document flow — the Monitoring panel scrolls
+ * (header + signup footer stay pinned); no nested scroll trap on the image.
  */
 function CaptureFrame({
   src,
@@ -449,12 +450,14 @@ function CaptureFrame({
   onOpen?: () => void
 }) {
   const radius = size === 'hero' ? 'rounded-xl' : 'rounded-md'
-  const ring = failed ? 'ring-1 ring-red-300' : ''
+  const frameBorder = failed
+    ? 'border border-red-300 dark:border-red-500/50'
+    : 'border border-zinc-300/90 dark:border-zinc-600'
 
   if (size === 'hero') {
     return (
       <div
-        className={`relative aspect-video w-full overflow-y-auto overscroll-contain bg-zinc-200/80 dark:bg-zinc-800 ${radius} ${ring}`}
+        className={`relative w-full overflow-hidden bg-zinc-100 dark:bg-zinc-800 ${radius} ${frameBorder}`}
         onDoubleClick={onOpen}
       >
         {src ? (
@@ -462,11 +465,11 @@ function CaptureFrame({
             key={src}
             src={src}
             alt={alt}
-            className="block w-full max-w-full h-auto"
+            className="block h-auto w-full max-w-full"
             draggable={false}
           />
         ) : (
-          <div className="flex h-full min-h-full w-full items-center justify-center text-sm text-zinc-400">
+          <div className="flex aspect-video w-full items-center justify-center text-sm text-zinc-400">
             —
           </div>
         )}
@@ -481,7 +484,7 @@ function CaptureFrame({
 
   return (
     <div
-      className={`relative aspect-video w-full overflow-hidden bg-zinc-200/80 dark:bg-zinc-800 ${radius} ${ring}`}
+      className={`relative aspect-video w-full overflow-hidden bg-zinc-200/80 dark:bg-zinc-800 ${radius} ${frameBorder}`}
     >
       {src ? (
         <img

@@ -1,4 +1,4 @@
-import { Check, GripVertical, Loader2, Plus, X } from 'lucide-react'
+import { GripVertical, Loader2, Plus } from 'lucide-react'
 import type { DragEvent } from 'react'
 import { useLocale } from '../context/LocaleContext'
 
@@ -52,12 +52,12 @@ export default function CollapsedWorkspacePanel({
         <p className="min-w-0 flex-1 truncate text-xs font-medium uppercase tracking-wider text-zinc-400">
           {title}
         </p>
-        <div className="flex shrink-0 items-center gap-0.5">
+        <div className="flex shrink-0 items-center gap-1.5">
           {status === 'running' && (
             <span
               title={t('running')}
               aria-label={t('running')}
-              className="flex h-5 w-5 items-center justify-center text-[#0071e3]"
+              className="flex h-4 w-4 items-center justify-center text-[#0071e3]"
             >
               <Loader2 size={14} className="animate-spin" />
             </span>
@@ -66,19 +66,15 @@ export default function CollapsedWorkspacePanel({
             <span
               title={t('journeyRunOk')}
               aria-label={t('journeyRunOk')}
-              className="flex h-5 w-5 items-center justify-center rounded-md bg-emerald-500 text-white"
-            >
-              <Check size={12} strokeWidth={2.5} />
-            </span>
+              className="h-2.5 w-2.5 rounded-full bg-emerald-500"
+            />
           )}
           {status === 'failed' && (
             <span
               title={t('journeyRunFailed')}
               aria-label={t('journeyRunFailed')}
-              className="flex h-5 w-5 items-center justify-center rounded-md bg-red-500 text-white"
-            >
-              <X size={12} strokeWidth={2.5} />
-            </span>
+              className="h-2.5 w-2.5 rounded-full bg-red-500"
+            />
           )}
           <button
             type="button"
