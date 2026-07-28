@@ -64,11 +64,12 @@ function frameFromEvent(event: {
 export async function runLiveJourney(options: {
   steps: Array<Pick<JourneyStep, 'id' | 'label' | 'action' | 'target' | 'targetHint' | 'href'>>
   prompt?: string
+  preferredLanguage?: 'en' | 'fr'
   signal?: AbortSignal
   onEvent: (event: JourneyRunEvent) => void
   onFrame: (frame: BrowserFrame) => void
 }): Promise<LiveJourneyRunResult> {
-  const { steps, prompt, signal, onEvent, onFrame } = options
+  const { steps, prompt, preferredLanguage, signal, onEvent, onFrame } = options
 
   const runnerUrl =
     (import.meta.env.VITE_JOURNEY_RUNNER_URL as string | undefined)?.replace(/\/$/, '') ||
@@ -85,6 +86,7 @@ export async function runLiveJourney(options: {
       signal,
       body: JSON.stringify({
         prompt,
+        preferredLanguage,
         steps: steps.map((s) => ({
           id: s.id,
           label: s.label,

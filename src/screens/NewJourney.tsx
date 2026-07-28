@@ -735,6 +735,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
         const result = await runLiveJourney({
           steps: slice,
           prompt: initialPrompt,
+          preferredLanguage: locale,
           signal: controller.signal,
           onFrame: (frame) => {
             if (runIdRef.current !== runId) return

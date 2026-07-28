@@ -30,11 +30,16 @@ export function normalizeAction(action: string, label: string): string {
   const act = action.trim().toLowerCase()
   const blob = `${action} ${label}`.toLowerCase()
 
-  // Explicit plan actions win (LLM already chose Click vs Type).
+  // Explicit plan actions win (LLM already chose Click vs Type vs Select).
   if (act === 'click') return 'Click'
   if (act === 'type' || act === 'search' || act === 'fill') return 'Type'
   if (act === 'navigate') return 'Navigate'
   if (act === 'verify' || act === 'wait') return 'Verify'
+  if (act === 'select' || act === 'choose') {
+    // Dropdown fill (“Sélectionner X dans Brochure”) vs CTA (“Select Brochure”).
+    if (/\b(dans|in|from|champ|field|liste|menu|dropdown)\b/i.test(blob)) return 'Select'
+    return 'Click'
+  }
 
   if (
     /navigate|go to|open url|va sur|ouvre https?|ouvrir https?/i.test(blob) ||
@@ -45,6 +50,13 @@ export function normalizeAction(action: string, label: string): string {
   }
   // Submit-search phrasing is a Click, not a Type (avoids typing “Lancer la recherche”).
   if (/lancer\s+la\s+recherch|submit\s+(the\s+)?search/i.test(label)) return 'Click'
+  // Dropdown: “Sélectionner … dans …”
+  if (
+    /\b(sélectionner|selectionner|choisir)\b/i.test(blob) &&
+    /\b(dans|in|from|champ|liste|menu)\b/i.test(blob)
+  ) {
+    return 'Select'
+  }
   // Type only for fill/type verbs — not bare “recherch*” (that matches Click labels).
   if (/\b(type|taper|tape|fill|sais|renseign)\b/i.test(blob)) return 'Type'
   if (/^(search|rechercher)\b/i.test(label.trim()) && /[«"']/.test(label)) return 'Type'

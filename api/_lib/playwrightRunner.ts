@@ -695,7 +695,7 @@ export function isSearchSubmitClickLabel(label: string): boolean {
  */
 export function shouldExecuteAsType(step: RunnableStep): boolean {
   const action = step.action.trim().toLowerCase()
-  if (action === 'click') return false
+  if (action === 'click' || action === 'select') return false
   if (action === 'type' || action === 'search' || action === 'fill') return true
   if (isSearchSubmitClickLabel(step.label)) return false
   const blob = `${step.action} ${step.label}`
@@ -707,8 +707,25 @@ export function shouldExecuteAsType(step: RunnableStep): boolean {
   return /^(type|search|fill)\b/i.test(action) || /\b(type|taper|tape|fill|sais)\b/i.test(blob)
 }
 
-export function shouldExecuteAsClick(step: RunnableStep): boolean {
+/** Dropdown / <select> — not a CTA Click (e.g. « Sélectionner Bachelor dans Brochure »). */
+export function shouldExecuteAsSelect(step: RunnableStep): boolean {
   if (shouldExecuteAsType(step)) return false
+  const action = step.action.trim().toLowerCase()
+  if (action === 'select' || action === 'choose') {
+    // Bare “Select Brochure” as a nav CTA stays Click; “dans le champ …” is a dropdown.
+    if (/\b(dans|in|from|champ|field|liste|menu|dropdown)\b/i.test(`${step.action} ${step.label}`)) {
+      return true
+    }
+    if (action === 'select') return true
+  }
+  return (
+    /\b(sélectionner|selectionner|choisir)\b/i.test(step.label) &&
+    /\b(dans|in|from|champ|liste|menu)\b/i.test(step.label)
+  )
+}
+
+export function shouldExecuteAsClick(step: RunnableStep): boolean {
+  if (shouldExecuteAsType(step) || shouldExecuteAsSelect(step)) return false
   const action = step.action.trim().toLowerCase()
   if (action === 'click') return true
   const blob = `${step.action} ${step.label}`
@@ -723,6 +740,7 @@ async function executeStepWithCapture(
   page: Page,
   step: RunnableStep,
   seedUrl: string | null,
+  runnerLocale: RunnerLocale = 'en',
 ): Promise<RunnerFrame> {
   const action = step.action.trim().toLowerCase()
   const blob = `${step.action} ${step.label}`
@@ -743,12 +761,30 @@ async function executeStepWithCapture(
     return captureFrame(page)
   }
 
+  if (shouldExecuteAsSelect(step)) {
+    const loc = await resolveSelectLocator(page, step)
+    if (!loc) {
+      // Soft fallback: fill any empty brochure selects so the run can continue.
+      await fillEmptyFormSelects(page)
+      return captureFrame(page)
+    }
+    const frame = await captureHighlighted(page, loc)
+    await performSelect(page, loc, step)
+    return frame
+  }
+
   if (shouldExecuteAsType(step)) {
     const value = searchQueryFromStep(step)
     let loc = await resolveTypeLocator(page, step)
     if (loc) {
       try {
+        if (isPhoneFieldStep(step) && runnerLocale === 'fr') {
+          await ensurePhoneCountry(page, loc, 'fr')
+        }
         await fillField(loc, value)
+        if (isPhoneFieldStep(step) && runnerLocale === 'fr') {
+          await ensurePhoneCountry(page, loc, 'fr')
+        }
       } catch {
         loc = null
       }
@@ -810,6 +846,11 @@ async function executeStepWithCapture(
         return captureFrame(page)
       }
       throw new Error(`Could not click consent control for: ${step.label}`)
+    }
+
+    // Before submit / download CTAs, clear empty required selects (geo-gated brochure lists).
+    if (/télécharge|download|brochure|submit|envoyer|valider|je\s+télécharge/i.test(step.label)) {
+      await fillEmptyFormSelects(page)
     }
 
     const loc = await resolveClickLocator(page, step)
@@ -886,19 +927,217 @@ export async function launchBrowser(): Promise<Browser> {
   })
 }
 
+export type RunnerLocale = 'en' | 'fr'
+
+/** Prefer FR for French UI or French-market hosts (hetic.net, *.fr). */
+export function resolveRunnerLocale(
+  preferredLanguage?: 'en' | 'fr' | null,
+  seedUrl?: string | null,
+): RunnerLocale {
+  if (preferredLanguage === 'fr' || preferredLanguage === 'en') return preferredLanguage
+  if (seedUrl && /(^|\.)hetic\.net|\.fr(\/|$)/i.test(seedUrl)) return 'fr'
+  return 'en'
+}
+
+/**
+ * Localized browser page so forms match what a FR (or EN) visitor sees —
+ * phone country defaults, geo-gated fields, Accept-Language, etc.
+ */
+export async function createLocalizedPage(
+  browser: Browser,
+  options?: { preferredLanguage?: 'en' | 'fr' | null; seedUrl?: string | null },
+): Promise<Page> {
+  const lang = resolveRunnerLocale(options?.preferredLanguage, options?.seedUrl)
+  const isFr = lang === 'fr'
+  const context = await browser.newContext({
+    viewport: { width: 1280, height: 800 },
+    userAgent:
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+    locale: isFr ? 'fr-FR' : 'en-US',
+    timezoneId: isFr ? 'Europe/Paris' : 'America/New_York',
+    geolocation: isFr
+      ? { latitude: 48.8566, longitude: 2.3522 }
+      : { latitude: 40.7128, longitude: -74.006 },
+    permissions: ['geolocation'],
+    extraHTTPHeaders: {
+      'Accept-Language': isFr ? 'fr-FR,fr;q=0.9,en;q=0.5' : 'en-US,en;q=0.9',
+    },
+  })
+  return context.newPage()
+}
+
+/** Force intl-tel-input (and similar) to FR when the UI locale is French. */
+async function ensurePhoneCountry(
+  page: Page,
+  phoneInput: Locator,
+  countryCode: 'fr' | 'us',
+): Promise<void> {
+  try {
+    const wrapper = phoneInput.locator('xpath=ancestor::*[contains(@class,"iti")][1]')
+    if ((await wrapper.count()) === 0) return
+    const flag = wrapper.locator('.iti__selected-flag, .iti__selected-country, button.iti__selected-country').first()
+    if (!(await flag.isVisible({ timeout: 500 }).catch(() => false))) return
+    const meta =
+      `${(await flag.getAttribute('title')) ?? ''} ${(await flag.getAttribute('aria-label')) ?? ''} ${(await flag.getAttribute('data-country-code')) ?? ''}`
+    if (countryCode === 'fr' && /(france|\+33|\bfr\b)/i.test(meta)) return
+    if (countryCode === 'us' && /(united states|\+1|\bus\b)/i.test(meta)) return
+    await flag.click({ timeout: 2000 })
+    const option = page
+      .locator(
+        [
+          `.iti__country-list li[data-country-code="${countryCode}"]`,
+          `.iti__country[data-country-code="${countryCode}"]`,
+          `li[data-country-code="${countryCode}"]`,
+        ].join(', '),
+      )
+      .first()
+    if (await option.isVisible({ timeout: 2000 }).catch(() => false)) {
+      await option.click({ timeout: 2000 })
+      await page.waitForTimeout(200)
+    } else {
+      await page.keyboard.press('Escape').catch(() => undefined)
+    }
+  } catch {
+    // Best-effort — don't fail the Type step on country widget quirks.
+  }
+}
+
+/**
+ * Geo-gated brochure forms sometimes show an empty "- Select -" dropdown
+ * that the Discovery plan never listed. Pick the first real option so submit works.
+ */
+async function fillEmptyFormSelects(page: Page): Promise<void> {
+  const selects = page.locator('form select, select:visible')
+  const count = await selects.count().catch(() => 0)
+  for (let i = 0; i < Math.min(count, 10); i++) {
+    const sel = selects.nth(i)
+    try {
+      if (!(await sel.isVisible({ timeout: 300 }).catch(() => false))) continue
+      const selectedText = await sel
+        .evaluate((el) => {
+          const s = el as HTMLSelectElement
+          return (s.options[s.selectedIndex]?.textContent || '').trim()
+        })
+        .catch(() => '')
+      const value = await sel.inputValue().catch(() => '')
+      const empty =
+        !value ||
+        value === '_none' ||
+        value === '0' ||
+        /^-?\s*select\s*-?$/i.test(selectedText) ||
+        /^(choisir|sélectionner|selectionner|please select)/i.test(selectedText)
+      if (!empty) continue
+
+      const optionCount = await sel.locator('option').count()
+      for (let j = 0; j < optionCount; j++) {
+        const opt = sel.locator('option').nth(j)
+        const v = (await opt.getAttribute('value')) ?? ''
+        const t = ((await opt.textContent()) || '').trim()
+        if (!v || v === '_none' || v === '0') continue
+        if (/^-?\s*select\s*-?$/i.test(t)) continue
+        if (/^(choisir|sélectionner|selectionner|please select)/i.test(t)) continue
+        await sel.selectOption({ value: v })
+        break
+      }
+    } catch {
+      // continue
+    }
+  }
+}
+
+async function resolveSelectLocator(page: Page, step: RunnableStep): Promise<Locator | null> {
+  const hints = fieldHintsFromStep(step)
+  const quoted = extractQuotedText(step.label)
+  const blobHints = [
+    ...hints,
+    step.targetHint,
+    quoted,
+    step.label.match(/\b(?:dans|in|from)\s+(?:le\s+|la\s+|l['’])?(?:champ\s+|liste\s+|menu\s+)?["«]?([^"»]+?)["»]?\s*$/i)?.[1],
+  ].filter((h): h is string => Boolean(h && h.trim()))
+
+  for (const hint of blobHints) {
+    const h = hint.trim()
+    if (h.length < 2) continue
+    try {
+      const byLabel = page.getByLabel(h, { exact: false }).first()
+      if (await byLabel.evaluate((el) => el.tagName === 'SELECT').catch(() => false)) {
+        if (await byLabel.isVisible({ timeout: 600 })) return byLabel
+      }
+    } catch {
+      // continue
+    }
+    const byName = await tryVisibleLocator(
+      page,
+      () =>
+        page
+          .locator(
+            [
+              `select[name*="${h}" i]`,
+              `select[id*="${h}" i]`,
+              `select[aria-label*="${h}" i]`,
+            ].join(', '),
+          )
+          .first(),
+      600,
+    )
+    if (byName) return byName
+  }
+
+  // Brochure / formation dropdowns on lead forms.
+  if (/brochure|formation|program|niveau|campus/i.test(step.label)) {
+    const loc = await tryVisibleLocator(
+      page,
+      () =>
+        page
+          .locator(
+            [
+              'select[name*="brochure" i]',
+              'select[id*="brochure" i]',
+              'select[name*="formation" i]',
+              'form select',
+            ].join(', '),
+          )
+          .first(),
+      800,
+    )
+    if (loc) return loc
+  }
+
+  return tryVisibleLocator(page, () => page.locator('form select, select').first(), 600)
+}
+
+async function performSelect(page: Page, locator: Locator, step: RunnableStep): Promise<void> {
+  const value =
+    extractQuotedText(step.label) ||
+    (step.targetHint && !looksLikeFieldName(step.targetHint) ? step.targetHint.trim() : '') ||
+    ''
+  if (value) {
+    await locator.selectOption({ label: value }).catch(async () => {
+      await locator.selectOption({ value }).catch(async () => {
+        await fillEmptyFormSelects(page)
+      })
+    })
+  } else {
+    await fillEmptyFormSelects(page)
+  }
+  await page.waitForTimeout(200)
+}
+
 export async function runJourneyWithPlaywright(options: {
   steps: RunnableStep[]
   prompt?: string
+  preferredLanguage?: 'en' | 'fr' | null
   signal?: AbortSignal
   onEvent: (event: RunnerEvent) => void | Promise<void>
 }): Promise<void> {
-  const { steps, prompt, signal, onEvent } = options
+  const { steps, prompt, preferredLanguage, signal, onEvent } = options
   if (steps.length === 0) {
     await onEvent({ type: 'error', error: 'No steps to run' })
     return
   }
 
   const seedUrl = guessSeedUrl(steps, prompt)
+  const runnerLocale = resolveRunnerLocale(preferredLanguage, seedUrl)
   let browser: Browser | null = null
 
   const throwIfAborted = () => {
@@ -910,11 +1149,7 @@ export async function runJourneyWithPlaywright(options: {
     browser = await launchBrowser()
     throwIfAborted()
 
-    const page = await browser.newPage({
-      viewport: { width: 1280, height: 800 },
-      userAgent:
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-    })
+    const page = await createLocalizedPage(browser, { preferredLanguage, seedUrl })
 
     const firstAction = steps[0]?.action.trim().toLowerCase() ?? ''
     const firstIsNavigate = /navigate|go to|open/i.test(firstAction)
@@ -935,7 +1170,7 @@ export async function runJourneyWithPlaywright(options: {
 
       const stepStartedAt = Date.now()
       try {
-        const frame = await executeStepWithCapture(page, step, seedUrl)
+        const frame = await executeStepWithCapture(page, step, seedUrl, runnerLocale)
         throwIfAborted()
         const durationMs = Date.now() - stepStartedAt
         await onEvent({
@@ -1004,10 +1239,11 @@ export type DryRunResult = {
 export async function dryRunJourneyWithPlaywright(options: {
   steps: RunnableStep[]
   prompt?: string
+  preferredLanguage?: 'en' | 'fr' | null
   deadlineMs?: number
   onStatus?: (text: string) => void
 }): Promise<DryRunResult> {
-  const { steps, prompt, onStatus } = options
+  const { steps, prompt, preferredLanguage, onStatus } = options
   const deadlineMs = options.deadlineMs ?? 18_000
   const started = Date.now()
   const timeLeft = () => deadlineMs - (Date.now() - started)
@@ -1017,16 +1253,13 @@ export async function dryRunJourneyWithPlaywright(options: {
   }
 
   const seedUrl = guessSeedUrl(steps, prompt)
+  const runnerLocale = resolveRunnerLocale(preferredLanguage, seedUrl)
   let browser: Browser | null = null
 
   try {
     onStatus?.('Rehearsing the journey in the browser…')
     browser = await launchBrowser()
-    const page = await browser.newPage({
-      viewport: { width: 1280, height: 800 },
-      userAgent:
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-    })
+    const page = await createLocalizedPage(browser, { preferredLanguage, seedUrl })
 
     const firstAction = steps[0]?.action.trim().toLowerCase() ?? ''
     const firstIsNavigate = /navigate|go to|open/i.test(firstAction)
@@ -1052,7 +1285,7 @@ export async function dryRunJourneyWithPlaywright(options: {
       const step = steps[i]!
       try {
         // Reuse the live path (including highlight) so dry-run matches production.
-        await executeStepWithCapture(page, step, seedUrl)
+        await executeStepWithCapture(page, step, seedUrl, runnerLocale)
         stepsOk += 1
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Step failed'
