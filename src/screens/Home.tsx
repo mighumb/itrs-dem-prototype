@@ -967,7 +967,7 @@ export default function Home({
   const composer = (
     <div className="relative">
       <form
-        className="flex items-end gap-2 rounded-2xl border border-zinc-200/80 bg-white py-2 pl-4 pr-2 shadow-[0_4px_24px_rgba(0,0,0,0.06)] transition-[border-color,box-shadow] focus-within:border-[#0071e3] focus-within:ring-4 focus-within:ring-[#0071e3]/10 dark:border-zinc-700 dark:bg-zinc-900 dark:shadow-[0_4px_28px_rgba(0,0,0,0.45)] dark:focus-within:ring-[#0071e3]/20"
+        className="flex flex-col rounded-2xl border border-zinc-200/80 bg-white shadow-[0_4px_24px_rgba(0,0,0,0.06)] transition-[border-color,box-shadow] focus-within:border-[#0071e3] focus-within:ring-4 focus-within:ring-[#0071e3]/10 dark:border-zinc-700 dark:bg-zinc-900 dark:shadow-[0_4px_28px_rgba(0,0,0,0.45)] dark:focus-within:ring-[#0071e3]/20"
         onSubmit={(e) => {
           e.preventDefault()
           if (agentTyping) return
@@ -1005,27 +1005,30 @@ export default function Home({
           placeholder={inputPlaceholder}
           disabled={agentTyping}
           readOnly={agentTyping}
-          className="min-h-10 max-h-none w-0 min-w-0 flex-1 resize-none overflow-y-hidden border-0 bg-transparent py-2.5 text-base leading-6 text-zinc-900 outline-none placeholder:text-zinc-400 disabled:opacity-60 dark:text-zinc-100 dark:placeholder:text-zinc-500"
+          className="min-h-10 w-full resize-none overflow-y-hidden border-0 bg-transparent px-4 pb-1 pt-3.5 text-base leading-6 text-zinc-900 outline-none placeholder:text-zinc-400 disabled:opacity-60 dark:text-zinc-100 dark:placeholder:text-zinc-500"
         />
-        {agentTyping ? (
-          <button
-            type="button"
-            onClick={handleStop}
-            className="mb-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#0071e3] text-white transition hover:bg-[#0077ed]"
-            aria-label={t('stop')}
-          >
-            <span className="block h-3.5 w-3.5 rounded-[3px] bg-white" />
-          </button>
-        ) : (
-          <button
-            type="submit"
-            disabled={!input.trim()}
-            className="mb-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#0071e3] text-white transition hover:bg-[#0077ed] disabled:cursor-not-allowed disabled:opacity-40"
-            aria-label={t('send')}
-          >
-            <ArrowUp size={18} />
-          </button>
-        )}
+        {/* Action row under the text — room for future attach / voice controls. */}
+        <div className="flex items-center justify-end gap-1.5 px-2 pb-2 pt-1">
+          {agentTyping ? (
+            <button
+              type="button"
+              onClick={handleStop}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#0071e3] text-white transition hover:bg-[#0077ed]"
+              aria-label={t('stop')}
+            >
+              <span className="block h-3.5 w-3.5 rounded-[3px] bg-white" />
+            </button>
+          ) : (
+            <button
+              type="submit"
+              disabled={!input.trim()}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#0071e3] text-white transition hover:bg-[#0077ed] disabled:cursor-not-allowed disabled:opacity-40"
+              aria-label={t('send')}
+            >
+              <ArrowUp size={18} />
+            </button>
+          )}
+        </div>
       </form>
       <p className="mt-1.5 text-center text-[11px] text-zinc-400 dark:text-zinc-500">
         {t('composerNewlineHint')}
