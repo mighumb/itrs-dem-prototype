@@ -22,8 +22,8 @@ import {
 } from '../mock/data'
 import {
   createDiscoveryContext,
-  formatPlanMessage,
   hasExploitableContext,
+  messageWithAuthoritativePlan,
   type DiscoveryContext,
   type DiscoveryPhase,
   type DiscoveryPlan,
@@ -299,13 +299,7 @@ export default function Home({
 
       // Nominal path: only show Run when Gemini produced a plan — never a local template.
       if (ai.plan) {
-        const formatted = formatPlanMessage(ai.plan)
-        const content =
-          ai.message.includes('1.') || ai.message.includes('1)')
-            ? ai.message
-            : ai.message
-              ? `${ai.message}\n\n${formatted}`
-              : formatted
+        const content = messageWithAuthoritativePlan(ai.message, ai.plan)
         pushAgentReply(content)
         setPlan(ai.plan)
         setPhase('planning')
@@ -349,13 +343,7 @@ export default function Home({
 
       // Complete plan → show steps + Run (precise free-typed seeds).
       if (ai.plan && (ai.readyForPlan || ai.plan.steps.length > 0)) {
-        const formatted = formatPlanMessage(ai.plan)
-        const content =
-          ai.message.includes('1.') || ai.message.includes('1)')
-            ? ai.message
-            : ai.message
-              ? `${ai.message}\n\n${formatted}`
-              : formatted
+        const content = messageWithAuthoritativePlan(ai.message, ai.plan)
         pushAgentReply(content)
         setPlan(ai.plan)
         setPhase('planning')
@@ -403,13 +391,7 @@ export default function Home({
 
       // Model sometimes returns a ready plan instead of chooser options — honor it.
       if (ai.plan && (ai.readyForPlan || ai.plan.steps.length > 0)) {
-        const formatted = formatPlanMessage(ai.plan)
-        const content =
-          ai.message.includes('1.') || ai.message.includes('1)')
-            ? ai.message
-            : ai.message
-              ? `${ai.message}\n\n${formatted}`
-              : formatted
+        const content = messageWithAuthoritativePlan(ai.message, ai.plan)
         pushAgentReply(content)
         setPlan(ai.plan)
         setPhase('planning')
@@ -679,13 +661,7 @@ export default function Home({
 
       if (ai.plan && (ai.readyForPlan || ai.plan.steps.length > 0)) {
         setConfiguring(false)
-        const formatted = formatPlanMessage(ai.plan)
-        const content =
-          ai.message.includes('1.') || ai.message.includes('1)')
-            ? ai.message
-            : ai.message
-              ? `${ai.message}\n\n${formatted}`
-              : formatted
+        const content = messageWithAuthoritativePlan(ai.message, ai.plan)
         pushAgentReply(content)
         setPlan(ai.plan)
         setPhase('planning')
@@ -756,11 +732,7 @@ export default function Home({
       rememberSnapshot(ai)
 
       if (ai.readyForPlan && ai.plan) {
-        const formatted = formatPlanMessage(ai.plan)
-        const content =
-          ai.message.includes('1.') || ai.message.includes('1)')
-            ? ai.message
-            : `${ai.message}\n\n${formatted}`
+        const content = messageWithAuthoritativePlan(ai.message, ai.plan)
         pushAgentReply(content)
         setPlan(ai.plan)
         setPhase('planning')
@@ -852,13 +824,7 @@ export default function Home({
 
       if (ai.plan && (ai.readyForPlan || ai.plan.steps.length > 0)) {
         setConfiguring(false)
-        const formatted = formatPlanMessage(ai.plan)
-        const content =
-          ai.message.includes('1.') || ai.message.includes('1)')
-            ? ai.message
-            : ai.message
-              ? `${ai.message}\n\n${formatted}`
-              : formatted
+        const content = messageWithAuthoritativePlan(ai.message, ai.plan)
         pushAgentReply(content)
         setPlan(ai.plan)
         setPhase('planning')
@@ -926,10 +892,7 @@ export default function Home({
         rememberSnapshot(ai)
   
         if (ai.readyForPlan && ai.plan) {
-          const body =
-            ai.message.includes('1.') || ai.message.includes('1)')
-              ? ai.message
-              : `${ai.message}\n\n${formatPlanMessage(ai.plan)}`
+          const body = messageWithAuthoritativePlan(ai.message, ai.plan)
           pushAgentReply(body)
           setPlan(ai.plan)
           setPhase('planning')
@@ -956,10 +919,7 @@ export default function Home({
         // Iteration without a new complete plan: keep chatting, Run stays hidden.
         if (ai.plan && hasExploitableContext(text, ctx)) {
           const nextPlan = ai.plan
-          const body =
-            ai.message.includes('1.') || ai.message.includes('1)')
-              ? ai.message
-              : `${ai.message}\n\n${formatPlanMessage(nextPlan)}`
+          const body = messageWithAuthoritativePlan(ai.message, nextPlan)
           pushAgentReply(body)
           setPlan(nextPlan)
           setPhase('planning')
