@@ -16,6 +16,7 @@ import { DISCOVERY_SYSTEM_PROMPT } from './_lib/discoverySystemPrompt.js'
 import {
   answersIncludeSiteDecline,
   hasExplicitSiteLocator,
+  intentFromDeepLocator,
   looksLikeAmbiguousBrandName,
   looksLikeSiteConfirmation,
   looksLikeSiteDecline,
@@ -174,13 +175,21 @@ function buildUserPrompt(
 
   // After a bare "oui", keep the seed journey ask visible; if they revised in this
   // message, statedJourneyIntent already comes from the latest turn.
-  const userMessage =
+  let userMessage =
     !fromLatest &&
     statedJourneyIntent &&
     looksLikeSiteConfirmation(body.userMessage) &&
     !confirmFirst
       ? `${body.userMessage}\n\n[Original monitoring request — honor for proposals #1]: ${statedJourneyIntent}`
       : body.userMessage
+
+  // Deep URL path (e.g. /brochure) already chooses the journey — inject an explicit
+  // guard so the model cannot fall back to “3 parcours sur {host} — lequel ?”.
+  const deepFromMessage =
+    intentFromDeepLocator(body.userMessage) ?? intentFromDeepLocator(seed)
+  if (attachSite && !confirmFirst && deepFromMessage && statedJourneyIntent) {
+    userMessage = `${userMessage}\n\n[Deep URL = chosen journey — do NOT ask which journey on the host; collect form params for this destination or set proposals[0] to it]: ${deepFromMessage}`
+  }
 
   return JSON.stringify(
     {

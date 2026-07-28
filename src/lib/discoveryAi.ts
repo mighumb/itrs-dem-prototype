@@ -15,6 +15,7 @@ import type { ChatMessage } from '../types'
 
 export {
   answersIncludeSiteDecline,
+  intentFromDeepLocator,
   looksLikeAmbiguousBrandName,
   looksLikeSiteConfirmation,
   looksLikeSiteDecline,

@@ -306,15 +306,20 @@ export function messageRequestsSiteWork(text: string): boolean {
 /**
  * User already named a concrete journey outcome (beyond brand alone).
  * Used so proposals #1 must honor that ask after site confirm — not generic templates.
+ * A deep URL path (e.g. /brochure, /contact, /devis) counts as stated intent.
  */
 export function summarizeStatedJourneyIntent(text: string): string | null {
   const t = text.trim()
-  if (!t || t.length < 10) return null
+  if (!t || t.length < 3) return null
   if (looksLikeSiteConfirmation(t) || looksLikeSiteDecline(t) || looksLikeSocialChat(t)) {
     return null
   }
+
+  const deep = intentFromDeepLocator(t)
+  if (deep) return deep
+
   const hasJourneyVerb =
-    /\b(achat|acheter|commande|commander|panier|livraison|livrer|checkout|purchase|buy|buying|order|orders|cart|delivery|recherche|search|connexion|login|log[\s-]?in|inscription|signup|sign[\s-]?up|parcours|journey|réserver|reserver|book(?:ing)?|payer|pay|payment|tunnel)\b/i.test(
+    /\b(achat|acheter|commande|commander|panier|livraison|livrer|checkout|purchase|buy|buying|order|orders|cart|delivery|recherche|search|connexion|login|log[\s-]?in|inscription|signup|sign[\s-]?up|parcours|journey|réserver|reserver|book(?:ing)?|payer|pay|payment|tunnel|brochure|télécharger|telecharger|download|formulaire|devis|contact|essai|trial|demo|démo)\b/i.test(
       t,
     )
   if (!hasJourneyVerb) return null
@@ -322,6 +327,43 @@ export function summarizeStatedJourneyIntent(text: string): string | null {
   const withoutBrand = brandishLeftover(t)
   if (!withoutBrand && !hasJourneyVerb) return null
   return t.length > 280 ? `${t.slice(0, 277)}…` : t
+}
+
+/** Extract journey intent from a deep URL / path in the user text. */
+export function intentFromDeepLocator(text: string): string | null {
+  const raw =
+    text.match(/https?:\/\/[^\s<>"']+/i)?.[0]?.replace(/[.,);]+$/g, '') ??
+    text.match(/\b(?:www\.)?[a-z0-9][a-z0-9-]*\.[a-z]{2,}(\/[^\s]*)/i)?.[0]
+  if (!raw) return null
+  try {
+    const href = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`
+    const u = new URL(href)
+    const path = u.pathname.replace(/\/+$/, '') || '/'
+    if (path === '/' && !u.search && !u.hash) return null
+    const segments = path.split('/').filter(Boolean)
+    const slug = decodeURIComponent(segments[segments.length - 1] || '')
+      .replace(/[_+.-]+/g, ' ')
+      .replace(/\.[a-z0-9]{2,5}$/i, '')
+      .trim()
+    const pathHint = slug || path
+    // FR/EN readable intent from common path tokens
+    const lower = path.toLowerCase()
+    let outcome = pathHint
+    if (/brochure|plaquette|catalogue|catalog/i.test(lower)) {
+      outcome = 'télécharger / remplir le formulaire brochure'
+    } else if (/contact|nous-contacter|get-in-touch/i.test(lower)) {
+      outcome = 'formulaire de contact'
+    } else if (/devis|quote|pricing|tarifs?/i.test(lower)) {
+      outcome = 'demande de devis / tarifs'
+    } else if (/essai|trial|demo|démo|signup|inscription|register/i.test(lower)) {
+      outcome = 'essai gratuit / inscription'
+    } else if (/cart|panier|checkout|bag/i.test(lower)) {
+      outcome = 'panier / checkout'
+    }
+    return `Destination ${u.origin}${path}${u.search}${u.hash} — parcours: ${outcome}`.slice(0, 280)
+  } catch {
+    return null
+  }
 }
 
 /** Any answer string in a map looks like a site decline. */
