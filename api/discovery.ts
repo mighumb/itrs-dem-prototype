@@ -35,6 +35,13 @@ import {
 } from './_lib/resolveSiteTarget.js'
 import { geminiModelCandidates } from './_lib/geminiModels.js'
 import { geminiApiKeys } from './_lib/geminiKeys.js'
+import {
+  computeVerificationSignals,
+  parseVerificationDecision,
+  resolveVerificationExecution,
+  selectStepsForVerification,
+  type VerificationSignals,
+} from './_lib/verificationPolicy.js'
 
 type ChatTurn = { role: 'user' | 'agent'; content: string }
 
@@ -155,6 +162,21 @@ function buildUserPrompt(
               candidateLabel: target?.label ?? null,
             }
           : { needed: false },
+        /**
+         * Facts for browser-verify reasoning — not orders.
+         * Model must return `verification` when emitting a ready plan.
+         */
+        verificationSignals: computeVerificationSignals({
+          mode: body.mode,
+          userMessage: body.userMessage,
+          contextUrl: base.url ?? null,
+          targetUrl: analysis?.url ?? target?.url ?? base.url ?? null,
+          pageSnapshot: confirmFirst
+            ? null
+            : analysis?.snapshot ?? base.pageSnapshot ?? null,
+          answers: base.answers ?? null,
+          currentSteps: base.currentSteps ?? null,
+        }),
       }
     : {
         // Conversational turn: no leftover seed/url/explore — avoids site hallucinations.
@@ -171,6 +193,15 @@ function buildUserPrompt(
         siteAnalysis: null,
         siteExplore: null,
         siteConfirmation: { needed: false },
+        verificationSignals: computeVerificationSignals({
+          mode: body.mode,
+          userMessage: body.userMessage,
+          contextUrl: null,
+          targetUrl: null,
+          pageSnapshot: null,
+          answers: base.answers ?? null,
+          currentSteps: base.currentSteps ?? null,
+        }),
       }
 
   // After a bare "oui", keep the seed journey ask visible; if they revised in this
@@ -599,41 +630,74 @@ async function groundAndMaybeDryRunPlan(options: {
     parsed.workTrace = trace.slice(0, 8)
   }
 
-  // Site already explored earlier this session (pageSnapshot in context) — do not
-  // re-open Playwright just to dry-run. The first explore already mapped fields /
-  // anchors; after form answers we only need to assemble the plan + Run.
-  if (typeof body.context?.pageSnapshot === 'string' && body.context.pageSnapshot.trim()) {
+  const signals: VerificationSignals = computeVerificationSignals({
+    mode: body.mode,
+    userMessage: body.userMessage,
+    contextUrl: body.context?.url ?? null,
+    targetUrl: analysis?.url ?? target?.url ?? body.context?.url ?? null,
+    pageSnapshot: body.context?.pageSnapshot ?? analysis?.snapshot ?? null,
+    answers: body.context?.answers ?? null,
+    currentSteps: body.context?.currentSteps ?? null,
+  })
+  const planObj = parsed.plan as Record<string, unknown>
+  const nextSteps = Array.isArray(planObj.steps)
+    ? (planObj.steps as Array<{ label?: string; action?: string }>)
+    : []
+  const resolved = resolveVerificationExecution({
+    signals,
+    decision: parseVerificationDecision(parsed.verification),
+    readyForPlan: true,
+    budgetOk: budgetLeft() >= 16_000,
+    priorSteps: body.context?.currentSteps ?? null,
+    nextSteps,
+  })
+  // Echo the resolved policy for debugging / workTrace honesty (not user-facing message).
+  parsed.verification = {
+    scope: resolved.scope,
+    reason: resolved.reason,
+    stepIndexes: resolved.stepIndexes,
+    source: resolved.source,
+  }
+
+  if (resolved.scope === 'none') {
     const trace = Array.isArray(parsed.workTrace) ? [...parsed.workTrace] : []
     trace.push(
       lang === 'fr'
-        ? 'Parcours ancré sur l’exploration déjà faite — pas de 2ᵉ vérification navigateur'
-        : 'Plan grounded on prior explore — skipped a second browser check',
+        ? `Vérif navigateur : non (${resolved.reason})`
+        : `Browser verify: none (${resolved.reason})`,
     )
     parsed.workTrace = trace.slice(0, 8)
     return parsed
   }
 
-  // Dry-run when we still have time (fresh explore in this same request).
-  if (budgetLeft() < 16_000) {
-    return parsed
-  }
-
   const seedUrl = analysis?.url ?? target?.url ?? body.context?.url ?? null
-  const runnable = planStepsToRunnable(parsed.plan as Record<string, unknown>, seedUrl)
-  if (runnable.length === 0) return parsed
+  const runnable = planStepsToRunnable(planObj, seedUrl)
+  const selected = selectStepsForVerification(
+    runnable,
+    resolved.scope,
+    resolved.stepIndexes,
+    8,
+  )
+  if (selected.length === 0) return parsed
 
+  const rangeLabel =
+    resolved.scope === 'delta' && resolved.stepIndexes.length > 0
+      ? resolved.stepIndexes.map((i) => i + 1).join(', ')
+      : null
   sendStatus(
     lang === 'fr'
-      ? 'Je vérifie le parcours dans le navigateur…'
-      : 'Checking the journey in the browser…',
+      ? rangeLabel
+        ? `Je vérifie les étapes ${rangeLabel} dans le navigateur…`
+        : 'Je vérifie le parcours dans le navigateur…'
+      : rangeLabel
+        ? `Checking steps ${rangeLabel} in the browser…`
+        : 'Checking the journey in the browser…',
   )
 
   const dry = await dryRunJourneyWithPlaywright({
-    steps: runnable.slice(0, 8),
+    steps: selected,
     prompt:
-      typeof (parsed.plan as Record<string, unknown>).prompt === 'string'
-        ? ((parsed.plan as Record<string, unknown>).prompt as string)
-        : body.userMessage,
+      typeof planObj.prompt === 'string' ? (planObj.prompt as string) : body.userMessage,
     deadlineMs: Math.min(18_000, budgetLeft() - 4_000),
   })
 
@@ -641,16 +705,16 @@ async function groundAndMaybeDryRunPlan(options: {
   if (dry.ok) {
     trace.push(
       lang === 'fr'
-        ? `Répétition OK (${dry.stepsOk} étapes)`
-        : `Dry-run OK (${dry.stepsOk} steps)`,
+        ? `Répétition OK (${dry.stepsOk} étape${dry.stepsOk > 1 ? 's' : ''}, scope ${resolved.scope})`
+        : `Dry-run OK (${dry.stepsOk} step${dry.stepsOk > 1 ? 's' : ''}, scope ${resolved.scope})`,
     )
   } else {
     trace.push(
       lang === 'fr'
-        ? `Répétition partielle — étape ${
+        ? `Répétition partielle (${resolved.scope}) — étape ${
             dry.failedIndex != null ? dry.failedIndex + 1 : '?'
           } fragile${dry.error ? ` (${dry.error})` : ''}`
-        : `Partial dry-run — step ${
+        : `Partial dry-run (${resolved.scope}) — step ${
             dry.failedIndex != null ? dry.failedIndex + 1 : '?'
           } fragile${dry.error ? ` (${dry.error})` : ''}`,
     )
