@@ -1,6 +1,7 @@
 import { ChevronLeft, ChevronRight, Pencil, X } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useLocale } from '../context/LocaleContext'
+import { isRedundantOtherOption } from '../lib/discoveryAi'
 import type { DiscoveryQuestion, JourneyProposal } from '../mock/discovery'
 
 type StackMode = 'questions' | 'proposals'
@@ -42,6 +43,7 @@ export default function DiscoveryStack({
   const [canScrollDown, setCanScrollDown] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const peekWrapRef = useRef<HTMLDivElement>(null)
+  const otherInputRef = useRef<HTMLInputElement>(null)
   const question = questions[questionIndex]
   const total = mode === 'questions' ? questions.length : proposals.length
   const current = mode === 'questions' ? questionIndex + 1 : 1
@@ -51,6 +53,16 @@ export default function DiscoveryStack({
   )
   const proposalKey = proposals.map((p) => p.id).join('\0')
   const optionKey = question?.options.join('\0') ?? ''
+
+  /** Submitting the current free-text answer would finish the whole form. */
+  const otherSubmitCompletesForm =
+    mode === 'questions' &&
+    Boolean(question) &&
+    questions.every((q) =>
+      q.id === question!.id
+        ? Boolean(otherText.trim())
+        : Boolean(answers[q.id]?.trim()),
+    )
 
   // Restore custom free-text when navigating between questions.
   // Depend on the saved string for this question — never on the answers object
@@ -144,6 +156,7 @@ export default function DiscoveryStack({
             <button
               type="button"
               disabled={questionIndex <= 0}
+              onMouseDown={(e) => e.preventDefault()}
               onClick={() => onQuestionIndexChange?.(questionIndex - 1)}
               className="cursor-pointer rounded-md p-1 transition hover:bg-zinc-100 hover:text-zinc-700 disabled:cursor-not-allowed disabled:opacity-30 dark:hover:bg-zinc-800"
               aria-label={t('previousQuestion')}
@@ -156,6 +169,7 @@ export default function DiscoveryStack({
             <button
               type="button"
               disabled={questionIndex >= total - 1}
+              onMouseDown={(e) => e.preventDefault()}
               onClick={() => onQuestionIndexChange?.(questionIndex + 1)}
               className="cursor-pointer rounded-md p-1 transition hover:bg-zinc-100 hover:text-zinc-700 disabled:cursor-not-allowed disabled:opacity-30 dark:hover:bg-zinc-800"
               aria-label={t('nextQuestion')}
@@ -196,7 +210,15 @@ export default function DiscoveryStack({
                       key={option}
                       type="button"
                       data-stack-item
-                      onClick={() => onSelectOption?.(question.id, option)}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => {
+                        // Meta “Autre email” must never commit — custom = footer input.
+                        if (isRedundantOtherOption(option)) {
+                          otherInputRef.current?.focus()
+                          return
+                        }
+                        onSelectOption?.(question.id, option)
+                      }}
                       className={`flex w-full cursor-pointer items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm transition ${
                         selected
                           ? 'bg-[#0071e3]/12 font-medium text-zinc-900 dark:bg-[#0071e3]/20 dark:text-zinc-100'
@@ -267,6 +289,7 @@ export default function DiscoveryStack({
             className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-400"
           />
           <input
+            ref={otherInputRef}
             value={otherText}
             onChange={(e) => setOtherText(e.target.value)}
             onKeyDown={(e) => {
@@ -281,11 +304,6 @@ export default function DiscoveryStack({
             autoComplete="off"
             autoCorrect="off"
             spellCheck={false}
-            onFocus={() => {
-              // Keep the floating dock pinned; iOS focus-pan leaves a void above the keyboard.
-              window.scrollTo(0, 0)
-              requestAnimationFrame(() => window.scrollTo(0, 0))
-            }}
             placeholder={mode === 'proposals' ? t('other') : t('somethingElse')}
             className={`w-full rounded-xl border py-2.5 pl-8 pr-3 text-base outline-none transition placeholder:text-zinc-400 focus:border-[#0071e3] focus:bg-white dark:focus:bg-zinc-900 ${
               isCustomAnswer || (mode === 'questions' && otherText.trim())
@@ -321,7 +339,9 @@ export default function DiscoveryStack({
             }}
             className="shrink-0 cursor-pointer rounded-xl bg-[#0071e3] px-3 py-2 text-sm font-medium text-white transition hover:bg-[#0077ed]"
           >
-            {t('done')}
+            {mode === 'questions' && !otherSubmitCompletesForm
+              ? t('continueNext')
+              : t('done')}
           </button>
         ) : null}
       </footer>

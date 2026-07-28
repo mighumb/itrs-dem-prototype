@@ -1,4 +1,4 @@
-import type { Browser, Locator, Page } from 'playwright-core'
+import type { Browser, Frame, Locator, Page } from 'playwright-core'
 
 export type RunnableStep = {
   id: string
@@ -175,28 +175,115 @@ async function captureHighlighted(
   }
 }
 
-export async function dismissNoise(page: Page) {
-  const candidates = [
-    'button:has-text("Accept")',
-    'button:has-text("Accept all")',
-    'button:has-text("I agree")',
-    'button:has-text("Agree")',
-    'button:has-text("Tout accepter")',
-    'button:has-text("Accepter")',
-    'button:has-text("OK")',
-    '[aria-label="Close"]',
-    'button[aria-label="Close"]',
-  ]
-  for (const sel of candidates) {
+const CONSENT_REFUSE_SELECTORS = [
+  'button:has-text("Continuer sans accepter")',
+  'button:has-text("Tout refuser")',
+  'button:has-text("Refuser et fermer")',
+  'button:has-text("Refuser")',
+  'button:has-text("Reject all")',
+  'button:has-text("Reject All")',
+  'button:has-text("Reject")',
+  'button:has-text("Deny")',
+  'button:has-text("Decline")',
+  '#didomi-notice-disagree-button',
+  '#onetrust-reject-all-handler',
+  '[aria-label*="Refuse" i]',
+  '[aria-label*="Disagree" i]',
+  '[aria-label*="Reject" i]',
+]
+
+const CONSENT_ACCEPT_SELECTORS = [
+  '#didomi-notice-agree-button',
+  '#onetrust-accept-btn-handler',
+  'button:has-text("Tout accepter")',
+  'button:has-text("Accept all")',
+  'button:has-text("Accept All")',
+  'button:has-text("Accept & Close")',
+  'button:has-text("Agree and close")',
+  'button:has-text("I agree")',
+  'button:has-text("Agree")',
+  'button:has-text("Accepter")',
+  'button:has-text("Accept")',
+  'button:has-text("OK")',
+]
+
+export function isConsentStep(step: { label: string; action?: string; targetHint?: string }): boolean {
+  const blob = `${step.action ?? ''} ${step.label} ${step.targetHint ?? ''}`
+  return /cookie|bandeau|consent|rgpd|gdpr|didomi|onetrust|sans accepter|tout accepter|tout refuser|accepte?r les cookies|accept cookies|reject all/i.test(
+    blob,
+  )
+}
+
+async function firstVisibleInRoot(
+  root: Page | Frame,
+  selectors: string[],
+  timeoutMs = 350,
+): Promise<Locator | null> {
+  for (const sel of selectors) {
     try {
-      const loc = page.locator(sel).first()
-      if (await loc.isVisible({ timeout: 400 })) {
-        await loc.click({ timeout: 1000 })
-        await page.waitForTimeout(300)
-        return
-      }
+      const loc = root.locator(sel).first()
+      if (await loc.isVisible({ timeout: timeoutMs })) return loc
     } catch {
-      // ignore
+      // try next
+    }
+  }
+  return null
+}
+
+/** Prefer refuse / continue-without; fall back to accept. Searches main page + frames (Didomi). */
+async function findConsentButton(
+  page: Page,
+  prefer: 'refuse' | 'accept' | 'auto' = 'auto',
+  hint?: string | null,
+): Promise<Locator | null> {
+  const refuseFirst =
+    prefer === 'refuse' ||
+    (prefer === 'auto' &&
+      (!hint || /sans accepter|refus|reject|deny|disagree|decline/i.test(hint)))
+
+  const ordered = refuseFirst
+    ? [...CONSENT_REFUSE_SELECTORS, ...CONSENT_ACCEPT_SELECTORS]
+    : [...CONSENT_ACCEPT_SELECTORS, ...CONSENT_REFUSE_SELECTORS]
+
+  if (hint && hint.trim().length > 2) {
+    const escaped = hint.trim().slice(0, 48).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    ordered.unshift(`button:has-text("${hint.trim().slice(0, 48).replace(/"/g, '')}")`)
+    ordered.unshift(`#didomi-notice-disagree-button`)
+    try {
+      const byRole = page.getByRole('button', { name: new RegExp(escaped, 'i') }).first()
+      if (await byRole.isVisible({ timeout: 500 })) return byRole
+    } catch {
+      // continue with selectors
+    }
+  }
+
+  const roots: Array<Page | Frame> = [page, ...page.frames().filter((f) => f !== page.mainFrame())]
+  for (const root of roots) {
+    const loc = await firstVisibleInRoot(root, ordered, 280)
+    if (loc) return loc
+  }
+  return null
+}
+
+async function consentBannerVisible(page: Page): Promise<boolean> {
+  return Boolean(await findConsentButton(page, 'auto'))
+}
+
+/**
+ * Dismiss cookie / CMP banners (Didomi, OneTrust, …). Retries briefly because
+ * CMPs often inject after first paint. Prefer “continue without accepting”
+ * when present so we match typical FR demo plans.
+ */
+export async function dismissNoise(page: Page) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) await page.waitForTimeout(450)
+    const loc = await findConsentButton(page, 'auto')
+    if (!loc) return
+    try {
+      await loc.click({ timeout: 1500 })
+      await page.waitForTimeout(350)
+    } catch {
+      // try again
     }
   }
 }
@@ -209,7 +296,6 @@ async function findSearchLocator(page: Page): Promise<Locator | null> {
     'input[placeholder*="Search" i]',
     'input[placeholder*="Recherch" i]',
     'input[aria-label*="Search" i]',
-    'input[type="text"]',
   ]
   for (const sel of selectors) {
     try {
@@ -250,10 +336,94 @@ function looksLikeCssSelector(value: string): boolean {
   return /^(?:[#.\[a-z]|input|textarea|button|form)/i.test(value.trim()) && /[#.\[\]=>:]/.test(value)
 }
 
+/** True when a hint names a form field rather than the value to type. */
+function looksLikeFieldName(hint: string): boolean {
+  const h = hint.trim()
+  if (!h || h.length > 60) return false
+  if (/@/.test(h) || /\d{5,}/.test(h)) return false
+  return /^(nom(\s+de\s+famille)?|pr[eé]nom|name|first\s*names?|last\s*names?|e-?mails?|mails?|t[eé]l[eé]phones?|phones?|mobiles?|portables?|adresses?|villes?|pays|companies|soci[eé]t[eé]s?|entreprises?|codes?\s*postaux?|zip|postal|subject|objet|message|comments?)$/i.test(
+    h,
+  )
+}
+
+function isSearchTypeStep(step: RunnableStep): boolean {
+  if (/^search$/i.test(step.action.trim())) return true
+  const blob = `${step.action} ${step.label}`
+  if (/lancer\s+la\s+recherch|submit\s+(the\s+)?search/i.test(blob)) return false
+  return /^(search|recherch)/i.test(step.label.trim()) || /\b(search\s+for|rechercher?\s+)/i.test(blob)
+}
+
+function isEmailFieldStep(step: RunnableStep): boolean {
+  return /e-?mail|mail\b/i.test(`${step.label} ${step.targetHint ?? ''} ${step.target ?? ''}`)
+}
+
+function isPhoneFieldStep(step: RunnableStep): boolean {
+  return /t[eé]l[eé]phone|phone|mobile|portable/i.test(
+    `${step.label} ${step.targetHint ?? ''} ${step.target ?? ''}`,
+  )
+}
+
+/** Visible field names to try when resolving a Type target (not the typed value). */
+function fieldHintsFromStep(step: RunnableStep): string[] {
+  const hints: string[] = []
+  const push = (v: string | null | undefined) => {
+    const t = v?.trim()
+    if (!t || t.length < 2 || t.length > 50) return
+    if (looksLikeCssSelector(t) || /@/.test(t)) return
+    if (!hints.some((h) => h.toLowerCase() === t.toLowerCase())) hints.push(t)
+  }
+
+  if (step.targetHint && looksLikeFieldName(step.targetHint)) push(step.targetHint)
+
+  const label = step.label
+  const dansChamp = label.match(
+    /\b(?:dans|into|in|sur)\s+(?:le\s+|la\s+|l['’])?(?:champ\s+|field\s+)?["«]?([^"»]+?)["»]?\s*$/i,
+  )
+  if (dansChamp?.[1]) push(dansChamp[1])
+
+  const fieldPatterns: Array<{ re: RegExp; names: string[] }> = [
+    {
+      re: /pr[eé]nom|first\s*name|given/i,
+      names: ['Prénom', 'Prenom', 'First name', 'firstname', 'first_name', 'galileo_first_name', 'given-name'],
+    },
+    {
+      re: /nom\s+de\s+famille|last\s*name|surname/i,
+      names: ['Nom de famille', 'Nom', 'Last name', 'lastname', 'last_name', 'surname', 'family-name'],
+    },
+    { re: /\bnom\b/i, names: ['Nom', 'Name', 'lastname', 'last_name', 'galileo_last_name', 'family-name'] },
+    {
+      re: /e-?mail|mail\b/i,
+      names: ['Email', 'E-mail', 'Mail', 'Adresse e-mail', 'email', 'galileo_email'],
+    },
+    {
+      re: /t[eé]l[eé]phone|phone|mobile|portable/i,
+      names: [
+        'Téléphone',
+        'Telephone',
+        'Phone',
+        'Mobile',
+        'Tel',
+        'téléphone',
+        'galileo_phone',
+        'tel',
+      ],
+    },
+    { re: /ville|city/i, names: ['Ville', 'City'] },
+    { re: /soci[eé]t[eé]|entreprise|company/i, names: ['Société', 'Entreprise', 'Company'] },
+  ]
+  for (const { re, names } of fieldPatterns) {
+    if (re.test(label) || (step.targetHint && re.test(step.targetHint))) {
+      for (const n of names) push(n)
+    }
+  }
+
+  return hints
+}
+
 /**
  * Value to type into a field. Order:
  * 1) quoted text in the label (e.g. Taper 'Kylian Mbappé' …)
- * 2) targetHint when it is a query, not a CSS selector
+ * 2) targetHint when it is the value (not a field name / CSS selector)
  * 3) instructional prefix patterns (Type / Taper / Search / …)
  * 4) full label (last resort)
  */
@@ -265,7 +435,14 @@ export function searchQueryFromStep(step: RunnableStep): string {
 
   if (step.targetHint) {
     const hint = step.targetHint.trim()
-    if (hint && !looksLikeCssSelector(hint) && hint.length < 120) return hint
+    if (
+      hint &&
+      !looksLikeCssSelector(hint) &&
+      !looksLikeFieldName(hint) &&
+      hint.length < 120
+    ) {
+      return hint
+    }
   }
 
   const patterns = [
@@ -285,6 +462,146 @@ export function searchQueryFromStep(step: RunnableStep): string {
     }
   }
   return label
+}
+
+async function tryVisibleLocator(
+  page: Page,
+  factory: () => Locator,
+  timeoutMs = 700,
+): Promise<Locator | null> {
+  try {
+    const loc = factory()
+    if (await loc.isVisible({ timeout: timeoutMs })) return loc
+  } catch {
+    // ignore
+  }
+  return null
+}
+
+/**
+ * Resolve the input/textarea for a Type step. Prefer the named form field
+ * (Nom / Email / …) — never dump every value into the first text input.
+ */
+async function resolveTypeLocator(page: Page, step: RunnableStep): Promise<Locator | null> {
+  if (step.target && !/^https?:\/\//i.test(step.target)) {
+    const sel = step.target.split(',')[0]!.trim()
+    const byTarget = await tryVisibleLocator(page, () => page.locator(sel).first(), 900)
+    if (byTarget) return byTarget
+  }
+
+  for (const hint of fieldHintsFromStep(step)) {
+    const escaped = hint.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const pattern = new RegExp(escaped.slice(0, 40), 'i')
+
+    const byLabel = await tryVisibleLocator(
+      page,
+      () => page.getByLabel(pattern).first(),
+      800,
+    )
+    if (byLabel) return byLabel
+
+    const byRole = await tryVisibleLocator(
+      page,
+      () => page.getByRole('textbox', { name: pattern }).first(),
+      700,
+    )
+    if (byRole) return byRole
+
+    const attrSelectors = [
+      `input[placeholder*="${hint.replace(/"/g, '')}" i]`,
+      `textarea[placeholder*="${hint.replace(/"/g, '')}" i]`,
+      `input[name*="${hint.replace(/"/g, '').replace(/\s+/g, '')}" i]`,
+      `input[name*="${hint.replace(/"/g, '').replace(/\s+/g, '_').toLowerCase()}" i]`,
+      `input[aria-label*="${hint.replace(/"/g, '')}" i]`,
+      `input[id*="${hint.replace(/"/g, '').replace(/\s+/g, '').toLowerCase()}" i]`,
+    ]
+    for (const sel of attrSelectors) {
+      const loc = await tryVisibleLocator(page, () => page.locator(sel).first(), 500)
+      if (loc) return loc
+    }
+  }
+
+  if (isEmailFieldStep(step)) {
+    const emailLoc = await tryVisibleLocator(
+      page,
+      () =>
+        page
+          .locator(
+            'input[type="email"], input[name*="mail" i], input[id*="mail" i], input[autocomplete="email"], input[placeholder*="mail" i]',
+          )
+          .first(),
+      800,
+    )
+    if (emailLoc) return emailLoc
+  }
+
+  // Drupal / CRM name fields (e.g. HETIC Galileo brochure).
+  if (/\bnom\b/i.test(step.label) && !/pr[eé]nom/i.test(step.label)) {
+    const lastName = await tryVisibleLocator(
+      page,
+      () =>
+        page
+          .locator(
+            'input[name*="last_name" i], input[autocomplete="family-name"], input[id*="last-name" i], input[placeholder="Nom"]',
+          )
+          .first(),
+      700,
+    )
+    if (lastName) return lastName
+  }
+  if (/pr[eé]nom|first\s*name/i.test(step.label)) {
+    const firstName = await tryVisibleLocator(
+      page,
+      () =>
+        page
+          .locator(
+            'input[name*="first_name" i], input[autocomplete="given-name"], input[id*="first-name" i], input[placeholder="Prénom"], input[placeholder="Prenom"]',
+          )
+          .first(),
+      700,
+    )
+    if (firstName) return firstName
+  }
+
+  if (isPhoneFieldStep(step)) {
+    const phoneLoc = await tryVisibleLocator(
+      page,
+      () =>
+        page
+          .locator(
+            [
+              'input[type="tel"]',
+              'input[type="galileo_phone_number"]',
+              'input[name*="phone" i]',
+              'input[name*="tel" i]',
+              'input[name*="galileo_phone" i]',
+              'input[id*="phone" i]',
+              'input[id*="tel" i]',
+              'input[autocomplete="tel"]',
+              'input[placeholder*="éléphone" i]',
+              'input[placeholder*="Telephone" i]',
+            ].join(', '),
+          )
+          .first(),
+      800,
+    )
+    if (phoneLoc) return phoneLoc
+  }
+
+  // Search box only for real search Type steps — never for brochure/lead forms.
+  if (isSearchTypeStep(step)) {
+    return (
+      (await findSearchLocator(page)) ??
+      (await tryVisibleLocator(page, () => page.locator('input[type="text"]').first(), 600))
+    )
+  }
+
+  return null
+}
+
+async function fillField(locator: Locator, value: string): Promise<void> {
+  await locator.click({ timeout: 2000 })
+  await locator.fill(value, { timeout: 4000 })
 }
 
 /** Resolve a clickable locator without performing the click. */
@@ -378,7 +695,7 @@ export function isSearchSubmitClickLabel(label: string): boolean {
  */
 export function shouldExecuteAsType(step: RunnableStep): boolean {
   const action = step.action.trim().toLowerCase()
-  if (action === 'click') return false
+  if (action === 'click' || action === 'select') return false
   if (action === 'type' || action === 'search' || action === 'fill') return true
   if (isSearchSubmitClickLabel(step.label)) return false
   const blob = `${step.action} ${step.label}`
@@ -390,8 +707,25 @@ export function shouldExecuteAsType(step: RunnableStep): boolean {
   return /^(type|search|fill)\b/i.test(action) || /\b(type|taper|tape|fill|sais)\b/i.test(blob)
 }
 
-export function shouldExecuteAsClick(step: RunnableStep): boolean {
+/** Dropdown / <select> — not a CTA Click (e.g. « Sélectionner Bachelor dans Brochure »). */
+export function shouldExecuteAsSelect(step: RunnableStep): boolean {
   if (shouldExecuteAsType(step)) return false
+  const action = step.action.trim().toLowerCase()
+  if (action === 'select' || action === 'choose') {
+    // Bare “Select Brochure” as a nav CTA stays Click; “dans le champ …” is a dropdown.
+    if (/\b(dans|in|from|champ|field|liste|menu|dropdown)\b/i.test(`${step.action} ${step.label}`)) {
+      return true
+    }
+    if (action === 'select') return true
+  }
+  return (
+    /\b(sélectionner|selectionner|choisir)\b/i.test(step.label) &&
+    /\b(dans|in|from|champ|liste|menu)\b/i.test(step.label)
+  )
+}
+
+export function shouldExecuteAsClick(step: RunnableStep): boolean {
+  if (shouldExecuteAsType(step) || shouldExecuteAsSelect(step)) return false
   const action = step.action.trim().toLowerCase()
   if (action === 'click') return true
   const blob = `${step.action} ${step.label}`
@@ -406,6 +740,7 @@ async function executeStepWithCapture(
   page: Page,
   step: RunnableStep,
   seedUrl: string | null,
+  runnerLocale: RunnerLocale = 'en',
 ): Promise<RunnerFrame> {
   const action = step.action.trim().toLowerCase()
   const blob = `${step.action} ${step.label}`
@@ -420,23 +755,48 @@ async function executeStepWithCapture(
     const dest = url || seedUrl
     if (!dest) throw new Error('No URL to navigate to')
     await page.goto(dest, { waitUntil: 'domcontentloaded', timeout: 35000 })
+    // CMPs (Didomi…) often inject after first paint — wait then dismiss once.
+    await page.waitForTimeout(700)
     await dismissNoise(page)
     return captureFrame(page)
   }
 
+  if (shouldExecuteAsSelect(step)) {
+    const loc = await resolveSelectLocator(page, step)
+    if (!loc) {
+      // Soft fallback: fill any empty brochure selects so the run can continue.
+      await fillEmptyFormSelects(page)
+      return captureFrame(page)
+    }
+    const frame = await captureHighlighted(page, loc)
+    await performSelect(page, loc, step)
+    return frame
+  }
+
   if (shouldExecuteAsType(step)) {
     const value = searchQueryFromStep(step)
-    let loc: Locator | null = null
-    if (step.target && step.target.includes('input')) {
+    let loc = await resolveTypeLocator(page, step)
+    if (loc) {
       try {
-        loc = page.locator(step.target.split(',')[0]!.trim()).first()
-        await loc.fill(value, { timeout: 5000 })
+        if (isPhoneFieldStep(step) && runnerLocale === 'fr') {
+          await ensurePhoneCountry(page, loc, 'fr')
+        }
+        await fillField(loc, value)
+        if (isPhoneFieldStep(step) && runnerLocale === 'fr') {
+          await ensurePhoneCountry(page, loc, 'fr')
+        }
       } catch {
         loc = null
       }
     }
-    if (!loc) {
+    // Last resort for search-only steps — never for lead/brochure forms.
+    if (!loc && isSearchTypeStep(step)) {
       loc = await fillLikelySearch(page, value)
+    }
+    if (!loc) {
+      throw new Error(
+        `Could not find the form field for: ${step.label}. Refusing to type into an unrelated input.`,
+      )
     }
     const frame = await captureHighlighted(page, loc)
     // Submit via Enter only for Search-style steps. Plain Type (e.g. FR « Taper … »)
@@ -452,6 +812,47 @@ async function executeStepWithCapture(
   }
 
   if (shouldExecuteAsClick(step)) {
+    // Cookie / CMP steps: resolve Didomi/OneTrust (incl. “Continuer sans accepter”),
+    // highlight before click, and no-op if the banner was already cleared.
+    if (isConsentStep(step)) {
+      const hint =
+        step.targetHint ||
+        extractQuotedText(step.label) ||
+        step.label
+          .replace(/^(click|cliquer|clique|select|choisis)\s+(sur\s+)?/i, '')
+          .trim()
+      const prefer: 'refuse' | 'accept' | 'auto' = /sans accepter|refus|reject|deny|disagree/i.test(
+        `${step.label} ${hint}`,
+      )
+        ? 'refuse'
+        : /tout accepter|accept all|agree/i.test(`${step.label} ${hint}`)
+          ? 'accept'
+          : 'auto'
+      let loc = await findConsentButton(page, prefer, hint)
+      if (!loc) {
+        await page.waitForTimeout(600)
+        loc = await findConsentButton(page, prefer, hint)
+      }
+      if (loc) {
+        const frame = await captureHighlighted(page, loc)
+        await loc.click({ timeout: 4000 }).catch(() => undefined)
+        await page.waitForTimeout(400)
+        await dismissNoise(page)
+        return frame
+      }
+      // Banner already gone (auto-dismissed on Navigate) — don't invent a second cookie fail.
+      await dismissNoise(page)
+      if (!(await consentBannerVisible(page))) {
+        return captureFrame(page)
+      }
+      throw new Error(`Could not click consent control for: ${step.label}`)
+    }
+
+    // Before submit / download CTAs, clear empty required selects (geo-gated brochure lists).
+    if (/télécharge|download|brochure|submit|envoyer|valider|je\s+télécharge/i.test(step.label)) {
+      await fillEmptyFormSelects(page)
+    }
+
     const loc = await resolveClickLocator(page, step)
     if (loc) {
       // Capture with blue box BEFORE the click (element may disappear after navigation).
@@ -526,19 +927,217 @@ export async function launchBrowser(): Promise<Browser> {
   })
 }
 
+export type RunnerLocale = 'en' | 'fr'
+
+/** Prefer FR for French UI or French-market hosts (hetic.net, *.fr). */
+export function resolveRunnerLocale(
+  preferredLanguage?: 'en' | 'fr' | null,
+  seedUrl?: string | null,
+): RunnerLocale {
+  if (preferredLanguage === 'fr' || preferredLanguage === 'en') return preferredLanguage
+  if (seedUrl && /(^|\.)hetic\.net|\.fr(\/|$)/i.test(seedUrl)) return 'fr'
+  return 'en'
+}
+
+/**
+ * Localized browser page so forms match what a FR (or EN) visitor sees —
+ * phone country defaults, geo-gated fields, Accept-Language, etc.
+ */
+export async function createLocalizedPage(
+  browser: Browser,
+  options?: { preferredLanguage?: 'en' | 'fr' | null; seedUrl?: string | null },
+): Promise<Page> {
+  const lang = resolveRunnerLocale(options?.preferredLanguage, options?.seedUrl)
+  const isFr = lang === 'fr'
+  const context = await browser.newContext({
+    viewport: { width: 1280, height: 800 },
+    userAgent:
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+    locale: isFr ? 'fr-FR' : 'en-US',
+    timezoneId: isFr ? 'Europe/Paris' : 'America/New_York',
+    geolocation: isFr
+      ? { latitude: 48.8566, longitude: 2.3522 }
+      : { latitude: 40.7128, longitude: -74.006 },
+    permissions: ['geolocation'],
+    extraHTTPHeaders: {
+      'Accept-Language': isFr ? 'fr-FR,fr;q=0.9,en;q=0.5' : 'en-US,en;q=0.9',
+    },
+  })
+  return context.newPage()
+}
+
+/** Force intl-tel-input (and similar) to FR when the UI locale is French. */
+async function ensurePhoneCountry(
+  page: Page,
+  phoneInput: Locator,
+  countryCode: 'fr' | 'us',
+): Promise<void> {
+  try {
+    const wrapper = phoneInput.locator('xpath=ancestor::*[contains(@class,"iti")][1]')
+    if ((await wrapper.count()) === 0) return
+    const flag = wrapper.locator('.iti__selected-flag, .iti__selected-country, button.iti__selected-country').first()
+    if (!(await flag.isVisible({ timeout: 500 }).catch(() => false))) return
+    const meta =
+      `${(await flag.getAttribute('title')) ?? ''} ${(await flag.getAttribute('aria-label')) ?? ''} ${(await flag.getAttribute('data-country-code')) ?? ''}`
+    if (countryCode === 'fr' && /(france|\+33|\bfr\b)/i.test(meta)) return
+    if (countryCode === 'us' && /(united states|\+1|\bus\b)/i.test(meta)) return
+    await flag.click({ timeout: 2000 })
+    const option = page
+      .locator(
+        [
+          `.iti__country-list li[data-country-code="${countryCode}"]`,
+          `.iti__country[data-country-code="${countryCode}"]`,
+          `li[data-country-code="${countryCode}"]`,
+        ].join(', '),
+      )
+      .first()
+    if (await option.isVisible({ timeout: 2000 }).catch(() => false)) {
+      await option.click({ timeout: 2000 })
+      await page.waitForTimeout(200)
+    } else {
+      await page.keyboard.press('Escape').catch(() => undefined)
+    }
+  } catch {
+    // Best-effort — don't fail the Type step on country widget quirks.
+  }
+}
+
+/**
+ * Geo-gated brochure forms sometimes show an empty "- Select -" dropdown
+ * that the Discovery plan never listed. Pick the first real option so submit works.
+ */
+async function fillEmptyFormSelects(page: Page): Promise<void> {
+  const selects = page.locator('form select, select:visible')
+  const count = await selects.count().catch(() => 0)
+  for (let i = 0; i < Math.min(count, 10); i++) {
+    const sel = selects.nth(i)
+    try {
+      if (!(await sel.isVisible({ timeout: 300 }).catch(() => false))) continue
+      const selectedText = await sel
+        .evaluate((el) => {
+          const s = el as HTMLSelectElement
+          return (s.options[s.selectedIndex]?.textContent || '').trim()
+        })
+        .catch(() => '')
+      const value = await sel.inputValue().catch(() => '')
+      const empty =
+        !value ||
+        value === '_none' ||
+        value === '0' ||
+        /^-?\s*select\s*-?$/i.test(selectedText) ||
+        /^(choisir|sélectionner|selectionner|please select)/i.test(selectedText)
+      if (!empty) continue
+
+      const optionCount = await sel.locator('option').count()
+      for (let j = 0; j < optionCount; j++) {
+        const opt = sel.locator('option').nth(j)
+        const v = (await opt.getAttribute('value')) ?? ''
+        const t = ((await opt.textContent()) || '').trim()
+        if (!v || v === '_none' || v === '0') continue
+        if (/^-?\s*select\s*-?$/i.test(t)) continue
+        if (/^(choisir|sélectionner|selectionner|please select)/i.test(t)) continue
+        await sel.selectOption({ value: v })
+        break
+      }
+    } catch {
+      // continue
+    }
+  }
+}
+
+async function resolveSelectLocator(page: Page, step: RunnableStep): Promise<Locator | null> {
+  const hints = fieldHintsFromStep(step)
+  const quoted = extractQuotedText(step.label)
+  const blobHints = [
+    ...hints,
+    step.targetHint,
+    quoted,
+    step.label.match(/\b(?:dans|in|from)\s+(?:le\s+|la\s+|l['’])?(?:champ\s+|liste\s+|menu\s+)?["«]?([^"»]+?)["»]?\s*$/i)?.[1],
+  ].filter((h): h is string => Boolean(h && h.trim()))
+
+  for (const hint of blobHints) {
+    const h = hint.trim()
+    if (h.length < 2) continue
+    try {
+      const byLabel = page.getByLabel(h, { exact: false }).first()
+      if (await byLabel.evaluate((el) => el.tagName === 'SELECT').catch(() => false)) {
+        if (await byLabel.isVisible({ timeout: 600 })) return byLabel
+      }
+    } catch {
+      // continue
+    }
+    const byName = await tryVisibleLocator(
+      page,
+      () =>
+        page
+          .locator(
+            [
+              `select[name*="${h}" i]`,
+              `select[id*="${h}" i]`,
+              `select[aria-label*="${h}" i]`,
+            ].join(', '),
+          )
+          .first(),
+      600,
+    )
+    if (byName) return byName
+  }
+
+  // Brochure / formation dropdowns on lead forms.
+  if (/brochure|formation|program|niveau|campus/i.test(step.label)) {
+    const loc = await tryVisibleLocator(
+      page,
+      () =>
+        page
+          .locator(
+            [
+              'select[name*="brochure" i]',
+              'select[id*="brochure" i]',
+              'select[name*="formation" i]',
+              'form select',
+            ].join(', '),
+          )
+          .first(),
+      800,
+    )
+    if (loc) return loc
+  }
+
+  return tryVisibleLocator(page, () => page.locator('form select, select').first(), 600)
+}
+
+async function performSelect(page: Page, locator: Locator, step: RunnableStep): Promise<void> {
+  const value =
+    extractQuotedText(step.label) ||
+    (step.targetHint && !looksLikeFieldName(step.targetHint) ? step.targetHint.trim() : '') ||
+    ''
+  if (value) {
+    await locator.selectOption({ label: value }).catch(async () => {
+      await locator.selectOption({ value }).catch(async () => {
+        await fillEmptyFormSelects(page)
+      })
+    })
+  } else {
+    await fillEmptyFormSelects(page)
+  }
+  await page.waitForTimeout(200)
+}
+
 export async function runJourneyWithPlaywright(options: {
   steps: RunnableStep[]
   prompt?: string
+  preferredLanguage?: 'en' | 'fr' | null
   signal?: AbortSignal
   onEvent: (event: RunnerEvent) => void | Promise<void>
 }): Promise<void> {
-  const { steps, prompt, signal, onEvent } = options
+  const { steps, prompt, preferredLanguage, signal, onEvent } = options
   if (steps.length === 0) {
     await onEvent({ type: 'error', error: 'No steps to run' })
     return
   }
 
   const seedUrl = guessSeedUrl(steps, prompt)
+  const runnerLocale = resolveRunnerLocale(preferredLanguage, seedUrl)
   let browser: Browser | null = null
 
   const throwIfAborted = () => {
@@ -550,11 +1149,7 @@ export async function runJourneyWithPlaywright(options: {
     browser = await launchBrowser()
     throwIfAborted()
 
-    const page = await browser.newPage({
-      viewport: { width: 1280, height: 800 },
-      userAgent:
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-    })
+    const page = await createLocalizedPage(browser, { preferredLanguage, seedUrl })
 
     const firstAction = steps[0]?.action.trim().toLowerCase() ?? ''
     const firstIsNavigate = /navigate|go to|open/i.test(firstAction)
@@ -575,7 +1170,7 @@ export async function runJourneyWithPlaywright(options: {
 
       const stepStartedAt = Date.now()
       try {
-        const frame = await executeStepWithCapture(page, step, seedUrl)
+        const frame = await executeStepWithCapture(page, step, seedUrl, runnerLocale)
         throwIfAborted()
         const durationMs = Date.now() - stepStartedAt
         await onEvent({
@@ -644,10 +1239,11 @@ export type DryRunResult = {
 export async function dryRunJourneyWithPlaywright(options: {
   steps: RunnableStep[]
   prompt?: string
+  preferredLanguage?: 'en' | 'fr' | null
   deadlineMs?: number
   onStatus?: (text: string) => void
 }): Promise<DryRunResult> {
-  const { steps, prompt, onStatus } = options
+  const { steps, prompt, preferredLanguage, onStatus } = options
   const deadlineMs = options.deadlineMs ?? 18_000
   const started = Date.now()
   const timeLeft = () => deadlineMs - (Date.now() - started)
@@ -657,16 +1253,13 @@ export async function dryRunJourneyWithPlaywright(options: {
   }
 
   const seedUrl = guessSeedUrl(steps, prompt)
+  const runnerLocale = resolveRunnerLocale(preferredLanguage, seedUrl)
   let browser: Browser | null = null
 
   try {
     onStatus?.('Rehearsing the journey in the browser…')
     browser = await launchBrowser()
-    const page = await browser.newPage({
-      viewport: { width: 1280, height: 800 },
-      userAgent:
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-    })
+    const page = await createLocalizedPage(browser, { preferredLanguage, seedUrl })
 
     const firstAction = steps[0]?.action.trim().toLowerCase() ?? ''
     const firstIsNavigate = /navigate|go to|open/i.test(firstAction)
@@ -692,7 +1285,7 @@ export async function dryRunJourneyWithPlaywright(options: {
       const step = steps[i]!
       try {
         // Reuse the live path (including highlight) so dry-run matches production.
-        await executeStepWithCapture(page, step, seedUrl)
+        await executeStepWithCapture(page, step, seedUrl, runnerLocale)
         stepsOk += 1
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Step failed'

@@ -37,6 +37,7 @@ import {
   agentIntroForLocale,
   buildJourneyFromDiscovery,
   buildJourneyFromPrompt,
+  ensureFormEntryInPlan,
   extractUrlFromText,
   formatJourneyTitle,
   runFallbackMessage,
@@ -70,6 +71,12 @@ import type {
 } from '../types'
 import { scheduleSummary, templateActions } from '../types'
 import type { DiscoveryPlan } from '../mock/discovery'
+import {
+  messageWithAuthoritativePlan,
+  planFromJourneySteps,
+  wantsPlanCorrection,
+  wantsPlanInChat,
+} from '../mock/discovery'
 
 export interface NewJourneyHandle {
   commitAcceptSchedule: () => void
@@ -253,10 +260,53 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
     lastRunStepsRef.current = upsertLastRunStep(lastRunStepsRef.current, metric)
   }, [])
   const fixContinueInFlightRef = useRef(false)
+  const announcedPlanSyncRef = useRef(false)
 
   useEffect(() => {
     setJourneyName(journey.name)
   }, [journey.name])
+
+  // If Steps were patched (e.g. Click Brochure) but Discovery chat still shows the old list,
+  // post the authoritative plan in the conversation once — never silently diverge.
+  useEffect(() => {
+    if (announcedPlanSyncRef.current) return
+    if (!session.plan) return
+    const corrected = ensureFormEntryInPlan(session.plan, {
+      siteUrl: session.siteUrl,
+      prompt: session.prompt,
+      locale,
+    })
+    const patched =
+      corrected.steps.length !== session.plan.steps.length ||
+      corrected.steps.some(
+        (s, i) =>
+          s.label !== session.plan!.steps[i]?.label ||
+          s.action !== session.plan!.steps[i]?.action,
+      )
+    const chatBlob = session.messages.map((m) => m.content).join('\n')
+    const chatHasEveryStep = corrected.steps.every((s) => chatBlob.includes(s.label))
+    if (!patched && chatHasEveryStep) {
+      announcedPlanSyncRef.current = true
+      return
+    }
+    announcedPlanSyncRef.current = true
+    const intro =
+      locale === 'fr'
+        ? patched
+          ? 'J’ai mis à jour le plan du parcours (ouverture du formulaire avant les saisies). Voici les étapes, dans la conversation :'
+          : 'Voici le plan du parcours tel qu’il sera rejoué :'
+        : patched
+          ? 'I updated the journey plan (open the form before filling fields). Here are the steps in the conversation:'
+          : 'Here is the journey plan as it will be replayed:'
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: 'agent-plan-sync',
+        role: 'agent',
+        content: messageWithAuthoritativePlan(intro, corrected),
+      },
+    ])
+  }, [session.plan, session.siteUrl, session.prompt, session.messages, locale])
 
   // Abort in-flight Playwright / chat when leaving the workspace.
   useEffect(() => {
@@ -685,6 +735,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
         const result = await runLiveJourney({
           steps: slice,
           prompt: initialPrompt,
+          preferredLanguage: locale,
           signal: controller.signal,
           onFrame: (frame) => {
             if (runIdRef.current !== runId) return
@@ -781,16 +832,25 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
 
         if (typeof result.failedStepIndex === 'number') {
           const absolute = startIndex + result.failedStepIndex
+          const failedTemplate = slice[result.failedStepIndex]
           let failedStep: RunFailureInfo = {
             stepIndex: absolute,
-            stepLabel: result.failedStepLabel || slice[result.failedStepIndex]?.label || 'Step',
+            stepLabel: result.failedStepLabel || failedTemplate?.label || 'Step',
+            error:
+              result.failedStepError ??
+              lastRunStepsRef.current.find((s) => s.index === absolute)?.error,
+            action: failedTemplate?.action,
           }
           setStages((prev) => {
             const flat = flattenActions(prev)
             const failedId = flat[absolute]?.id ?? slice[result.failedStepIndex!]?.id
             const loc = failedId ? findAction(prev, failedId) : null
             if (loc) {
-              failedStep = { ...failedStep, stageTitle: loc.stage.title }
+              failedStep = {
+                ...failedStep,
+                stageTitle: loc.stage.title,
+                action: failedStep.action ?? loc.action.action,
+              }
             }
             const nextFlat = flat.map((s, idx) =>
               idx === absolute ? { ...s, status: 'failed' as const } : s,
@@ -959,20 +1019,14 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
       beginLastRunCapture('simulated')
       failedStep = await runSimulatedSteps(runId, journeySteps, { announceFallback: true })
     } else if (failedStep) {
+      const diagnosis = buildRunOutcomeMessage(failedStep, undefined, locale)
       setMessages((prev) => [
         ...prev,
         {
-          id: `agent-fail-${failedStep!.stepIndex}`,
+          id: `agent-fail-${runId}-${failedStep!.stepIndex}`,
           role: 'agent',
-          content: failedStep!.stageTitle
-            ? tf('stepFailedAtStageAction', {
-                stage: failedStep!.stageTitle,
-                action: failedStep!.stepLabel,
-              })
-            : tf('stepFailedStopping', {
-                n: failedStep!.stepIndex + 1,
-                label: failedStep!.stepLabel,
-              }),
+          content: diagnosis.content,
+          actions: diagnosis.actions,
         },
       ])
     } else {
@@ -1111,20 +1165,14 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
         }
         failedStep = null
       } else if (failedStep) {
+        const diagnosis = buildRunOutcomeMessage(failedStep, undefined, locale)
         setMessages((prev) => [
           ...prev,
           {
-            id: `agent-fail-${failedStep!.stepIndex}`,
+            id: `agent-fail-${runId}-${failedStep!.stepIndex}`,
             role: 'agent',
-            content: failedStep!.stageTitle
-              ? tf('stepFailedAtStageAction', {
-                  stage: failedStep!.stageTitle,
-                  action: failedStep!.stepLabel,
-                })
-              : tf('stepFailedStopping', {
-                  n: failedStep!.stepIndex + 1,
-                  label: failedStep!.stepLabel,
-                }),
+            content: diagnosis.content,
+            actions: diagnosis.actions,
           },
         ])
       }
@@ -1251,7 +1299,11 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
 
           fixContinueInFlightRef.current = true
           setFixActionsResolved(true)
-          const { step: fixedStep, changeSummary } = applyAgentStepFix(fullSteps[failIndex]!, locale)
+          const { step: fixedStep, changeSummary } = applyAgentStepFix(
+            fullSteps[failIndex]!,
+            locale,
+            lastFailedStepRef.current,
+          )
           const nextSteps = fullSteps.map((step, index) => {
             if (index === failIndex) return fixedStep
             if (index < failIndex) return { ...step, status: 'done' as const }
@@ -1394,22 +1446,73 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
 
         if (ai.aborted || abort.signal.aborted) return
 
+        const askPlan = wantsPlanInChat(trimmed) || wantsPlanCorrection(trimmed)
+        const rawPlan =
+          ai.plan && (ai.readyForPlan || ai.plan.steps.length > 0)
+            ? ai.plan
+            : askPlan
+              ? planFromJourneySteps(steps, {
+                  title: journeyName || journey.name,
+                  summary:
+                    locale === 'fr'
+                      ? 'Plan du parcours (étapes actuelles).'
+                      : 'Journey plan (current steps).',
+                  prompt: initialPrompt || journey.name,
+                })
+              : null
+
+        const correctedPlan = rawPlan
+          ? ensureFormEntryInPlan(rawPlan, {
+              siteUrl: seedUrl,
+              prompt: `${initialPrompt} ${journey.name}`,
+              locale,
+            })
+          : null
+
+        const defaultIntro =
+          locale === 'fr'
+            ? askPlan
+              ? 'Voici le plan complet, affiché dans la conversation :'
+              : 'OK.'
+            : askPlan
+              ? 'Here is the full plan, shown in the conversation:'
+              : 'OK.'
+
+        let agentContent = ai.message?.trim() || defaultIntro
+        if (correctedPlan) {
+          const patched =
+            correctedPlan.steps.length !== (rawPlan?.steps.length ?? 0) ||
+            correctedPlan.steps.some(
+              (s, i) =>
+                s.label !== rawPlan?.steps[i]?.label ||
+                s.action !== rawPlan?.steps[i]?.action,
+            )
+          if (patched && !/brochure|formulaire|ouvrir le formulaire|open the form/i.test(agentContent)) {
+            const note =
+              locale === 'fr'
+                ? 'J’ai ajouté le clic d’ouverture du formulaire avant les saisies — voici le plan à jour :'
+                : 'I added the form-open click before the fill steps — here is the updated plan:'
+            agentContent = note
+          }
+          agentContent = messageWithAuthoritativePlan(agentContent, correctedPlan)
+        }
+
         const agentMsg: ChatMessage = {
           id: `agent-gemini-${Date.now()}`,
           role: 'agent',
-          content: ai.message || (locale === 'fr' ? 'OK.' : 'OK.'),
+          content: agentContent,
         }
 
-        if (ai.plan && (ai.readyForPlan || ai.plan.steps.length > 0)) {
-          const nextStages = planToJourneyStages(ai.plan, steps, seedUrl, locale)
+        if (correctedPlan) {
+          const nextStages = planToJourneyStages(correctedPlan, steps, seedUrl, locale)
           setStages(nextStages)
           setFixActionsResolved(false)
           setScheduleResolved(false)
-          if (ai.plan.title) {
-            setJourneyName(ai.plan.title)
+          if (correctedPlan.title) {
+            setJourneyName(correctedPlan.title)
             onHeaderChange?.({
-              title: formatJourneyTitle(ai.plan.title, seedUrl, locale),
-              subtitle: isRunning ? t('running') : ai.plan.summary,
+              title: formatJourneyTitle(correctedPlan.title, seedUrl, locale),
+              subtitle: isRunning ? t('running') : correctedPlan.summary,
             })
           }
           setMessages((prev) => [
@@ -1446,11 +1549,11 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
       messages,
       steps,
       journey.name,
+      journeyName,
       initialPrompt,
       session.siteUrl,
       onHeaderChange,
       onRequestNewJourney,
-      isRunning,
       t,
     ],
   )

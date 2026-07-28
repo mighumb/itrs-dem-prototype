@@ -12,9 +12,11 @@ import type {
 } from '../mock/discovery'
 import { t, type Locale } from '../i18n/messages'
 import type { ChatMessage } from '../types'
+import { ensureFormEntryInPlan } from './journeyLaunch'
 
 export {
   answersIncludeSiteDecline,
+  intentFromDeepLocator,
   looksLikeAmbiguousBrandName,
   looksLikeSiteConfirmation,
   looksLikeSiteDecline,
@@ -69,19 +71,50 @@ function historyFromMessages(messages: ChatMessage[]) {
   })
 }
 
+/**
+ * Meta options that duplicate the footer “Autre chose…” free-text field.
+ * Never shown in the list — custom values are typed in the footer.
+ */
+export function isRedundantOtherOption(option: string): boolean {
+  const o = option.trim()
+  if (!o) return true
+  // Bare labels: "Autre", "Other", "Autre email", "Autre mail", "Other email"…
+  if (
+    /^(autre|other|custom|personnalis[ée]|saisir|entrer|enter|specify)(\b|$)/i.test(o) &&
+    !/@/.test(o) &&
+    !/\d{3,}/.test(o)
+  ) {
+    return true
+  }
+  return /saisir\s+un\s+autre|entrer\s+un\s+autre|enter\s+another|other\s*\(|autre\s+e-?mails?|autre\s+mails?|autre\s+adresse|other\s+e-?mails?|type\s+another|specify\s+other|saisir\s+ici|free[\s-]?text|votre\s+propre/i.test(
+    o,
+  )
+}
+
 function normalizeQuestions(raw: unknown): DiscoveryQuestion[] | null {
   if (!Array.isArray(raw) || raw.length === 0) return null
   const next = raw
     .map((item, index) => {
       if (!item || typeof item !== 'object') return null
       const q = item as Record<string, unknown>
-      const options = Array.isArray(q.options)
-        ? q.options.filter((o): o is string => typeof o === 'string').slice(0, 3)
+      if (typeof q.prompt !== 'string' || !q.prompt.trim()) return null
+      // Free-text / PII: at most ONE suggested preset; custom = footer only.
+      // Never keep meta rows like “Autre email” (that is the footer’s job).
+      const looksFreeText =
+        /e-?mail|mail|téléphone|telephone|phone|prénom|prenom|first\s*name|nom\b|last\s*name|coordonn/i.test(
+          q.prompt,
+        )
+      let options = Array.isArray(q.options)
+        ? q.options
+            .filter((o): o is string => typeof o === 'string' && o.trim().length > 0)
+            .filter((o) => !isRedundantOtherOption(o))
+            .slice(0, looksFreeText ? 1 : 3)
         : []
-      if (typeof q.prompt !== 'string' || options.length < 2) return null
+      // Choice questions need at least 2 real options.
+      if (!looksFreeText && options.length < 2) return null
       return {
         id: typeof q.id === 'string' ? q.id : `q-${index + 1}`,
-        prompt: q.prompt,
+        prompt: q.prompt.trim(),
         options,
       }
     })
@@ -217,6 +250,7 @@ function finalizeDiscoveryResult(options: {
   /** User utterance for this turn — used to avoid reviving proposals after a decline. */
   userMessage?: string
   answers?: Record<string, string> | null
+  siteUrl?: string | null
 }): DiscoveryAiResult {
   const siteAnalysis = normalizeSiteAnalysis(options.siteAnalysis)
   const awaitingConfirm = siteAnalysis?.reason === 'awaiting_user_confirmation'
@@ -261,13 +295,22 @@ function finalizeDiscoveryResult(options: {
     }
   }
 
+  let plan = normalizePlan(options.plan, options.fallbackPrompt)
+  if (plan) {
+    plan = ensureFormEntryInPlan(plan, {
+      siteUrl: options.siteUrl ?? siteAnalysis?.url ?? null,
+      prompt: options.fallbackPrompt,
+      locale: options.preferredLanguage,
+    })
+  }
+
   return {
     message: message || geminiUnavailable(options.preferredLanguage).message,
     workTrace: normalizeWorkTrace(options.workTrace),
     formTitle: questions || proposals ? formTitle : null,
     questions,
     proposals,
-    plan: normalizePlan(options.plan, options.fallbackPrompt),
+    plan,
     readyForPlan: Boolean(options.readyForPlan),
     siteAnalysis,
     pageSnapshot: typeof options.pageSnapshot === 'string' ? options.pageSnapshot : null,
@@ -542,6 +585,7 @@ export async function requestDiscoveryAi(options: {
         mode,
         userMessage,
         answers: context?.answers ?? null,
+        siteUrl: context?.url ?? null,
       })
     }
 
@@ -573,6 +617,7 @@ export async function requestDiscoveryAi(options: {
       mode,
       userMessage,
       answers: context?.answers ?? null,
+      siteUrl: context?.url ?? null,
     })
   } catch (error) {
     if (

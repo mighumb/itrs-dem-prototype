@@ -4,7 +4,7 @@ export type Screen = 'home' | 'new-journey'
 
 export type StepStatus = 'pending' | 'running' | 'done' | 'failed'
 
-/** Executable Playwright gesture (Navigate, Click, Type, Verify). Always lives inside a stage. */
+/** Executable Playwright gesture (Navigate, Click, Type, Select, Verify). Always lives inside a stage. */
 export interface JourneyAction {
   id: string
   label: string

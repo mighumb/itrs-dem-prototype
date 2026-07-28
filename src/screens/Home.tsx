@@ -1,5 +1,5 @@
 import { ArrowUp, Play } from 'lucide-react'
-import { useEffect, useRef, useState, type CSSProperties } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
 import DiscoveryStack from '../components/DiscoveryStack'
 import { AgentMessage } from '../components/GlobalAgent'
 import AgentWorkStatus from '../components/AgentWorkStatus'
@@ -22,8 +22,8 @@ import {
 } from '../mock/data'
 import {
   createDiscoveryContext,
-  formatPlanMessage,
   hasExploitableContext,
+  messageWithAuthoritativePlan,
   type DiscoveryContext,
   type DiscoveryPhase,
   type DiscoveryPlan,
@@ -68,7 +68,9 @@ export default function Home({
   const [siteConfirmPending, setSiteConfirmPending] = useState(false)
   const chatEndRef = useRef<HTMLDivElement>(null)
   const formDockRef = useRef<HTMLDivElement>(null)
-  const inputRef = useRef<HTMLInputElement>(null)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
+  /** Tab held — Tab+Enter inserts a newline (Enter alone sends). */
+  const tabHeldRef = useRef(false)
   const abortRef = useRef<AbortController | null>(null)
   const messagesRef = useRef<ChatMessage[]>([])
   messagesRef.current = messages
@@ -111,18 +113,20 @@ export default function Home({
     onDiscoverySessionChange?.(inSession)
   }, [inSession, onDiscoverySessionChange])
 
-  // Smart scroll: when a floating form appears, bring the dock into view
-  // (document scroll). Otherwise follow the latest message.
+  // Keep the composer / Run / floating form reachable after long agent replies.
+  // Document-scroll layout: without this, a tall plan leaves the input below the fold
+  // and the user must scroll manually (avoidable friction).
   useEffect(() => {
     const id = window.setTimeout(() => {
-      if (showStack || showRun) {
-        formDockRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+      const dock = formDockRef.current
+      if (dock) {
+        dock.scrollIntoView({ behavior: 'smooth', block: 'end' })
         return
       }
       chatEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
-    }, showStack || showRun ? 60 : 0)
+    }, 40)
     return () => window.clearTimeout(id)
-  }, [messages, agentTyping, workStatus, showStack, showRun, proposals, questions])
+  }, [messages, agentTyping, workStatus, showStack, showRun])
 
   const pushMessages = (...next: ChatMessage[]) => {
     setMessages((prev) => {
@@ -261,13 +265,19 @@ export default function Home({
     })
   }
 
-  const enterPlanning = async (planSeed: DiscoveryPlan, userLine?: string) => {
+  const enterPlanning = async (
+    planSeed: DiscoveryPlan,
+    userLine?: string,
+    contextOverride?: DiscoveryContext | null,
+  ) => {
     const userMsg = userLine
       ? ({ id: uid('user'), role: 'user', content: userLine } as ChatMessage)
       : null
     if (userMsg) {
       pushMessages(userMsg)
     }
+    const planCtx = contextOverride ?? ctx
+    if (contextOverride) setCtx(contextOverride)
     // Keep Run/Lancer hidden until Gemini returns a complete plan.
     setPlan(null)
     setPhase('conversation')
@@ -278,8 +288,8 @@ export default function Home({
         userMessage: planSeed.prompt,
         messages: history,
         phase: 'planning',
-        context: ctx,
-        selectedProposal: ctx?.selectedProposal,
+        context: planCtx,
+        selectedProposal: planCtx?.selectedProposal,
         preferredLanguage: locale,
         signal,
         onStatus,
@@ -289,13 +299,7 @@ export default function Home({
 
       // Nominal path: only show Run when Gemini produced a plan — never a local template.
       if (ai.plan) {
-        const formatted = formatPlanMessage(ai.plan)
-        const content =
-          ai.message.includes('1.') || ai.message.includes('1)')
-            ? ai.message
-            : ai.message
-              ? `${ai.message}\n\n${formatted}`
-              : formatted
+        const content = messageWithAuthoritativePlan(ai.message, ai.plan)
         pushAgentReply(content)
         setPlan(ai.plan)
         setPhase('planning')
@@ -339,13 +343,7 @@ export default function Home({
 
       // Complete plan → show steps + Run (precise free-typed seeds).
       if (ai.plan && (ai.readyForPlan || ai.plan.steps.length > 0)) {
-        const formatted = formatPlanMessage(ai.plan)
-        const content =
-          ai.message.includes('1.') || ai.message.includes('1)')
-            ? ai.message
-            : ai.message
-              ? `${ai.message}\n\n${formatted}`
-              : formatted
+        const content = messageWithAuthoritativePlan(ai.message, ai.plan)
         pushAgentReply(content)
         setPlan(ai.plan)
         setPhase('planning')
@@ -391,6 +389,15 @@ export default function Home({
       if (ai.aborted) return
       rememberSnapshot(ai)
 
+      // Model sometimes returns a ready plan instead of chooser options — honor it.
+      if (ai.plan && (ai.readyForPlan || ai.plan.steps.length > 0)) {
+        const content = messageWithAuthoritativePlan(ai.message, ai.plan)
+        pushAgentReply(content)
+        setPlan(ai.plan)
+        setPhase('planning')
+        return
+      }
+
       // Only open the floating form when Gemini returned real proposals — no mock fallback.
       if (ai.proposals && ai.proposals.length > 0) {
         setProposals(ai.proposals)
@@ -427,6 +434,7 @@ export default function Home({
       }
       pushMessages(userMsg)
       setConfiguring(false)
+      setCtx(nextCtx)
       const promptWithParams = [
         nextCtx.selectedProposal.prompt,
         answered.map((q) => `${q.prompt} → ${nextCtx.answers[q.id]}`).join('\n'),
@@ -442,6 +450,7 @@ export default function Home({
           prompt: promptWithParams,
         },
         undefined,
+        nextCtx,
       )
       return
     }
@@ -490,6 +499,40 @@ export default function Home({
           ? `${answerText || 'Oui'}\n\nBesoin initial: ${nextCtx.seed}`
           : answerText || 'Oui'
       await replyWithAiChat(affirm, history, nextCtx)
+      return
+    }
+
+    // Form / journey params already collected for a known destination → build the plan.
+    // (Previously we always opened “propose”, so the agent said “Voici le parcours” with no steps.)
+    const hasSite =
+      Boolean(nextCtx.url) ||
+      /https?:\/\/[^\s<>"']+/i.test(nextCtx.seed) ||
+      /(?:^|\s)(?:www\.)?[a-z0-9-]+(?:\.[a-z0-9-]+)+(?:\/\S*)?/i.test(nextCtx.seed)
+    if (hasSite && answered.length > 0) {
+      setCtx(nextCtx)
+      const title =
+        nextCtx.selectedProposal?.title?.trim() ||
+        (locale === 'fr' ? 'Parcours' : 'Journey')
+      const promptWithParams = [
+        nextCtx.seed,
+        answered.map((q) => `${q.prompt} → ${nextCtx.answers[q.id]}`).join('\n'),
+      ]
+        .filter(Boolean)
+        .join(' — ')
+      await enterPlanning(
+        {
+          title,
+          summary:
+            nextCtx.selectedProposal?.description?.trim() ||
+            (locale === 'fr'
+              ? 'Parcours prêt à lancer avec les paramètres fournis.'
+              : 'Journey ready to run with the provided parameters.'),
+          steps: [{ label: title, action: t('prepareJourney') }],
+          prompt: promptWithParams,
+        },
+        undefined,
+        nextCtx,
+      )
       return
     }
 
@@ -618,13 +661,7 @@ export default function Home({
 
       if (ai.plan && (ai.readyForPlan || ai.plan.steps.length > 0)) {
         setConfiguring(false)
-        const formatted = formatPlanMessage(ai.plan)
-        const content =
-          ai.message.includes('1.') || ai.message.includes('1)')
-            ? ai.message
-            : ai.message
-              ? `${ai.message}\n\n${formatted}`
-              : formatted
+        const content = messageWithAuthoritativePlan(ai.message, ai.plan)
         pushAgentReply(content)
         setPlan(ai.plan)
         setPhase('planning')
@@ -695,11 +732,7 @@ export default function Home({
       rememberSnapshot(ai)
 
       if (ai.readyForPlan && ai.plan) {
-        const formatted = formatPlanMessage(ai.plan)
-        const content =
-          ai.message.includes('1.') || ai.message.includes('1)')
-            ? ai.message
-            : `${ai.message}\n\n${formatted}`
+        const content = messageWithAuthoritativePlan(ai.message, ai.plan)
         pushAgentReply(content)
         setPlan(ai.plan)
         setPhase('planning')
@@ -791,13 +824,7 @@ export default function Home({
 
       if (ai.plan && (ai.readyForPlan || ai.plan.steps.length > 0)) {
         setConfiguring(false)
-        const formatted = formatPlanMessage(ai.plan)
-        const content =
-          ai.message.includes('1.') || ai.message.includes('1)')
-            ? ai.message
-            : ai.message
-              ? `${ai.message}\n\n${formatted}`
-              : formatted
+        const content = messageWithAuthoritativePlan(ai.message, ai.plan)
         pushAgentReply(content)
         setPlan(ai.plan)
         setPhase('planning')
@@ -865,10 +892,7 @@ export default function Home({
         rememberSnapshot(ai)
   
         if (ai.readyForPlan && ai.plan) {
-          const body =
-            ai.message.includes('1.') || ai.message.includes('1)')
-              ? ai.message
-              : `${ai.message}\n\n${formatPlanMessage(ai.plan)}`
+          const body = messageWithAuthoritativePlan(ai.message, ai.plan)
           pushAgentReply(body)
           setPlan(ai.plan)
           setPhase('planning')
@@ -895,10 +919,7 @@ export default function Home({
         // Iteration without a new complete plan: keep chatting, Run stays hidden.
         if (ai.plan && hasExploitableContext(text, ctx)) {
           const nextPlan = ai.plan
-          const body =
-            ai.message.includes('1.') || ai.message.includes('1)')
-              ? ai.message
-              : `${ai.message}\n\n${formatPlanMessage(nextPlan)}`
+          const body = messageWithAuthoritativePlan(ai.message, nextPlan)
           pushAgentReply(body)
           setPlan(nextPlan)
           setPhase('planning')
@@ -933,49 +954,120 @@ export default function Home({
           ? t('placeholderPlanning')
           : t('placeholderBrainstorm')
 
+  const insertNewlineAtCursor = (el: HTMLTextAreaElement) => {
+    const start = el.selectionStart ?? el.value.length
+    const end = el.selectionEnd ?? el.value.length
+    const next = `${el.value.slice(0, start)}\n${el.value.slice(end)}`
+    setInput(next)
+    requestAnimationFrame(() => {
+      const pos = start + 1
+      el.selectionStart = pos
+      el.selectionEnd = pos
+    })
+  }
+
+  /** Grow like Claude: text expands; scroll pane is inset from rounded corners. */
+  const composerScrollRef = useRef<HTMLDivElement>(null)
+
+  const resizeComposer = () => {
+    const el = inputRef.current
+    const scroller = composerScrollRef.current
+    if (!el || !scroller) return
+    el.style.height = '0px'
+    const style = window.getComputedStyle(el)
+    const lineHeight = Number.parseFloat(style.lineHeight) || 24
+    const paddingY =
+      (Number.parseFloat(style.paddingTop) || 0) +
+      (Number.parseFloat(style.paddingBottom) || 0)
+    const maxHeight = lineHeight * 8 + paddingY
+    const contentHeight = Math.max(el.scrollHeight, lineHeight + paddingY)
+    el.style.height = `${contentHeight}px`
+    el.style.overflowY = 'hidden'
+    scroller.style.maxHeight = `${maxHeight}px`
+  }
+
+  useLayoutEffect(() => {
+    resizeComposer()
+  }, [input])
+
   const composer = (
-    <form
-      className="relative"
-      onSubmit={(e) => {
-        e.preventDefault()
-        if (agentTyping) return
-        void handleSubmit(input)
-      }}
-    >
-      <input
-        ref={inputRef}
-        value={input}
-        onChange={(e) => setInput(e.target.value)}
-        onFocus={() => {
-          // Stop iOS from panning the focused field mid-viewport; sticky
-          // bottom + --keyboard-inset already pins the dock above the keyboard.
-          window.scrollTo(0, 0)
+    <div className="relative">
+      <form
+        className="flex flex-col overflow-hidden rounded-2xl border border-zinc-200/80 bg-white shadow-[0_4px_24px_rgba(0,0,0,0.06)] transition-[border-color,box-shadow] focus-within:border-[#0071e3] focus-within:ring-4 focus-within:ring-[#0071e3]/10 dark:border-zinc-700 dark:bg-zinc-900 dark:shadow-[0_4px_28px_rgba(0,0,0,0.45)] dark:focus-within:ring-[#0071e3]/20"
+        onSubmit={(e) => {
+          e.preventDefault()
+          if (agentTyping) return
+          void handleSubmit(input)
         }}
-        placeholder={inputPlaceholder}
-        disabled={agentTyping}
-        readOnly={agentTyping}
-        className="w-full rounded-2xl border border-zinc-200/80 bg-white py-4 pl-5 pr-14 text-base outline-none shadow-[0_4px_24px_rgba(0,0,0,0.06)] transition placeholder:text-zinc-400 focus:border-[#0071e3] focus:ring-4 focus:ring-[#0071e3]/10 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:shadow-[0_4px_28px_rgba(0,0,0,0.45)] dark:placeholder:text-zinc-500 dark:focus:ring-[#0071e3]/20"
-      />
-      {agentTyping ? (
-        <button
-          type="button"
-          onClick={handleStop}
-          className="absolute right-2 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-xl bg-[#0071e3] text-white transition hover:bg-[#0077ed]"
-          aria-label={t('stop')}
-        >
-          <span className="block h-3.5 w-3.5 rounded-[3px] bg-white" />
-        </button>
-      ) : (
-        <button
-          type="submit"
-          disabled={!input.trim()}
-          className="absolute right-2 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-xl bg-[#0071e3] text-white transition hover:bg-[#0077ed] disabled:cursor-not-allowed disabled:opacity-40"
-          aria-label={t('send')}
-        >
-          <ArrowUp size={18} />
-        </button>
-      )}
-    </form>
+      >
+        {/* Outer inset so the scrollbar clears the rounded corner (Claude-style). */}
+        <div className="min-h-10 pt-2 pr-2 pl-1">
+          <div
+            ref={composerScrollRef}
+            className="min-h-10 overflow-x-hidden overflow-y-auto overscroll-contain pl-3"
+          >
+            <textarea
+              ref={inputRef}
+              value={input}
+              rows={1}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Tab') {
+                  // Keep focus so Tab+Enter can insert a newline.
+                  e.preventDefault()
+                  tabHeldRef.current = true
+                  return
+                }
+                if (e.key !== 'Enter') return
+                if (tabHeldRef.current || e.shiftKey) {
+                  e.preventDefault()
+                  insertNewlineAtCursor(e.currentTarget)
+                  return
+                }
+                e.preventDefault()
+                if (agentTyping || !input.trim()) return
+                void handleSubmit(input)
+              }}
+              onKeyUp={(e) => {
+                if (e.key === 'Tab') tabHeldRef.current = false
+              }}
+              onBlur={() => {
+                tabHeldRef.current = false
+              }}
+              placeholder={inputPlaceholder}
+              disabled={agentTyping}
+              readOnly={agentTyping}
+              className="block min-h-10 w-full resize-none overflow-hidden border-0 bg-transparent py-1.5 pr-2 text-base leading-6 text-zinc-900 outline-none placeholder:text-zinc-400 disabled:opacity-60 dark:text-zinc-100 dark:placeholder:text-zinc-500"
+            />
+          </div>
+        </div>
+        {/* Action row under the text — room for future attach / voice controls. */}
+        <div className="flex shrink-0 items-center justify-end gap-1.5 px-2 pb-2 pt-1">
+          {agentTyping ? (
+            <button
+              type="button"
+              onClick={handleStop}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#0071e3] text-white transition hover:bg-[#0077ed]"
+              aria-label={t('stop')}
+            >
+              <span className="block h-3.5 w-3.5 rounded-[3px] bg-white" />
+            </button>
+          ) : (
+            <button
+              type="submit"
+              disabled={!input.trim()}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#0071e3] text-white transition hover:bg-[#0077ed] disabled:cursor-not-allowed disabled:opacity-40"
+              aria-label={t('send')}
+            >
+              <ArrowUp size={18} />
+            </button>
+          )}
+        </div>
+      </form>
+      <p className="mt-1.5 text-center text-[11px] text-zinc-400 dark:text-zinc-500">
+        {t('composerNewlineHint')}
+      </p>
+    </div>
   )
 
   if (!inSession) {
@@ -1008,7 +1100,9 @@ export default function Home({
           {composer}
 
           <div className="mt-8">
-            <p className="mb-3 text-center text-xs text-zinc-400">{t('sampleJourneys')}</p>
+            <p className="mb-3.5 text-center text-sm font-medium text-zinc-600 dark:text-zinc-300">
+              {t('sampleJourneys')}
+            </p>
             {/* Mobile: keep the current 4-row list. Desktop (md+): 2×2 rectangles with larger logos. */}
             <div className="space-y-2 md:grid md:grid-cols-2 md:gap-3 md:space-y-0">
               {getHomeExamples(locale).map((example) => (
@@ -1111,12 +1205,6 @@ export default function Home({
         style={{
           bottom: 'var(--keyboard-inset, 0px)',
           paddingBottom: 'var(--dock-pad-bottom, max(1rem, env(safe-area-inset-bottom, 0px)))',
-        }}
-        onFocusCapture={() => {
-          // iOS scrolls focused inputs into the upper visual viewport, which
-          // fights sticky+keyboard-inset and leaves a large gap above the keyboard.
-          window.scrollTo(0, 0)
-          requestAnimationFrame(() => window.scrollTo(0, 0))
         }}
       >
         {showStack && phase === 'questionnaire' && (

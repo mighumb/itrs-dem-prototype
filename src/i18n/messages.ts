@@ -16,11 +16,12 @@ export const messages = {
     homeTitleBefore: 'Which',
     homeTitleAfter: 'do you want to monitor today?',
     tryExample: 'Or try an example',
-    sampleJourneys: 'Start one of these journeys',
+    sampleJourneys: 'Start one of these journeys to try it out',
     placeholderIdle: 'Give a name or paste a URL…',
     placeholderReply: 'Or reply directly…',
     placeholderPlanning: 'Ask to change a step, or refine the plan…',
     placeholderBrainstorm: 'Continue brainstorming…',
+    composerNewlineHint: 'Tab + Enter for a new line',
     placeholderWorkspace: 'Ask or refine the journey…',
     refineJourney: 'Refine the journey',
     chooseJourney: 'Choose a journey',
@@ -35,6 +36,7 @@ export const messages = {
     other: 'Other…',
     skip: 'Skip',
     dismiss: 'Dismiss',
+    continueNext: 'Next',
     previousQuestion: 'Previous question',
     nextQuestion: 'Next question',
     readyToRun: 'Ready to run this user journey?',
@@ -193,15 +195,45 @@ export const messages = {
     runCompleteAll: 'Run complete — all **{count} actions** executed successfully.',
     runComplete: 'Run complete — all actions executed successfully.',
     runStoppedAt:
-      'Run stopped at action {n} — **{label}** could not complete. Remaining actions were not executed.\n\nThe page layout may have changed since this journey was recorded. I can update the locator and continue for you.',
+      'Run stopped at action {n} — **{label}** could not complete. Remaining actions were not executed.',
     runStoppedAtStageAction:
-      'Run stopped at stage **{stage}** — action **{action}** could not complete. Remaining actions were not executed.\n\nThe page layout may have changed since this journey was recorded. I can update the locator and continue for you.',
+      'Run stopped at stage **{stage}** — action **{action}** could not complete. Remaining actions were not executed.',
+    runFailWhereAction:
+      'Run stopped at action {n} — **{label}**. Remaining actions were not executed.',
+    runFailWhereStage:
+      'Run stopped at stage **{stage}** — action **{action}**. Remaining actions were not executed.',
+    runFailDiagFormField:
+      'Likely cause: the value was not typed into the expected form field (wrong or missing field on the page).',
+    runFailDiagElement:
+      'Likely cause: the click/tap target was not found or not unique on the page at that moment.',
+    runFailDiagTimeout:
+      'Likely cause: the page or element took too long to become ready (timeout).',
+    runFailDiagNavigation:
+      'Likely cause: navigation to the target URL failed or was blocked.',
+    runFailDiagClickBlocked:
+      'Likely cause: the control was present but not clickable yet (disabled, covered, or form still invalid).',
+    runFailDiagUnknown:
+      'I could not map this to a single cause from the runner signal alone.',
+    runFailSuggestFormField:
+      'Next: check that each Type step names the field (Nom / Email / …) and that the field exists on the current page, then retry.',
+    runFailSuggestElement:
+      'Next: I can broaden the locator for this action and continue from here.',
+    runFailSuggestTimeout:
+      'Next: retry the run; if it keeps timing out, simplify the step or wait for a clearer page state.',
+    runFailSuggestNavigation:
+      'Next: verify the URL for this Navigate step, then retry.',
+    runFailSuggestClickBlocked:
+      'Next: confirm earlier form fields are valid so the button enables, then retry the click — I can also refresh the locator.',
+    runFailSuggestUnknown:
+      'Next: I can retry with a refreshed locator, or you can adjust the step in Edit.',
+    runFailTechnicalDetail: 'Runner detail: `{error}`',
     fixAndContinue: 'Fix and continue',
+    fixAndRetry: 'Adjust and retry',
     stepFailedStopping: 'Action {n} failed — **{label}**. Stopping here.',
     stepFailedAtStageAction: 'Failed at stage **{stage}** — action **{action}**. Stopping here.',
     stepDone: 'Action {n} done — {label}',
     replayingSteps:
-      'Replaying **{count} actions** in Playwright — watch real screenshots sync with each action.',
+      'Replaying **{count} actions** in the browser — watch real screenshots sync with each action.',
     scheduleAcceptedUser: 'Every 15 min, Paris + Frankfurt',
     scheduleAcceptedAgent: 'Perfect. Create an account to start monitoring on this schedule.',
     scheduleCustomAgent: 'Perfect — **{summary}**. Create an account to activate monitoring.',
@@ -219,7 +251,7 @@ export const messages = {
     statusNeedsAttention: 'Needs attention',
     statusNotWorking: 'Not working',
     insightStepFailing:
-      'This step could not finish — the page may have changed since the journey was recorded.',
+      'This step could not finish — see the agent diagnosis for the likely cause.',
     insightStepDegraded:
       'This step took {duration} — slower than the {target} target for {action} actions.',
     previewCaptionFailing: 'Expected element was not found on the page',
@@ -317,11 +349,12 @@ export const messages = {
     homeTitleBefore: 'Quel',
     homeTitleAfter: 'souhaitez-vous surveiller aujourd’hui ?',
     tryExample: 'Ou essayez un exemple',
-    sampleJourneys: 'Lancez un de ces parcours',
+    sampleJourneys: 'Lancez un de ces parcours pour essayer',
     placeholderIdle: 'Donnez un nom ou collez une URL…',
     placeholderReply: 'Ou répondez directement…',
     placeholderPlanning: 'Demandez à modifier une étape, ou affinez le plan…',
     placeholderBrainstorm: 'Continuez le brainstorm…',
+    composerNewlineHint: 'Tab + Entrée pour un retour à la ligne',
     placeholderWorkspace: 'Demandez ou affinez le parcours…',
     refineJourney: 'Affiner le parcours',
     chooseJourney: 'Choisir un parcours',
@@ -336,6 +369,7 @@ export const messages = {
     other: 'Autre…',
     skip: 'Passer',
     dismiss: 'Fermer',
+    continueNext: 'Suivant',
     previousQuestion: 'Question précédente',
     nextQuestion: 'Question suivante',
     readyToRun: 'Prêt à lancer ce parcours utilisateur ?',
@@ -370,7 +404,7 @@ export const messages = {
     stopRun: 'Arrêter le run',
     runJourneyInBrowser: 'Lancer le parcours dans le navigateur',
     edit: 'Modifier',
-    done: 'OK',
+    done: 'Terminer',
     editSteps: 'Modifier les étapes',
     doneEditing: 'Terminer la modification',
     live: 'Live',
@@ -491,15 +525,45 @@ export const messages = {
     runCompleteAll: 'Run terminé — les **{count} actions** ont toutes réussi.',
     runComplete: 'Run terminé — toutes les actions ont réussi.',
     runStoppedAt:
-      'Run arrêté à l’action {n} — **{label}** n’a pas pu aboutir. Les actions suivantes n’ont pas été exécutées.\n\nLa page a peut‑être changé depuis l’enregistrement. Je peux mettre à jour le localisateur et continuer.',
+      'Run arrêté à l’action {n} — **{label}** n’a pas pu aboutir. Les actions suivantes n’ont pas été exécutées.',
     runStoppedAtStageAction:
-      'Run arrêté à l’étape **{stage}** — action **{action}**. Les actions suivantes n’ont pas été exécutées.\n\nLa page a peut‑être changé depuis l’enregistrement. Je peux mettre à jour le localisateur et continuer.',
+      'Run arrêté à l’étape **{stage}** — action **{action}**. Les actions suivantes n’ont pas été exécutées.',
+    runFailWhereAction:
+      'Run arrêté à l’action {n} — **{label}**. Les actions suivantes n’ont pas été exécutées.',
+    runFailWhereStage:
+      'Run arrêté à l’étape **{stage}** — action **{action}**. Les actions suivantes n’ont pas été exécutées.',
+    runFailDiagFormField:
+      'Cause probable : la valeur n’a pas été saisie dans le bon champ du formulaire (champ introuvable ou mal ciblé).',
+    runFailDiagElement:
+      'Cause probable : la cible du clic n’a pas été trouvée (ou n’était pas unique) sur la page à cet instant.',
+    runFailDiagTimeout:
+      'Cause probable : la page ou l’élément a mis trop longtemps à être prêt (timeout).',
+    runFailDiagNavigation:
+      'Cause probable : la navigation vers l’URL cible a échoué ou a été bloquée.',
+    runFailDiagClickBlocked:
+      'Cause probable : le contrôle était là mais pas cliquable (désactivé, masqué, ou formulaire encore invalide).',
+    runFailDiagUnknown:
+      'Je n’ai pas pu ramener cet incident à une seule cause à partir du signal runner.',
+    runFailSuggestFormField:
+      'Suite : vérifier que chaque step Type nomme le champ (Nom / Email / …) et qu’il existe sur la page, puis relancer.',
+    runFailSuggestElement:
+      'Suite : je peux élargir le localisateur de cette action et reprendre ici.',
+    runFailSuggestTimeout:
+      'Suite : relancer le run ; si ça timeout encore, simplifier l’étape ou attendre un état de page plus clair.',
+    runFailSuggestNavigation:
+      'Suite : vérifier l’URL de cette étape Navigate, puis réessayer.',
+    runFailSuggestClickBlocked:
+      'Suite : confirmer que les champs précédents sont valides pour activer le bouton, puis réessayer le clic — je peux aussi rafraîchir le localisateur.',
+    runFailSuggestUnknown:
+      'Suite : je peux réessayer avec un localisateur rafraîchi, ou tu peux ajuster l’étape en Edit.',
+    runFailTechnicalDetail: 'Détail runner : `{error}`',
     fixAndContinue: 'Corriger et continuer',
+    fixAndRetry: 'Ajuster et réessayer',
     stepFailedStopping: 'Action {n} en échec — **{label}**. Arrêt ici.',
     stepFailedAtStageAction: 'Échec à l’étape **{stage}** — action **{action}**. Arrêt ici.',
     stepDone: 'Action {n} terminée — {label}',
     replayingSteps:
-      'Rejeu de **{count} actions** dans Playwright — les captures suivent chaque action.',
+      'Rejeu de **{count} actions** dans le navigateur — les captures suivent chaque action.',
     scheduleAcceptedUser: 'Toutes les 15 min, Paris + Francfort',
     scheduleAcceptedAgent:
       'Parfait. Crée un compte pour démarrer le monitoring sur ce planning.',
@@ -520,7 +584,7 @@ export const messages = {
     statusNeedsAttention: 'À surveiller',
     statusNotWorking: 'Ne fonctionne pas',
     insightStepFailing:
-      'Cette étape n’a pas pu aboutir — la page a peut‑être changé depuis l’enregistrement du parcours.',
+      'Cette étape n’a pas pu aboutir — voir le diagnostic agent pour la cause probable.',
     insightStepDegraded:
       'Cette étape a pris {duration} — plus lent que la cible de {target} pour les actions {action}.',
     previewCaptionFailing: 'Élément attendu introuvable sur la page',

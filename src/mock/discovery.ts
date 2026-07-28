@@ -494,6 +494,84 @@ export function formatPlanMessage(plan: DiscoveryPlan): string {
   return `${plan.summary}\n\n${lines.join('\n')}`
 }
 
+/** Drop a trailing numbered step list (and a short “Voici le plan…” lead-in). */
+export function stripTrailingPlanListing(message: string): string {
+  const lines = message.replace(/\s+$/, '').split('\n')
+  let i = lines.length - 1
+  while (i >= 0 && /^\s*$/.test(lines[i]!)) i -= 1
+  const end = i
+  while (i >= 0 && /^\s*\d+[.)]\s/.test(lines[i]!)) i -= 1
+  const numberedCount = end - i
+  if (numberedCount < 2) return message.trim()
+  while (i >= 0 && /^\s*$/.test(lines[i]!)) i -= 1
+  if (
+    i >= 0 &&
+    /plan|étape|etape|steps?|parcours|actions?|mis à jour|updated/i.test(lines[i]!)
+  ) {
+    i -= 1
+  }
+  return lines.slice(0, i + 1).join('\n').trim()
+}
+
+/**
+ * Always put the authoritative numbered plan in the chat bubble.
+ * Never trust the model’s prose list (it often claims a fix without listing steps,
+ * or keeps an outdated order while Steps was patched).
+ */
+export function messageWithAuthoritativePlan(
+  message: string,
+  plan: DiscoveryPlan,
+): string {
+  const formatted = formatPlanMessage(plan)
+  const intro = stripTrailingPlanListing(message || '')
+  return intro ? `${intro}\n\n${formatted}` : formatted
+}
+
+export function planFromJourneySteps(
+  steps: Array<{ label: string; action: string; href?: string; targetHint?: string }>,
+  meta: { title: string; summary: string; prompt: string },
+): DiscoveryPlan {
+  return {
+    title: meta.title,
+    summary: meta.summary,
+    prompt: meta.prompt,
+    steps: steps.map((s) => {
+      const step: DiscoveryPlanStep = { label: s.label, action: s.action }
+      if (s.href) step.href = s.href
+      if (s.targetHint) step.targetHint = s.targetHint
+      return step
+    }),
+  }
+}
+
+/** User asks to see / re-show the plan in the conversation. */
+export function wantsPlanInChat(text: string): boolean {
+  const t = text.toLowerCase()
+  if (
+    /\b(redonne|re[- ]?donne|montre|affiche|renvoie|renvoi|donne[- ]moi|show|give me|re[- ]?send)\b[\s\S]{0,40}\b(plan|étapes|etapes|steps|parcours)\b/i.test(
+      t,
+    )
+  ) {
+    return true
+  }
+  if (/\b(le plan|the plan|plan complet|full plan)\b/i.test(t)) return true
+  // “je l’attends ici dans la conversation / pas dans le titre”
+  if (
+    /\b(ici|conversation|chat)\b/i.test(t) &&
+    /\b(plan|étapes|etapes|steps|parcours|titre)\b/i.test(t)
+  ) {
+    return true
+  }
+  return false
+}
+
+/** User says the plan/order is wrong and wants it fixed. */
+export function wantsPlanCorrection(text: string): boolean {
+  return /\b(corrige|correct|fix|update|mets? à jour|mauvais|pas bon|n'est pas bon|wrong|mixed|mélang|avant même|before.*(click|clic|type|sais))\b/i.test(
+    text,
+  )
+}
+
 export function agentNeedsMoreContextMessage(
   text: string,
   locale: 'en' | 'fr' = 'en',

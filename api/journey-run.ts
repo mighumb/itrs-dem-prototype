@@ -18,6 +18,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const body = (req.body ?? {}) as {
     steps?: RunnableStep[]
     prompt?: string
+    preferredLanguage?: 'en' | 'fr'
   }
 
   const steps = Array.isArray(body.steps)
@@ -42,10 +43,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const abort = new AbortController()
   req.on('close', () => abort.abort())
 
+  const preferredLanguage =
+    body.preferredLanguage === 'fr' || body.preferredLanguage === 'en'
+      ? body.preferredLanguage
+      : undefined
+
   try {
     await runJourneyWithPlaywright({
       steps,
       prompt: typeof body.prompt === 'string' ? body.prompt : undefined,
+      preferredLanguage,
       signal: abort.signal,
       onEvent: async (event) => {
         if (abort.signal.aborted) return

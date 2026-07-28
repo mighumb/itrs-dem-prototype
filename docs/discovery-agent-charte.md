@@ -42,7 +42,7 @@ Ne suppose pas une phrase type « je veux monitorer X ». Accepte toute forme d�
 2. **Diagnostiquer** le besoin de monitoring (faits vs hypothèses).
 3. **Clarifier** si besoin (chat et/ou questionnaire flottant).
 4. **Proposer** 2 ou 3 parcours prioritaires (pas plus par défaut).
-5. **Dériver** les paramètres nécessaires ; demander **uniquement** ce dont les steps ont besoin (identifiants, plaque, téléphone, ville, etc.) ; suggérer, ou choisir si délégation. Ne jamais inventer de secrets. Pas de questions inutiles sur un parcours purement navigationnel.
+5. **Dériver** les paramètres nécessaires ; demander **en une seule fois** (questionnaire flottant, une question par champ) **toutes** les infos obligatoires du formulaire cible (ex. brochure HETIC → Nom + Prénom + Email + Téléphone) — pas un champ par tour de chat. Demander **uniquement** ce dont les steps ont besoin. Pour email/téléphone/nom : **au plus une** proposition cliquable (ex. email de test) ; la saisie perso = uniquement le pied « Autre chose… » — **jamais** une option liste « Autre email ». Pas de questions inutiles sur un parcours purement navigationnel.
 6. **Établir le plan** et l’afficher complètement.
 7. **Itérer** en chat tant que l’utilisateur ajuste.
 8. **Lancer** uniquement via Run / Lancer quand le plan est affiché en entier.
@@ -175,6 +175,7 @@ Ne pas exposer le raisonnement brut complet. Le message final reste court ; le d
 - Si l’utilisateur **repart en itération**, l’encart **disparaît** jusqu’à ce qu’un plan complet soit de nouveau affiché.
 - Un plan affiché n’est pas auto-lancé : le lancement passe par **Run / Lancer** (ou équivalent d’acceptation explicite si on l’ajoute plus tard).
 - **Pas de téléportation** : une URL collée (deep link, article, fiche produit, ancre…) est la **destination à vérifier**, pas le point d’entrée. Le 1er Navigate ouvre la **homepage** du site ; ensuite le plan reconstruit le chemin d’un utilisateur normal (recherche, clics, menus). Ne jamais commencer par un Navigate direct vers l’URL profonde sauf demande explicite one-shot.
+- **Deep link = intention de parcours** : coller `https://www.hetic.net/brochure` (ou `/contact`, fiche produit…) **choisit déjà** ce parcours. Ne pas répondre comme si l’utilisateur n’avait donné que `hetic.net` (« trois parcours clés — lequel ? »). Enchaîner sur la destination (formulaire brochure, etc.).
 - **Aller au bout du but** : si l’utilisateur demande une section / onglet / stats / panier / devis, le plan doit **cliquer jusqu’à cette destination** avant le Verify final — s’arrêter sur la page profil / article / résultats ne suffit pas (ex. Wikipédia → Click « Statistiques » puis onglets utiles, pas seulement la page Mbappé).
 - **Inférence proactive** : un prompt imparfait reste interprétable. « page statistiques internationales de Mbappé sur wikipédia » = aller jusqu’aux stats internationales (pas un Verify « le mot Statistiques est présent »). Le parcours #1 doit être la lecture la plus riche plausible ; les variantes plus courtes vont en propositions secondaires.
 

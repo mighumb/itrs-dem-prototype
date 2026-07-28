@@ -5,7 +5,7 @@
  */
 
 import type { Browser, Page } from 'playwright-core'
-import { dismissNoise, launchBrowser } from './playwrightRunner.js'
+import { dismissNoise, launchBrowser, createLocalizedPage } from './playwrightRunner.js'
 import { analyzePublicSite, type SiteAnalysisResult } from './analyzeSite.js'
 
 export type SiteExploreLink = {
@@ -333,10 +333,9 @@ export async function explorePublicSite(
 
   try {
     browser = await launchBrowser()
-    const page = await browser.newPage({
-      viewport: { width: 1280, height: 800 },
-      userAgent:
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+    const page = await createLocalizedPage(browser, {
+      preferredLanguage: lang,
+      seedUrl: start.toString(),
     })
 
     while (queue.length > 0 && pages.length < maxPages && timeLeft() > 4_000) {

@@ -16,6 +16,7 @@ import { DISCOVERY_SYSTEM_PROMPT } from './_lib/discoverySystemPrompt.js'
 import {
   answersIncludeSiteDecline,
   hasExplicitSiteLocator,
+  intentFromDeepLocator,
   looksLikeAmbiguousBrandName,
   looksLikeSiteConfirmation,
   looksLikeSiteDecline,
@@ -34,6 +35,13 @@ import {
 } from './_lib/resolveSiteTarget.js'
 import { geminiModelCandidates } from './_lib/geminiModels.js'
 import { geminiApiKeys } from './_lib/geminiKeys.js'
+import {
+  computeVerificationSignals,
+  parseVerificationDecision,
+  resolveVerificationExecution,
+  selectStepsForVerification,
+  type VerificationSignals,
+} from './_lib/verificationPolicy.js'
 
 type ChatTurn = { role: 'user' | 'agent'; content: string }
 
@@ -154,6 +162,21 @@ function buildUserPrompt(
               candidateLabel: target?.label ?? null,
             }
           : { needed: false },
+        /**
+         * Facts for browser-verify reasoning — not orders.
+         * Model must return `verification` when emitting a ready plan.
+         */
+        verificationSignals: computeVerificationSignals({
+          mode: body.mode,
+          userMessage: body.userMessage,
+          contextUrl: base.url ?? null,
+          targetUrl: analysis?.url ?? target?.url ?? base.url ?? null,
+          pageSnapshot: confirmFirst
+            ? null
+            : analysis?.snapshot ?? base.pageSnapshot ?? null,
+          answers: base.answers ?? null,
+          currentSteps: base.currentSteps ?? null,
+        }),
       }
     : {
         // Conversational turn: no leftover seed/url/explore — avoids site hallucinations.
@@ -170,17 +193,34 @@ function buildUserPrompt(
         siteAnalysis: null,
         siteExplore: null,
         siteConfirmation: { needed: false },
+        verificationSignals: computeVerificationSignals({
+          mode: body.mode,
+          userMessage: body.userMessage,
+          contextUrl: null,
+          targetUrl: null,
+          pageSnapshot: null,
+          answers: base.answers ?? null,
+          currentSteps: base.currentSteps ?? null,
+        }),
       }
 
   // After a bare "oui", keep the seed journey ask visible; if they revised in this
   // message, statedJourneyIntent already comes from the latest turn.
-  const userMessage =
+  let userMessage =
     !fromLatest &&
     statedJourneyIntent &&
     looksLikeSiteConfirmation(body.userMessage) &&
     !confirmFirst
       ? `${body.userMessage}\n\n[Original monitoring request — honor for proposals #1]: ${statedJourneyIntent}`
       : body.userMessage
+
+  // Deep URL path (e.g. /brochure) already chooses the journey — inject an explicit
+  // guard so the model cannot fall back to “3 parcours sur {host} — lequel ?”.
+  const deepFromMessage =
+    intentFromDeepLocator(body.userMessage) ?? intentFromDeepLocator(seed)
+  if (attachSite && !confirmFirst && deepFromMessage && statedJourneyIntent) {
+    userMessage = `${userMessage}\n\n[Deep URL = chosen journey — do NOT ask which journey on the host; collect form params for this destination or set proposals[0] to it]: ${deepFromMessage}`
+  }
 
   return JSON.stringify(
     {
@@ -590,27 +630,75 @@ async function groundAndMaybeDryRunPlan(options: {
     parsed.workTrace = trace.slice(0, 8)
   }
 
-  // Dry-run when we still have time (explore cache hits leave more room).
-  if (budgetLeft() < 16_000) {
+  const signals: VerificationSignals = computeVerificationSignals({
+    mode: body.mode,
+    userMessage: body.userMessage,
+    contextUrl: body.context?.url ?? null,
+    targetUrl: analysis?.url ?? target?.url ?? body.context?.url ?? null,
+    pageSnapshot: body.context?.pageSnapshot ?? analysis?.snapshot ?? null,
+    answers: body.context?.answers ?? null,
+    currentSteps: body.context?.currentSteps ?? null,
+  })
+  const planObj = parsed.plan as Record<string, unknown>
+  const nextSteps = Array.isArray(planObj.steps)
+    ? (planObj.steps as Array<{ label?: string; action?: string }>)
+    : []
+  const resolved = resolveVerificationExecution({
+    signals,
+    decision: parseVerificationDecision(parsed.verification),
+    readyForPlan: true,
+    budgetOk: budgetLeft() >= 16_000,
+    priorSteps: body.context?.currentSteps ?? null,
+    nextSteps,
+  })
+  // Echo the resolved policy for debugging / workTrace honesty (not user-facing message).
+  parsed.verification = {
+    scope: resolved.scope,
+    reason: resolved.reason,
+    stepIndexes: resolved.stepIndexes,
+    source: resolved.source,
+  }
+
+  if (resolved.scope === 'none') {
+    const trace = Array.isArray(parsed.workTrace) ? [...parsed.workTrace] : []
+    trace.push(
+      lang === 'fr'
+        ? `Vérif navigateur : non (${resolved.reason})`
+        : `Browser verify: none (${resolved.reason})`,
+    )
+    parsed.workTrace = trace.slice(0, 8)
     return parsed
   }
 
   const seedUrl = analysis?.url ?? target?.url ?? body.context?.url ?? null
-  const runnable = planStepsToRunnable(parsed.plan as Record<string, unknown>, seedUrl)
-  if (runnable.length === 0) return parsed
+  const runnable = planStepsToRunnable(planObj, seedUrl)
+  const selected = selectStepsForVerification(
+    runnable,
+    resolved.scope,
+    resolved.stepIndexes,
+    8,
+  )
+  if (selected.length === 0) return parsed
 
+  const rangeLabel =
+    resolved.scope === 'delta' && resolved.stepIndexes.length > 0
+      ? resolved.stepIndexes.map((i) => i + 1).join(', ')
+      : null
   sendStatus(
     lang === 'fr'
-      ? 'Je vérifie le parcours dans le navigateur…'
-      : 'Checking the journey in the browser…',
+      ? rangeLabel
+        ? `Je vérifie les étapes ${rangeLabel} dans le navigateur…`
+        : 'Je vérifie le parcours dans le navigateur…'
+      : rangeLabel
+        ? `Checking steps ${rangeLabel} in the browser…`
+        : 'Checking the journey in the browser…',
   )
 
   const dry = await dryRunJourneyWithPlaywright({
-    steps: runnable.slice(0, 8),
+    steps: selected,
     prompt:
-      typeof (parsed.plan as Record<string, unknown>).prompt === 'string'
-        ? ((parsed.plan as Record<string, unknown>).prompt as string)
-        : body.userMessage,
+      typeof planObj.prompt === 'string' ? (planObj.prompt as string) : body.userMessage,
+    preferredLanguage: lang,
     deadlineMs: Math.min(18_000, budgetLeft() - 4_000),
   })
 
@@ -618,16 +706,16 @@ async function groundAndMaybeDryRunPlan(options: {
   if (dry.ok) {
     trace.push(
       lang === 'fr'
-        ? `Répétition OK (${dry.stepsOk} étapes)`
-        : `Dry-run OK (${dry.stepsOk} steps)`,
+        ? `Répétition OK (${dry.stepsOk} étape${dry.stepsOk > 1 ? 's' : ''}, scope ${resolved.scope})`
+        : `Dry-run OK (${dry.stepsOk} step${dry.stepsOk > 1 ? 's' : ''}, scope ${resolved.scope})`,
     )
   } else {
     trace.push(
       lang === 'fr'
-        ? `Répétition partielle — étape ${
+        ? `Répétition partielle (${resolved.scope}) — étape ${
             dry.failedIndex != null ? dry.failedIndex + 1 : '?'
           } fragile${dry.error ? ` (${dry.error})` : ''}`
-        : `Partial dry-run — step ${
+        : `Partial dry-run (${resolved.scope}) — step ${
             dry.failedIndex != null ? dry.failedIndex + 1 : '?'
           } fragile${dry.error ? ` (${dry.error})` : ''}`,
     )

@@ -30,11 +30,16 @@ export function normalizeAction(action: string, label: string): string {
   const act = action.trim().toLowerCase()
   const blob = `${action} ${label}`.toLowerCase()
 
-  // Explicit plan actions win (LLM already chose Click vs Type).
+  // Explicit plan actions win (LLM already chose Click vs Type vs Select).
   if (act === 'click') return 'Click'
   if (act === 'type' || act === 'search' || act === 'fill') return 'Type'
   if (act === 'navigate') return 'Navigate'
   if (act === 'verify' || act === 'wait') return 'Verify'
+  if (act === 'select' || act === 'choose') {
+    // Dropdown fill (“Sélectionner X dans Brochure”) vs CTA (“Select Brochure”).
+    if (/\b(dans|in|from|champ|field|liste|menu|dropdown)\b/i.test(blob)) return 'Select'
+    return 'Click'
+  }
 
   if (
     /navigate|go to|open url|va sur|ouvre https?|ouvrir https?/i.test(blob) ||
@@ -45,6 +50,13 @@ export function normalizeAction(action: string, label: string): string {
   }
   // Submit-search phrasing is a Click, not a Type (avoids typing “Lancer la recherche”).
   if (/lancer\s+la\s+recherch|submit\s+(the\s+)?search/i.test(label)) return 'Click'
+  // Dropdown: “Sélectionner … dans …”
+  if (
+    /\b(sélectionner|selectionner|choisir)\b/i.test(blob) &&
+    /\b(dans|in|from|champ|liste|menu)\b/i.test(blob)
+  ) {
+    return 'Select'
+  }
   // Type only for fill/type verbs — not bare “recherch*” (that matches Click labels).
   if (/\b(type|taper|tape|fill|sais|renseign)\b/i.test(blob)) return 'Type'
   if (/^(search|rechercher)\b/i.test(label.trim()) && /[«"']/.test(label)) return 'Type'
@@ -147,6 +159,134 @@ function stagesFromActions(
   }))
 }
 
+function isConsentLabel(label: string): boolean {
+  return /cookie|bandeau|consent|rgpd|gdpr|didomi|sans accepter|tout accepter|tout refuser|accepte?r les cookies/i.test(
+    label,
+  )
+}
+
+function isFormTypeLabel(label: string): boolean {
+  return /\b(nom|pr[eé]nom|e-?mail|t[eé]l[eé]phone|phone|champ)\b/i.test(label)
+}
+
+function looksLikeFormOpenClick(label: string): boolean {
+  return /brochure|contact|devis|demo|essai|lead|formulaire|télécharg|download|inscription|signup|sign[- ]?up/i.test(
+    label,
+  )
+}
+
+/**
+ * Natural-path guard: after homepage Navigate, form Type steps need a Click that
+ * opens the form (e.g. « Brochure ») — otherwise the runner types on the home page.
+ */
+export function ensureFormEntryBeforeTypes(
+  actions: Array<Omit<JourneyAction, 'status'>>,
+  options?: { siteUrl?: string | null; prompt?: string; locale?: Locale },
+): Array<Omit<JourneyAction, 'status'>> {
+  if (actions.length < 2) return actions
+
+  const firstTypeIdx = actions.findIndex(
+    (a) => a.action === 'Type' && isFormTypeLabel(a.label),
+  )
+  if (firstTypeIdx < 0) return actions
+
+  const before = actions.slice(0, firstTypeIdx)
+  if (before.some((a) => a.action === 'Click' && looksLikeFormOpenClick(a.label))) {
+    return actions
+  }
+  // Already navigates to a deep form URL — no CTA click needed.
+  if (
+    before.some((a) => {
+      if (a.action !== 'Navigate') return false
+      const href = a.href ?? a.target ?? ''
+      return /\/(brochure|contact|demo|devis|lead|form)/i.test(href)
+    })
+  ) {
+    return actions
+  }
+
+  const locale = options?.locale ?? 'en'
+  const blob = `${options?.prompt ?? ''} ${options?.siteUrl ?? ''} ${actions.map((a) => a.label).join(' ')}`
+  let cta: string | null = null
+  if (/\/brochure|brochure/i.test(blob)) cta = 'Brochure'
+  else if (/\/contact|contact/i.test(blob)) cta = 'Contact'
+  else if (/devis/i.test(blob)) cta = 'Devis'
+  else if (/demo|essai/i.test(blob)) cta = locale === 'fr' ? 'Demander une démo' : 'Request a demo'
+  if (!cta) return actions
+
+  const navIdx = before.findIndex((a) => a.action === 'Navigate')
+  let at = Math.max(1, navIdx >= 0 ? navIdx + 1 : 1)
+  while (at < firstTypeIdx && isConsentLabel(actions[at]?.label ?? '')) at += 1
+
+  const clickStep: Omit<JourneyAction, 'status'> = {
+    id: 'discovery-form-entry',
+    label:
+      locale === 'fr'
+        ? `Cliquer sur « ${cta} » pour ouvrir le formulaire`
+        : `Click « ${cta} » to open the form`,
+    action: 'Click',
+    duration: '800ms',
+    targetHint: cta,
+    timeout: '30s',
+  }
+
+  const next = [...actions.slice(0, at), clickStep, ...actions.slice(at)]
+  next.forEach((step, index) => {
+    step.id = `discovery-${index + 1}`
+  })
+  return next
+}
+
+/** Patch a Discovery plan so chat + Steps match the runnable form-entry guard. */
+export function ensureFormEntryInPlan(
+  plan: DiscoveryPlan,
+  options?: { siteUrl?: string | null; prompt?: string; locale?: Locale },
+): DiscoveryPlan {
+  const actions: Array<Omit<JourneyAction, 'status'>> = plan.steps.map((step, index) => {
+    const action = normalizeAction(step.action, step.label)
+    return {
+      id: `discovery-${index + 1}`,
+      label: step.label,
+      action,
+      duration: '800ms',
+      target: step.href,
+      targetHint: step.targetHint,
+      href: step.href,
+      timeout: '30s',
+    }
+  })
+  const fixed = ensureFormEntryBeforeTypes(actions, {
+    siteUrl: options?.siteUrl ?? null,
+    prompt: `${options?.prompt ?? ''} ${plan.prompt} ${plan.title}`,
+    locale: options?.locale,
+  })
+  if (
+    fixed.length === plan.steps.length &&
+    fixed.every((a, i) => {
+      const s = plan.steps[i]!
+      return (
+        a.label === s.label &&
+        a.action === normalizeAction(s.action, s.label) &&
+        (a.href ?? undefined) === (s.href ?? undefined)
+      )
+    })
+  ) {
+    return plan
+  }
+  return {
+    ...plan,
+    steps: fixed.map((a) => {
+      const step: DiscoveryPlan['steps'][number] = {
+        label: a.label,
+        action: a.action,
+      }
+      if (a.targetHint) step.targetHint = a.targetHint
+      if (a.href) step.href = a.href
+      return step
+    }),
+  }
+}
+
 /**
  * Build a runnable workspace journey from the Discovery plan (source of truth for Playwright).
  */
@@ -156,12 +296,17 @@ export function buildJourneyFromDiscovery(options: {
   siteUrl?: string | null
   locale?: Locale
 }): JourneyTemplate {
-  const { plan, prompt, siteUrl, locale = 'en' } = options
+  const { prompt, siteUrl, locale = 'en' } = options
   const seedUrl =
     siteUrl ??
-    extractUrlFromText(plan.prompt) ??
+    extractUrlFromText(options.plan.prompt) ??
     extractUrlFromText(prompt) ??
-    extractUrlFromText(plan.steps.map((s) => s.label).join(' '))
+    extractUrlFromText(options.plan.steps.map((s) => s.label).join(' '))
+  const plan = ensureFormEntryInPlan(options.plan, {
+    siteUrl: seedUrl,
+    prompt,
+    locale,
+  })
 
   const actions: Omit<JourneyAction, 'status'>[] = plan.steps.map((step, index) => {
     const action = normalizeAction(step.action, step.label)
@@ -186,14 +331,28 @@ export function buildJourneyFromDiscovery(options: {
     }
   })
 
+  // Keep at most one cookie/CMP step — duplicates after later navigations confuse the run.
+  let sawConsent = false
+  const dedupedActions = actions.filter((step) => {
+    if (!isConsentLabel(step.label)) return true
+    if (sawConsent) return false
+    sawConsent = true
+    return true
+  })
+  let finalActions = dedupedActions.length > 0 ? dedupedActions : actions
+  // Re-id after transforms so timeline stays contiguous.
+  finalActions.forEach((step, index) => {
+    step.id = `discovery-${index + 1}`
+  })
+
   // Guarantee at least one Navigate target when we know the site URL.
   if (
     seedUrl &&
-    actions.length > 0 &&
-    !actions.some((s) => s.action === 'Navigate' && (s.target || s.href))
+    finalActions.length > 0 &&
+    !finalActions.some((s) => s.action === 'Navigate' && (s.target || s.href))
   ) {
-    const first = actions[0]!
-    actions[0] = {
+    const first = finalActions[0]!
+    finalActions[0] = {
       ...first,
       action: 'Navigate',
       target: seedUrl,
@@ -211,8 +370,8 @@ export function buildJourneyFromDiscovery(options: {
   return {
     id: 'discovery-plan',
     name,
-    stages: stagesFromActions(actions, locale),
-    browserFrames: framesForActions(actions, seedUrl),
+    stages: stagesFromActions(finalActions, locale),
+    browserFrames: framesForActions(finalActions, seedUrl),
     monitoring: genericMonitoring(name, locale),
   }
 }
@@ -271,8 +430,8 @@ export function agentIntroForLocale(locale: 'en' | 'fr'): ChatMessage {
 
 export function runStartMessage(locale: 'en' | 'fr'): string {
   return locale === 'fr'
-    ? 'Compris. Je lance ce parcours dans un vrai navigateur Playwright — regarde les captures à droite.'
-    : "Got it. I'll run this journey in a real Playwright browser — watch the screenshots on the right."
+    ? 'Compris. Je lance ce parcours dans le navigateur — regarde les captures à droite.'
+    : "Got it. I'll run this journey in the browser — watch the screenshots on the right."
 }
 
 export function runStoppedMessage(locale: 'en' | 'fr'): string {
@@ -281,12 +440,12 @@ export function runStoppedMessage(locale: 'en' | 'fr'): string {
 
 export function runLiveOkMessage(locale: 'en' | 'fr'): string {
   return locale === 'fr'
-    ? 'Run Playwright terminé — les captures ci-dessus sont de vraies pages.'
-    : 'Playwright run finished — screenshots above are real page captures.'
+    ? 'Run terminé — les captures ci-dessus sont de vraies pages.'
+    : 'Run finished — screenshots above are real page captures.'
 }
 
 export function runFallbackMessage(locale: 'en' | 'fr'): string {
   return locale === 'fr'
-    ? 'Runner Playwright indisponible — repli sur des captures simulées pour ce run.'
-    : 'Playwright runner unavailable — falling back to simulated browser frames for this run.'
+    ? 'Navigateur indisponible — repli sur des captures simulées pour ce run.'
+    : 'Browser runner unavailable — falling back to simulated frames for this run.'
 }

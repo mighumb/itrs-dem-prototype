@@ -41,6 +41,7 @@ export type LiveJourneyRunResult = {
   error?: string
   failedStepIndex?: number
   failedStepLabel?: string
+  failedStepError?: string
 }
 
 function frameFromEvent(event: {
@@ -63,11 +64,12 @@ function frameFromEvent(event: {
 export async function runLiveJourney(options: {
   steps: Array<Pick<JourneyStep, 'id' | 'label' | 'action' | 'target' | 'targetHint' | 'href'>>
   prompt?: string
+  preferredLanguage?: 'en' | 'fr'
   signal?: AbortSignal
   onEvent: (event: JourneyRunEvent) => void
   onFrame: (frame: BrowserFrame) => void
 }): Promise<LiveJourneyRunResult> {
-  const { steps, prompt, signal, onEvent, onFrame } = options
+  const { steps, prompt, preferredLanguage, signal, onEvent, onFrame } = options
 
   const runnerUrl =
     (import.meta.env.VITE_JOURNEY_RUNNER_URL as string | undefined)?.replace(/\/$/, '') ||
@@ -84,6 +86,7 @@ export async function runLiveJourney(options: {
       signal,
       body: JSON.stringify({
         prompt,
+        preferredLanguage,
         steps: steps.map((s) => ({
           id: s.id,
           label: s.label,
@@ -115,6 +118,7 @@ export async function runLiveJourney(options: {
   let buffer = ''
   let failedStepIndex: number | undefined
   let failedStepLabel: string | undefined
+  let failedStepError: string | undefined
   let sawDone = false
   let ok = true
   let lastError: string | undefined
@@ -147,6 +151,7 @@ export async function runLiveJourney(options: {
         ok = false
         failedStepIndex = event.index
         failedStepLabel = event.label
+        failedStepError = event.error
         const frame = frameFromEvent(event)
         if (frame) onFrame(frame)
       }
@@ -173,5 +178,6 @@ export async function runLiveJourney(options: {
     error: lastError,
     failedStepIndex,
     failedStepLabel,
+    failedStepError,
   }
 }
