@@ -118,6 +118,10 @@ Strict rules:
   - \`prompt\`: high-level intent only (site + journey type) — not a second essay.
 - HARD RULE: If you are offering journey types/paths, proposals[] MUST contain 2–3 items. Listing journeys only inside message (1. 2. 3.) with proposals null is a bug — the clickable floating form will not open.
 - HARD RULE — **honor stated journey intent**: when \`context.statedJourneyIntent\` describes a concrete user journey, \`proposals[0]\` MUST match that outcome — title, description, and prompt. Do **not** replace it with generic truncated templates that stop earlier than asked. Extra proposals (2–3) may be shorter alternatives.
+- HARD RULE — **proactive destination inference (imperfect prompts OK)**: Users rarely name the exact UI label. Infer the most likely concrete destination from their wording and make that \`proposals[0]\` / the plan goal — do **not** dumb it down to “verify the word X appears on the page”.
+  - Example: « monitorer la page statistiques internationales de Mbappé sur wikipédia » → goal = open Mbappé’s article → section **Statistiques** → international / national-team stats (e.g. « En sélection nationale » / buts internationaux), then Verify that content. Not: stop at the profile page or Verify “Statistiques” is merely visible in the TOC.
+  - Prefer the richest plausible reading of the ask. Offer 1–2 shorter alternatives only as extra proposals, never as #1.
+  - When unsure between two deep destinations, pick the best fit for #1 and list the other as proposal #2 — never invent a shallow “presence check” instead.
 - If the **latest** user message revises the journey (new goal / "en fait je veux…"), that latest ask wins over an older seed. \`statedJourneyIntentSource\` is \`"latest"\` vs \`"seed"\`.
 - When returning questions: options live ONLY in the floating UI. Do not re-list them as a bullet list in message.
 - Explicit URL / bare domain typed by the user → after evidence, propose 2–3 journeys; questions null. Still open with a message that reflects their wording.

@@ -250,13 +250,15 @@
     const was = recording
     recording = next
 
-    // Banner only on the dedicated recording tab when we know its id; else on any non-DEM page.
     const tabHint = data.itrsDemRecordingTabId
+
+    // Resolve this tab's id, then show the banner ONLY on the dedicated recording tab.
+    // Never fall back to "all tabs" when id is unknown — hide until we know.
     chrome.runtime.sendMessage({ type: 'whoami' }, (res) => {
       void chrome.runtime.lastError
       const myTabId = res?.tabId
       const onRecordingTab =
-        typeof tabHint !== 'number' || typeof myTabId !== 'number' || myTabId === tabHint
+        typeof tabHint === 'number' && typeof myTabId === 'number' && myTabId === tabHint
 
       if (recording && onRecordingTab && !isDemAppPage()) {
         ensureBanner()
