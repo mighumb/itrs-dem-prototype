@@ -7,6 +7,7 @@ import type {
 } from '../types'
 import { templateActions } from '../types'
 import { tf, type Locale } from '../i18n/messages'
+import { classifyRunFailure, describeRunFailure } from '../lib/runFailureDiagnosis'
 
 /**
  * Desktop optical logo balance for homepage sample cards (md+).
@@ -197,6 +198,10 @@ export interface RunFailureInfo {
   stepLabel: string
   /** Parent stage title when known (Stages → Actions model). */
   stageTitle?: string
+  /** Raw Playwright / runner error when available. */
+  error?: string
+  /** Step action (Click / Type / …) for diagnosis. */
+  action?: string
 }
 
 export const RUN_OUTCOME_MESSAGE_ID = 'run-outcome'
@@ -222,22 +227,44 @@ export function ensureFullJourneySteps(
 export function applyAgentStepFix(
   step: JourneyStep,
   locale: Locale = 'en',
+  failure?: RunFailureInfo | null,
 ): { step: JourneyStep; changeSummary: string } {
   const previousTarget = step.target ?? step.label
   let newTarget = step.target
   const label = step.label.toLowerCase()
+  const kind = classifyRunFailure(failure?.error, failure?.action ?? step.action, step.label)
 
   if (/cookie|bandeau|consent|rgpd|gdpr/i.test(label)) {
     newTarget =
       '#onetrust-accept-btn-handler, button:has-text("Accept"), button:has-text("Tout accepter"), [aria-label*="accept" i]'
+  } else if (kind === 'click_blocked' || (/télécharge|download|brochure|submit|envoyer/i.test(label) && step.action === 'Click')) {
+    newTarget = [
+      'button:has-text("télécharge")',
+      'button:has-text("brochure")',
+      'a:has-text("télécharge")',
+      'a:has-text("brochure")',
+      'button[type="submit"]',
+      'input[type="submit"]',
+      'button:has-text("Download")',
+      'button:has-text("Submit")',
+    ].join(', ')
+  } else if (kind === 'form_field_not_found' || step.action === 'Type') {
+    newTarget = step.target?.includes(',')
+      ? step.target
+      : [
+          step.target,
+          'input:not([type="hidden"])',
+          'textarea',
+          'input[type="email"]',
+          'input[type="tel"]',
+          'input[type="text"]',
+        ]
+          .filter(Boolean)
+          .join(', ')
   } else if (step.action === 'Click') {
     newTarget = step.target?.includes(',')
       ? step.target
       : `[data-testid="${step.id}-target"], button, a, [role="button"]`
-  } else if (step.action === 'Type') {
-    newTarget = step.target?.includes(',')
-      ? step.target
-      : `${step.target ?? 'input, textarea'}, input[autocomplete="off"]`
   } else if (step.action === 'Verify') {
     newTarget = step.target ?? 'body, main, h1'
   }
@@ -273,18 +300,17 @@ export function buildRunOutcomeMessage(
     }
   }
 
-  const stage = failedStep.stageTitle?.trim()
-  const action = failedStep.stepLabel
+  const { kind, content } = describeRunFailure(failedStep, locale)
+  const fixLabel =
+    kind === 'form_field_not_found' || kind === 'click_blocked'
+      ? tf(locale, 'fixAndRetry', {})
+      : tf(locale, 'fixAndContinue', {})
+
   return {
     id: RUN_OUTCOME_MESSAGE_ID,
     role: 'agent',
-    content: stage
-      ? tf(locale, 'runStoppedAtStageAction', { stage, action })
-      : tf(locale, 'runStoppedAt', {
-          n: failedStep.stepIndex + 1,
-          label: action,
-        }),
-    actions: [{ id: 'fix-auto-continue', label: tf(locale, 'fixAndContinue', {}), variant: 'primary' }],
+    content,
+    actions: [{ id: 'fix-auto-continue', label: fixLabel, variant: 'primary' }],
   }
 }
 

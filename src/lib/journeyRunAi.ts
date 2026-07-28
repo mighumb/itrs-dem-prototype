@@ -41,6 +41,7 @@ export type LiveJourneyRunResult = {
   error?: string
   failedStepIndex?: number
   failedStepLabel?: string
+  failedStepError?: string
 }
 
 function frameFromEvent(event: {
@@ -115,6 +116,7 @@ export async function runLiveJourney(options: {
   let buffer = ''
   let failedStepIndex: number | undefined
   let failedStepLabel: string | undefined
+  let failedStepError: string | undefined
   let sawDone = false
   let ok = true
   let lastError: string | undefined
@@ -147,6 +149,7 @@ export async function runLiveJourney(options: {
         ok = false
         failedStepIndex = event.index
         failedStepLabel = event.label
+        failedStepError = event.error
         const frame = frameFromEvent(event)
         if (frame) onFrame(frame)
       }
@@ -173,5 +176,6 @@ export async function runLiveJourney(options: {
     error: lastError,
     failedStepIndex,
     failedStepLabel,
+    failedStepError,
   }
 }

@@ -809,16 +809,25 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
 
         if (typeof result.failedStepIndex === 'number') {
           const absolute = startIndex + result.failedStepIndex
+          const failedTemplate = slice[result.failedStepIndex]
           let failedStep: RunFailureInfo = {
             stepIndex: absolute,
-            stepLabel: result.failedStepLabel || slice[result.failedStepIndex]?.label || 'Step',
+            stepLabel: result.failedStepLabel || failedTemplate?.label || 'Step',
+            error:
+              result.failedStepError ??
+              lastRunStepsRef.current.find((s) => s.index === absolute)?.error,
+            action: failedTemplate?.action,
           }
           setStages((prev) => {
             const flat = flattenActions(prev)
             const failedId = flat[absolute]?.id ?? slice[result.failedStepIndex!]?.id
             const loc = failedId ? findAction(prev, failedId) : null
             if (loc) {
-              failedStep = { ...failedStep, stageTitle: loc.stage.title }
+              failedStep = {
+                ...failedStep,
+                stageTitle: loc.stage.title,
+                action: failedStep.action ?? loc.action.action,
+              }
             }
             const nextFlat = flat.map((s, idx) =>
               idx === absolute ? { ...s, status: 'failed' as const } : s,
@@ -1279,7 +1288,11 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
 
           fixContinueInFlightRef.current = true
           setFixActionsResolved(true)
-          const { step: fixedStep, changeSummary } = applyAgentStepFix(fullSteps[failIndex]!, locale)
+          const { step: fixedStep, changeSummary } = applyAgentStepFix(
+            fullSteps[failIndex]!,
+            locale,
+            lastFailedStepRef.current,
+          )
           const nextSteps = fullSteps.map((step, index) => {
             if (index === failIndex) return fixedStep
             if (index < failIndex) return { ...step, status: 'done' as const }
