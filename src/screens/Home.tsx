@@ -1,5 +1,5 @@
 import { ArrowUp, Play } from 'lucide-react'
-import { useEffect, useRef, useState, type CSSProperties } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
 import DiscoveryStack from '../components/DiscoveryStack'
 import { AgentMessage } from '../components/GlobalAgent'
 import AgentWorkStatus from '../components/AgentWorkStatus'
@@ -944,6 +944,26 @@ export default function Home({
     })
   }
 
+  /** Grow like ChatGPT/Claude; after ~8 lines, scroll inside the field. */
+  const resizeComposer = (el: HTMLTextAreaElement | null) => {
+    if (!el) return
+    el.style.height = '0px'
+    const style = window.getComputedStyle(el)
+    const lineHeight = Number.parseFloat(style.lineHeight) || 24
+    const paddingY =
+      (Number.parseFloat(style.paddingTop) || 0) +
+      (Number.parseFloat(style.paddingBottom) || 0)
+    const maxHeight = lineHeight * 8 + paddingY
+    const contentHeight = el.scrollHeight
+    const next = Math.min(Math.max(contentHeight, lineHeight + paddingY), maxHeight)
+    el.style.height = `${next}px`
+    el.style.overflowY = contentHeight > maxHeight + 1 ? 'auto' : 'hidden'
+  }
+
+  useLayoutEffect(() => {
+    resizeComposer(inputRef.current)
+  }, [input])
+
   const composer = (
     <div className="relative">
       <form
@@ -958,12 +978,7 @@ export default function Home({
           ref={inputRef}
           value={input}
           rows={1}
-          onChange={(e) => {
-            setInput(e.target.value)
-            const el = e.target
-            el.style.height = 'auto'
-            el.style.height = `${Math.min(el.scrollHeight, 160)}px`
-          }}
+          onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Tab') {
               // Keep focus so Tab+Enter can insert a newline.
@@ -990,7 +1005,7 @@ export default function Home({
           placeholder={inputPlaceholder}
           disabled={agentTyping}
           readOnly={agentTyping}
-          className="max-h-40 min-h-[3.25rem] w-full resize-none overflow-y-auto rounded-2xl border border-zinc-200/80 bg-white py-4 pl-5 pr-14 text-base outline-none shadow-[0_4px_24px_rgba(0,0,0,0.06)] transition placeholder:text-zinc-400 focus:border-[#0071e3] focus:ring-4 focus:ring-[#0071e3]/10 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:shadow-[0_4px_28px_rgba(0,0,0,0.45)] dark:placeholder:text-zinc-500 dark:focus:ring-[#0071e3]/20"
+          className="min-h-[3.25rem] w-full resize-none overflow-y-hidden rounded-2xl border border-zinc-200/80 bg-white py-4 pl-5 pr-14 text-base leading-6 outline-none shadow-[0_4px_24px_rgba(0,0,0,0.06)] transition-[border-color,box-shadow] placeholder:text-zinc-400 focus:border-[#0071e3] focus:ring-4 focus:ring-[#0071e3]/10 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:shadow-[0_4px_28px_rgba(0,0,0,0.45)] dark:placeholder:text-zinc-500 dark:focus:ring-[#0071e3]/20"
         />
         {agentTyping ? (
           <button
