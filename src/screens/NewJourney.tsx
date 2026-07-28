@@ -450,15 +450,31 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
     setEditMode((on) => !on)
   }
 
-  /** Collapse User journey into the reduced bandeau strip for the duration of a run. */
+  /** First Run auto-collapses User journey; later runs keep it open if the user re-opened it. */
+  const hasAutoDockedJourneyOnceRef = useRef(false)
+
+  /** Collapse User journey into the reduced bandeau — only on the first run of the session. */
   const dockJourneyForRun = useCallback(() => {
     setJourneyRunStatus('running')
+
+    const isFirstAutoDock = !hasAutoDockedJourneyOnceRef.current
+    if (isFirstAutoDock) {
+      hasAutoDockedJourneyOnceRef.current = true
+    }
+
     setOpenPanels((prev) => {
+      // After the first auto-dock: if the user has the panel open (e.g. editing
+      // steps), do not collapse it again just because they hit Run.
+      if (!isFirstAutoDock && prev.has('journey')) return prev
+      if (!prev.has('journey')) return prev
       const next = new Set(prev)
       next.delete('journey')
       return next
     })
-    setUserClosedPanels((prev) => new Set(prev).add('journey'))
+
+    if (isFirstAutoDock) {
+      setUserClosedPanels((prev) => new Set(prev).add('journey'))
+    }
   }, [])
 
   const finishJourneyRunStatus = useCallback((ok: boolean) => {
