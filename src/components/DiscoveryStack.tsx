@@ -52,6 +52,16 @@ export default function DiscoveryStack({
   const proposalKey = proposals.map((p) => p.id).join('\0')
   const optionKey = question?.options.join('\0') ?? ''
 
+  /** Submitting the current free-text answer would finish the whole form. */
+  const otherSubmitCompletesForm =
+    mode === 'questions' &&
+    Boolean(question) &&
+    questions.every((q) =>
+      q.id === question!.id
+        ? Boolean(otherText.trim())
+        : Boolean(answers[q.id]?.trim()),
+    )
+
   // Restore custom free-text when navigating between questions.
   // Depend on the saved string for this question — never on the answers object
   // identity (default `answers = {}` / `?? {}` would wipe keystrokes every render).
@@ -319,7 +329,9 @@ export default function DiscoveryStack({
             }}
             className="shrink-0 cursor-pointer rounded-xl bg-[#0071e3] px-3 py-2 text-sm font-medium text-white transition hover:bg-[#0077ed]"
           >
-            {t('done')}
+            {mode === 'questions' && !otherSubmitCompletesForm
+              ? t('continueNext')
+              : t('done')}
           </button>
         ) : null}
       </footer>
