@@ -21,11 +21,10 @@ import {
   applyAgentStepFix,
   applyPostRunMessages,
   buildJourneyReadyMessage,
-  buildRunOutcomeMessage,
   buildScheduleMessage,
   ensureFullJourneySteps,
   getBrowserFrameForStep,
-  RUN_OUTCOME_MESSAGE_ID,
+  isRunOutcomeMessageId,
   withoutTransientRunMessages,
   type RunFailureInfo,
 } from '../mock/data'
@@ -324,22 +323,8 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
       prev.map((message) => {
         if (message.id === 'done-1') return buildJourneyReadyMessage(journey, locale)
         if (message.id === 'done-2') return buildScheduleMessage(locale)
-        if (message.id === RUN_OUTCOME_MESSAGE_ID) {
-          const failedIndex = steps.findIndex((s) => s.status === 'failed')
-          const failed = failedIndex >= 0 ? steps[failedIndex] : null
-          const loc = failed ? findAction(stages, failed.id) : null
-          return buildRunOutcomeMessage(
-            failed
-              ? {
-                  stepIndex: failedIndex,
-                  stepLabel: failed.label,
-                  stageTitle: loc?.stage.title,
-                }
-              : null,
-            actionCount || templateActions(journey).length,
-            locale,
-          )
-        }
+        // Run outcomes are an append-only audit trail — do not rewrite from live step state.
+        if (isRunOutcomeMessageId(message.id)) return message
         if (message.id === 'intro') return agentIntroForLocale(locale)
         return message
       }),
@@ -898,7 +883,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
           setMessages((prev) => [
             ...prev,
             {
-              id: 'agent-progress',
+              id: `agent-progress-${runId}-${i}`,
               role: 'agent',
               content: tf('stepDone', { n: i + 1, label: template.label }),
             },
@@ -962,7 +947,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
       setMessages((prev) => [
         ...prev,
         {
-          id: `agent-fail-${failedStep!.stepIndex}`,
+          id: `agent-fail-${runId}-${failedStep!.stepIndex}`,
           role: 'agent',
           content: failedStep!.stageTitle
             ? tf('stepFailedAtStageAction', {
@@ -1114,7 +1099,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
         setMessages((prev) => [
           ...prev,
           {
-            id: `agent-fail-${failedStep!.stepIndex}`,
+            id: `agent-fail-${runId}-${failedStep!.stepIndex}`,
             role: 'agent',
             content: failedStep!.stageTitle
               ? tf('stepFailedAtStageAction', {
@@ -1413,7 +1398,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
             })
           }
           setMessages((prev) => [
-            ...prev.filter((m) => m.id !== 'done-2' && m.id !== RUN_OUTCOME_MESSAGE_ID),
+            ...prev.filter((m) => m.id !== 'done-2'),
             agentMsg,
           ])
           return
@@ -1513,7 +1498,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
                   onActionClick={handleAgentAction}
                   hideActions={
                     (msg.id === 'done-2' && scheduleResolved) ||
-                    (msg.id === RUN_OUTCOME_MESSAGE_ID &&
+                    (isRunOutcomeMessageId(msg.id) &&
                       fixActionsResolved &&
                       Boolean(msg.actions?.some((action) => action.id === 'fix-auto-continue')))
                   }

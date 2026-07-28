@@ -201,6 +201,10 @@ export interface RunFailureInfo {
 
 export const RUN_OUTCOME_MESSAGE_ID = 'run-outcome'
 
+export function isRunOutcomeMessageId(id: string): boolean {
+  return id === RUN_OUTCOME_MESSAGE_ID || id.startsWith(`${RUN_OUTCOME_MESSAGE_ID}-`)
+}
+
 export function ensureFullJourneySteps(
   currentSteps: JourneyStep[],
   journey: JourneyTemplate,
@@ -291,7 +295,9 @@ export function applyPostRunMessages(
   options?: { addJourneyReady?: boolean; locale?: Locale },
 ): ChatMessage[] {
   const locale = options?.locale ?? 'en'
-  let next = withoutTransientRunMessages(messages)
+  // Keep the full chat trail (prior fails, stops, progress, previous outcomes).
+  // Only drop the legacy single-slot outcome id so we don't duplicate React keys.
+  let next = messages.filter((message) => message.id !== RUN_OUTCOME_MESSAGE_ID)
 
   if (options?.addJourneyReady && !next.some((message) => message.id === 'done-1')) {
     next = [...next, buildJourneyReadyMessage(journey, locale)]
@@ -303,23 +309,24 @@ export function applyPostRunMessages(
     next = [...next, buildScheduleMessage(locale)]
   }
 
-  return [...next, buildRunOutcomeMessage(failedStep, templateActions(journey).length, locale)]
+  const outcome = buildRunOutcomeMessage(
+    failedStep,
+    templateActions(journey).length,
+    locale,
+  )
+  return [
+    ...next,
+    {
+      ...outcome,
+      // Unique id so earlier run outcomes stay visible in the thread.
+      id: `${RUN_OUTCOME_MESSAGE_ID}-${Date.now()}`,
+    },
+  ]
 }
 
-/** Drop transient run messages so agent chat matches the latest run only. */
+/** Identity helper — run/fail messages are kept so the chat stays a full audit trail. */
 export function withoutTransientRunMessages(messages: ChatMessage[]): ChatMessage[] {
-  return messages.filter((message) => {
-    if (message.id === RUN_OUTCOME_MESSAGE_ID) return false
-    if (message.id === 'agent-progress') return false
-    if (message.id.startsWith('agent-fail-')) return false
-    if (message.id.startsWith('agent-run-')) return false
-    if (message.id.startsWith('agent-run-done-')) return false
-    if (message.id.startsWith('agent-stop-')) return false
-    if (message.id.startsWith('agent-continue-')) return false
-    if (message.id.startsWith('agent-live-ok-')) return false
-    if (message.id.startsWith('agent-fallback-')) return false
-    return true
-  })
+  return messages
 }
 
 export function buildMonitoringPreviewSteps(steps: JourneyStep[]): JourneyStep[] {
