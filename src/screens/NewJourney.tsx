@@ -968,20 +968,14 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
       beginLastRunCapture('simulated')
       failedStep = await runSimulatedSteps(runId, journeySteps, { announceFallback: true })
     } else if (failedStep) {
+      const diagnosis = buildRunOutcomeMessage(failedStep, undefined, locale)
       setMessages((prev) => [
         ...prev,
         {
-          id: `agent-fail-${failedStep!.stepIndex}`,
+          id: `agent-fail-${runId}-${failedStep!.stepIndex}`,
           role: 'agent',
-          content: failedStep!.stageTitle
-            ? tf('stepFailedAtStageAction', {
-                stage: failedStep!.stageTitle,
-                action: failedStep!.stepLabel,
-              })
-            : tf('stepFailedStopping', {
-                n: failedStep!.stepIndex + 1,
-                label: failedStep!.stepLabel,
-              }),
+          content: diagnosis.content,
+          actions: diagnosis.actions,
         },
       ])
     } else {
@@ -1120,20 +1114,14 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
         }
         failedStep = null
       } else if (failedStep) {
+        const diagnosis = buildRunOutcomeMessage(failedStep, undefined, locale)
         setMessages((prev) => [
           ...prev,
           {
-            id: `agent-fail-${failedStep!.stepIndex}`,
+            id: `agent-fail-${runId}-${failedStep!.stepIndex}`,
             role: 'agent',
-            content: failedStep!.stageTitle
-              ? tf('stepFailedAtStageAction', {
-                  stage: failedStep!.stageTitle,
-                  action: failedStep!.stepLabel,
-                })
-              : tf('stepFailedStopping', {
-                  n: failedStep!.stepIndex + 1,
-                  label: failedStep!.stepLabel,
-                }),
+            content: diagnosis.content,
+            actions: diagnosis.actions,
           },
         ])
       }

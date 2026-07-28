@@ -271,8 +271,8 @@ export function agentIntroForLocale(locale: 'en' | 'fr'): ChatMessage {
 
 export function runStartMessage(locale: 'en' | 'fr'): string {
   return locale === 'fr'
-    ? 'Compris. Je lance ce parcours dans un vrai navigateur Playwright — regarde les captures à droite.'
-    : "Got it. I'll run this journey in a real Playwright browser — watch the screenshots on the right."
+    ? 'Compris. Je lance ce parcours dans le navigateur — regarde les captures à droite.'
+    : "Got it. I'll run this journey in the browser — watch the screenshots on the right."
 }
 
 export function runStoppedMessage(locale: 'en' | 'fr'): string {
@@ -281,12 +281,12 @@ export function runStoppedMessage(locale: 'en' | 'fr'): string {
 
 export function runLiveOkMessage(locale: 'en' | 'fr'): string {
   return locale === 'fr'
-    ? 'Run Playwright terminé — les captures ci-dessus sont de vraies pages.'
-    : 'Playwright run finished — screenshots above are real page captures.'
+    ? 'Run terminé — les captures ci-dessus sont de vraies pages.'
+    : 'Run finished — screenshots above are real page captures.'
 }
 
 export function runFallbackMessage(locale: 'en' | 'fr'): string {
   return locale === 'fr'
-    ? 'Runner Playwright indisponible — repli sur des captures simulées pour ce run.'
-    : 'Playwright runner unavailable — falling back to simulated browser frames for this run.'
+    ? 'Navigateur indisponible — repli sur des captures simulées pour ce run.'
+    : 'Browser runner unavailable — falling back to simulated frames for this run.'
 }

@@ -233,7 +233,7 @@ export const messages = {
     stepFailedAtStageAction: 'Failed at stage **{stage}** — action **{action}**. Stopping here.',
     stepDone: 'Action {n} done — {label}',
     replayingSteps:
-      'Replaying **{count} actions** in Playwright — watch real screenshots sync with each action.',
+      'Replaying **{count} actions** in the browser — watch real screenshots sync with each action.',
     scheduleAcceptedUser: 'Every 15 min, Paris + Frankfurt',
     scheduleAcceptedAgent: 'Perfect. Create an account to start monitoring on this schedule.',
     scheduleCustomAgent: 'Perfect — **{summary}**. Create an account to activate monitoring.',
@@ -563,7 +563,7 @@ export const messages = {
     stepFailedAtStageAction: 'Échec à l’étape **{stage}** — action **{action}**. Arrêt ici.',
     stepDone: 'Action {n} terminée — {label}',
     replayingSteps:
-      'Rejeu de **{count} actions** dans Playwright — les captures suivent chaque action.',
+      'Rejeu de **{count} actions** dans le navigateur — les captures suivent chaque action.',
     scheduleAcceptedUser: 'Toutes les 15 min, Paris + Francfort',
     scheduleAcceptedAgent:
       'Parfait. Crée un compte pour démarrer le monitoring sur ce planning.',

@@ -295,19 +295,31 @@ function fieldHintsFromStep(step: RunnableStep): string[] {
   if (dansChamp?.[1]) push(dansChamp[1])
 
   const fieldPatterns: Array<{ re: RegExp; names: string[] }> = [
-    { re: /pr[eé]nom|first\s*name/i, names: ['Prénom', 'Prenom', 'First name', 'firstname', 'first_name'] },
+    {
+      re: /pr[eé]nom|first\s*name|given/i,
+      names: ['Prénom', 'Prenom', 'First name', 'firstname', 'first_name', 'galileo_first_name', 'given-name'],
+    },
     {
       re: /nom\s+de\s+famille|last\s*name|surname/i,
-      names: ['Nom de famille', 'Nom', 'Last name', 'lastname', 'last_name', 'surname'],
+      names: ['Nom de famille', 'Nom', 'Last name', 'lastname', 'last_name', 'surname', 'family-name'],
     },
-    { re: /\bnom\b/i, names: ['Nom', 'Name', 'lastname', 'last_name'] },
+    { re: /\bnom\b/i, names: ['Nom', 'Name', 'lastname', 'last_name', 'galileo_last_name', 'family-name'] },
     {
       re: /e-?mail|mail\b/i,
-      names: ['Email', 'E-mail', 'Mail', 'Adresse e-mail', 'email'],
+      names: ['Email', 'E-mail', 'Mail', 'Adresse e-mail', 'email', 'galileo_email'],
     },
     {
       re: /t[eé]l[eé]phone|phone|mobile|portable/i,
-      names: ['Téléphone', 'Telephone', 'Phone', 'Mobile', 'Tel', 'téléphone'],
+      names: [
+        'Téléphone',
+        'Telephone',
+        'Phone',
+        'Mobile',
+        'Tel',
+        'téléphone',
+        'galileo_phone',
+        'tel',
+      ],
     },
     { re: /ville|city/i, names: ['Ville', 'City'] },
     { re: /soci[eé]t[eé]|entreprise|company/i, names: ['Société', 'Entreprise', 'Company'] },
@@ -428,12 +440,40 @@ async function resolveTypeLocator(page: Page, step: RunnableStep): Promise<Locat
       () =>
         page
           .locator(
-            'input[type="email"], input[name*="mail" i], input[id*="mail" i], input[autocomplete="email"]',
+            'input[type="email"], input[name*="mail" i], input[id*="mail" i], input[autocomplete="email"], input[placeholder*="mail" i]',
           )
           .first(),
       800,
     )
     if (emailLoc) return emailLoc
+  }
+
+  // Drupal / CRM name fields (e.g. HETIC Galileo brochure).
+  if (/\bnom\b/i.test(step.label) && !/pr[eé]nom/i.test(step.label)) {
+    const lastName = await tryVisibleLocator(
+      page,
+      () =>
+        page
+          .locator(
+            'input[name*="last_name" i], input[autocomplete="family-name"], input[id*="last-name" i], input[placeholder="Nom"]',
+          )
+          .first(),
+      700,
+    )
+    if (lastName) return lastName
+  }
+  if (/pr[eé]nom|first\s*name/i.test(step.label)) {
+    const firstName = await tryVisibleLocator(
+      page,
+      () =>
+        page
+          .locator(
+            'input[name*="first_name" i], input[autocomplete="given-name"], input[id*="first-name" i], input[placeholder="Prénom"], input[placeholder="Prenom"]',
+          )
+          .first(),
+      700,
+    )
+    if (firstName) return firstName
   }
 
   if (isPhoneFieldStep(step)) {
@@ -442,7 +482,18 @@ async function resolveTypeLocator(page: Page, step: RunnableStep): Promise<Locat
       () =>
         page
           .locator(
-            'input[type="tel"], input[name*="phone" i], input[name*="tel" i], input[id*="phone" i], input[id*="tel" i], input[autocomplete="tel"]',
+            [
+              'input[type="tel"]',
+              'input[type="galileo_phone_number"]',
+              'input[name*="phone" i]',
+              'input[name*="tel" i]',
+              'input[name*="galileo_phone" i]',
+              'input[id*="phone" i]',
+              'input[id*="tel" i]',
+              'input[autocomplete="tel"]',
+              'input[placeholder*="éléphone" i]',
+              'input[placeholder*="Telephone" i]',
+            ].join(', '),
           )
           .first(),
       800,
