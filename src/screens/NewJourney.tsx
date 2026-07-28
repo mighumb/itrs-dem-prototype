@@ -71,7 +71,12 @@ import type {
 } from '../types'
 import { scheduleSummary, templateActions } from '../types'
 import type { DiscoveryPlan } from '../mock/discovery'
-import { formatPlanMessage } from '../mock/discovery'
+import {
+  messageWithAuthoritativePlan,
+  planFromJourneySteps,
+  wantsPlanCorrection,
+  wantsPlanInChat,
+} from '../mock/discovery'
 
 export interface NewJourneyHandle {
   commitAcceptSchedule: () => void
@@ -255,10 +260,53 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
     lastRunStepsRef.current = upsertLastRunStep(lastRunStepsRef.current, metric)
   }, [])
   const fixContinueInFlightRef = useRef(false)
+  const announcedPlanSyncRef = useRef(false)
 
   useEffect(() => {
     setJourneyName(journey.name)
   }, [journey.name])
+
+  // If Steps were patched (e.g. Click Brochure) but Discovery chat still shows the old list,
+  // post the authoritative plan in the conversation once — never silently diverge.
+  useEffect(() => {
+    if (announcedPlanSyncRef.current) return
+    if (!session.plan) return
+    const corrected = ensureFormEntryInPlan(session.plan, {
+      siteUrl: session.siteUrl,
+      prompt: session.prompt,
+      locale,
+    })
+    const patched =
+      corrected.steps.length !== session.plan.steps.length ||
+      corrected.steps.some(
+        (s, i) =>
+          s.label !== session.plan!.steps[i]?.label ||
+          s.action !== session.plan!.steps[i]?.action,
+      )
+    const chatBlob = session.messages.map((m) => m.content).join('\n')
+    const chatHasEveryStep = corrected.steps.every((s) => chatBlob.includes(s.label))
+    if (!patched && chatHasEveryStep) {
+      announcedPlanSyncRef.current = true
+      return
+    }
+    announcedPlanSyncRef.current = true
+    const intro =
+      locale === 'fr'
+        ? patched
+          ? 'J’ai mis à jour le plan du parcours (ouverture du formulaire avant les saisies). Voici les étapes, dans la conversation :'
+          : 'Voici le plan du parcours tel qu’il sera rejoué :'
+        : patched
+          ? 'I updated the journey plan (open the form before filling fields). Here are the steps in the conversation:'
+          : 'Here is the journey plan as it will be replayed:'
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: 'agent-plan-sync',
+        role: 'agent',
+        content: messageWithAuthoritativePlan(intro, corrected),
+      },
+    ])
+  }, [session.plan, session.siteUrl, session.prompt, session.messages, locale])
 
   // Abort in-flight Playwright / chat when leaving the workspace.
   useEffect(() => {
@@ -1397,25 +1445,55 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
 
         if (ai.aborted || abort.signal.aborted) return
 
-        const correctedPlan =
+        const askPlan = wantsPlanInChat(trimmed) || wantsPlanCorrection(trimmed)
+        const rawPlan =
           ai.plan && (ai.readyForPlan || ai.plan.steps.length > 0)
-            ? ensureFormEntryInPlan(ai.plan, {
-                siteUrl: seedUrl,
-                prompt: `${initialPrompt} ${journey.name}`,
-                locale,
-              })
-            : null
+            ? ai.plan
+            : askPlan
+              ? planFromJourneySteps(steps, {
+                  title: journeyName || journey.name,
+                  summary:
+                    locale === 'fr'
+                      ? 'Plan du parcours (étapes actuelles).'
+                      : 'Journey plan (current steps).',
+                  prompt: initialPrompt || journey.name,
+                })
+              : null
 
-        let agentContent = ai.message || (locale === 'fr' ? 'OK.' : 'OK.')
+        const correctedPlan = rawPlan
+          ? ensureFormEntryInPlan(rawPlan, {
+              siteUrl: seedUrl,
+              prompt: `${initialPrompt} ${journey.name}`,
+              locale,
+            })
+          : null
+
+        const defaultIntro =
+          locale === 'fr'
+            ? askPlan
+              ? 'Voici le plan complet, affiché dans la conversation :'
+              : 'OK.'
+            : askPlan
+              ? 'Here is the full plan, shown in the conversation:'
+              : 'OK.'
+
+        let agentContent = ai.message?.trim() || defaultIntro
         if (correctedPlan) {
-          const formatted = formatPlanMessage(correctedPlan)
-          const alreadyListed =
-            /\n\s*1[.)]\s/.test(agentContent) || /^\s*1[.)]\s/m.test(agentContent)
-          if (!alreadyListed) {
-            agentContent = agentContent.trim()
-              ? `${agentContent.trim()}\n\n${formatted}`
-              : formatted
+          const patched =
+            correctedPlan.steps.length !== (rawPlan?.steps.length ?? 0) ||
+            correctedPlan.steps.some(
+              (s, i) =>
+                s.label !== rawPlan?.steps[i]?.label ||
+                s.action !== rawPlan?.steps[i]?.action,
+            )
+          if (patched && !/brochure|formulaire|ouvrir le formulaire|open the form/i.test(agentContent)) {
+            const note =
+              locale === 'fr'
+                ? 'J’ai ajouté le clic d’ouverture du formulaire avant les saisies — voici le plan à jour :'
+                : 'I added the form-open click before the fill steps — here is the updated plan:'
+            agentContent = note
           }
+          agentContent = messageWithAuthoritativePlan(agentContent, correctedPlan)
         }
 
         const agentMsg: ChatMessage = {
@@ -1470,11 +1548,11 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
       messages,
       steps,
       journey.name,
+      journeyName,
       initialPrompt,
       session.siteUrl,
       onHeaderChange,
       onRequestNewJourney,
-      isRunning,
       t,
     ],
   )
