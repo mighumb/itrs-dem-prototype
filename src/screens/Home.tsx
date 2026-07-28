@@ -447,6 +447,7 @@ export default function Home({
       }
       pushMessages(userMsg)
       setConfiguring(false)
+      setCtx(nextCtx)
       const promptWithParams = [
         nextCtx.selectedProposal.prompt,
         answered.map((q) => `${q.prompt} → ${nextCtx.answers[q.id]}`).join('\n'),
@@ -462,6 +463,7 @@ export default function Home({
           prompt: promptWithParams,
         },
         undefined,
+        nextCtx,
       )
       return
     }

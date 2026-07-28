@@ -599,7 +599,21 @@ async function groundAndMaybeDryRunPlan(options: {
     parsed.workTrace = trace.slice(0, 8)
   }
 
-  // Dry-run when we still have time (explore cache hits leave more room).
+  // Site already explored earlier this session (pageSnapshot in context) — do not
+  // re-open Playwright just to dry-run. The first explore already mapped fields /
+  // anchors; after form answers we only need to assemble the plan + Run.
+  if (typeof body.context?.pageSnapshot === 'string' && body.context.pageSnapshot.trim()) {
+    const trace = Array.isArray(parsed.workTrace) ? [...parsed.workTrace] : []
+    trace.push(
+      lang === 'fr'
+        ? 'Parcours ancré sur l’exploration déjà faite — pas de 2ᵉ vérification navigateur'
+        : 'Plan grounded on prior explore — skipped a second browser check',
+    )
+    parsed.workTrace = trace.slice(0, 8)
+    return parsed
+  }
+
+  // Dry-run when we still have time (fresh explore in this same request).
   if (budgetLeft() < 16_000) {
     return parsed
   }
