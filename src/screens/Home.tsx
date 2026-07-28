@@ -944,9 +944,13 @@ export default function Home({
     })
   }
 
-  /** Grow like ChatGPT/Claude; after ~8 lines, scroll inside the field. */
-  const resizeComposer = (el: HTMLTextAreaElement | null) => {
-    if (!el) return
+  /** Grow like Claude: text expands; scroll pane is inset from rounded corners. */
+  const composerScrollRef = useRef<HTMLDivElement>(null)
+
+  const resizeComposer = () => {
+    const el = inputRef.current
+    const scroller = composerScrollRef.current
+    if (!el || !scroller) return
     el.style.height = '0px'
     const style = window.getComputedStyle(el)
     const lineHeight = Number.parseFloat(style.lineHeight) || 24
@@ -954,61 +958,69 @@ export default function Home({
       (Number.parseFloat(style.paddingTop) || 0) +
       (Number.parseFloat(style.paddingBottom) || 0)
     const maxHeight = lineHeight * 8 + paddingY
-    const contentHeight = el.scrollHeight
-    const next = Math.min(Math.max(contentHeight, lineHeight + paddingY), maxHeight)
-    el.style.height = `${next}px`
-    el.style.overflowY = contentHeight > maxHeight + 1 ? 'auto' : 'hidden'
+    const contentHeight = Math.max(el.scrollHeight, lineHeight + paddingY)
+    el.style.height = `${contentHeight}px`
+    el.style.overflowY = 'hidden'
+    scroller.style.maxHeight = `${maxHeight}px`
   }
 
   useLayoutEffect(() => {
-    resizeComposer(inputRef.current)
+    resizeComposer()
   }, [input])
 
   const composer = (
     <div className="relative">
       <form
-        className="flex flex-col rounded-2xl border border-zinc-200/80 bg-white shadow-[0_4px_24px_rgba(0,0,0,0.06)] transition-[border-color,box-shadow] focus-within:border-[#0071e3] focus-within:ring-4 focus-within:ring-[#0071e3]/10 dark:border-zinc-700 dark:bg-zinc-900 dark:shadow-[0_4px_28px_rgba(0,0,0,0.45)] dark:focus-within:ring-[#0071e3]/20"
+        className="flex flex-col overflow-hidden rounded-2xl border border-zinc-200/80 bg-white shadow-[0_4px_24px_rgba(0,0,0,0.06)] transition-[border-color,box-shadow] focus-within:border-[#0071e3] focus-within:ring-4 focus-within:ring-[#0071e3]/10 dark:border-zinc-700 dark:bg-zinc-900 dark:shadow-[0_4px_28px_rgba(0,0,0,0.45)] dark:focus-within:ring-[#0071e3]/20"
         onSubmit={(e) => {
           e.preventDefault()
           if (agentTyping) return
           void handleSubmit(input)
         }}
       >
-        <textarea
-          ref={inputRef}
-          value={input}
-          rows={1}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Tab') {
-              // Keep focus so Tab+Enter can insert a newline.
-              e.preventDefault()
-              tabHeldRef.current = true
-              return
-            }
-            if (e.key !== 'Enter') return
-            if (tabHeldRef.current || e.shiftKey) {
-              e.preventDefault()
-              insertNewlineAtCursor(e.currentTarget)
-              return
-            }
-            e.preventDefault()
-            if (agentTyping || !input.trim()) return
-            void handleSubmit(input)
-          }}
-          onKeyUp={(e) => {
-            if (e.key === 'Tab') tabHeldRef.current = false
-          }}
-          onBlur={() => {
-            tabHeldRef.current = false
-          }}
-          placeholder={inputPlaceholder}
-          disabled={agentTyping}
-          readOnly={agentTyping}
-          className="min-h-10 w-full resize-none overflow-y-hidden border-0 bg-transparent px-4 pb-1 pt-3.5 text-base leading-6 text-zinc-900 outline-none placeholder:text-zinc-400 disabled:opacity-60 dark:text-zinc-100 dark:placeholder:text-zinc-500"
-        />
+        {/* Outer inset so the scrollbar clears the rounded corner (Claude-style). */}
+        <div className="min-h-10 pt-2 pr-2 pl-1">
+          <div
+            ref={composerScrollRef}
+            className="min-h-10 overflow-x-hidden overflow-y-auto overscroll-contain pl-3"
+          >
+            <textarea
+              ref={inputRef}
+              value={input}
+              rows={1}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Tab') {
+                  // Keep focus so Tab+Enter can insert a newline.
+                  e.preventDefault()
+                  tabHeldRef.current = true
+                  return
+                }
+                if (e.key !== 'Enter') return
+                if (tabHeldRef.current || e.shiftKey) {
+                  e.preventDefault()
+                  insertNewlineAtCursor(e.currentTarget)
+                  return
+                }
+                e.preventDefault()
+                if (agentTyping || !input.trim()) return
+                void handleSubmit(input)
+              }}
+              onKeyUp={(e) => {
+                if (e.key === 'Tab') tabHeldRef.current = false
+              }}
+              onBlur={() => {
+                tabHeldRef.current = false
+              }}
+              placeholder={inputPlaceholder}
+              disabled={agentTyping}
+              readOnly={agentTyping}
+              className="block min-h-10 w-full resize-none overflow-hidden border-0 bg-transparent py-1.5 pr-2 text-base leading-6 text-zinc-900 outline-none placeholder:text-zinc-400 disabled:opacity-60 dark:text-zinc-100 dark:placeholder:text-zinc-500"
+            />
+          </div>
+        </div>
         {/* Action row under the text — room for future attach / voice controls. */}
-        <div className="flex items-center justify-end gap-1.5 px-2 pb-2 pt-1">
+        <div className="flex shrink-0 items-center justify-end gap-1.5 px-2 pb-2 pt-1">
           {agentTyping ? (
             <button
               type="button"
