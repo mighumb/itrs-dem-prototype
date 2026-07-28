@@ -1063,7 +1063,9 @@ export default function Home({
           {composer}
 
           <div className="mt-8">
-            <p className="mb-3 text-center text-xs text-zinc-400">{t('sampleJourneys')}</p>
+            <p className="mb-3.5 text-center text-sm font-medium text-zinc-600 dark:text-zinc-300">
+              {t('sampleJourneys')}
+            </p>
             {/* Mobile: keep the current 4-row list. Desktop (md+): 2×2 rectangles with larger logos. */}
             <div className="space-y-2 md:grid md:grid-cols-2 md:gap-3 md:space-y-0">
               {getHomeExamples(locale).map((example) => (
