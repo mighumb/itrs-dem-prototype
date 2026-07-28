@@ -246,7 +246,12 @@ function isNavigateAction(step: GroundedPlanStep): boolean {
 }
 
 function isSearchOrType(step: GroundedPlanStep): boolean {
-  return /type|search|fill|sais|recherch/i.test(`${step.action} ${step.label}`)
+  const act = step.action.trim().toLowerCase()
+  if (act === 'click') return false
+  if (act === 'type' || act === 'search' || act === 'fill') return true
+  // Label must look like typing a query — not “Lancer la recherche” (submit Click).
+  if (/lancer\s+la\s+recherch|submit\s+(the\s+)?search/i.test(step.label)) return false
+  return /^(type|search|taper|tape|sais|recherch)/i.test(step.label.trim())
 }
 
 function hasTeleportEntry(steps: GroundedPlanStep[], contextUrl?: string | null): string | null {
