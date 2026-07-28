@@ -209,7 +209,6 @@ async function findSearchLocator(page: Page): Promise<Locator | null> {
     'input[placeholder*="Search" i]',
     'input[placeholder*="Recherch" i]',
     'input[aria-label*="Search" i]',
-    'input[type="text"]',
   ]
   for (const sel of selectors) {
     try {
@@ -250,10 +249,82 @@ function looksLikeCssSelector(value: string): boolean {
   return /^(?:[#.\[a-z]|input|textarea|button|form)/i.test(value.trim()) && /[#.\[\]=>:]/.test(value)
 }
 
+/** True when a hint names a form field rather than the value to type. */
+function looksLikeFieldName(hint: string): boolean {
+  const h = hint.trim()
+  if (!h || h.length > 60) return false
+  if (/@/.test(h) || /\d{5,}/.test(h)) return false
+  return /^(nom(\s+de\s+famille)?|pr[eé]nom|name|first\s*names?|last\s*names?|e-?mails?|mails?|t[eé]l[eé]phones?|phones?|mobiles?|portables?|adresses?|villes?|pays|companies|soci[eé]t[eé]s?|entreprises?|codes?\s*postaux?|zip|postal|subject|objet|message|comments?)$/i.test(
+    h,
+  )
+}
+
+function isSearchTypeStep(step: RunnableStep): boolean {
+  if (/^search$/i.test(step.action.trim())) return true
+  const blob = `${step.action} ${step.label}`
+  if (/lancer\s+la\s+recherch|submit\s+(the\s+)?search/i.test(blob)) return false
+  return /^(search|recherch)/i.test(step.label.trim()) || /\b(search\s+for|rechercher?\s+)/i.test(blob)
+}
+
+function isEmailFieldStep(step: RunnableStep): boolean {
+  return /e-?mail|mail\b/i.test(`${step.label} ${step.targetHint ?? ''} ${step.target ?? ''}`)
+}
+
+function isPhoneFieldStep(step: RunnableStep): boolean {
+  return /t[eé]l[eé]phone|phone|mobile|portable/i.test(
+    `${step.label} ${step.targetHint ?? ''} ${step.target ?? ''}`,
+  )
+}
+
+/** Visible field names to try when resolving a Type target (not the typed value). */
+function fieldHintsFromStep(step: RunnableStep): string[] {
+  const hints: string[] = []
+  const push = (v: string | null | undefined) => {
+    const t = v?.trim()
+    if (!t || t.length < 2 || t.length > 50) return
+    if (looksLikeCssSelector(t) || /@/.test(t)) return
+    if (!hints.some((h) => h.toLowerCase() === t.toLowerCase())) hints.push(t)
+  }
+
+  if (step.targetHint && looksLikeFieldName(step.targetHint)) push(step.targetHint)
+
+  const label = step.label
+  const dansChamp = label.match(
+    /\b(?:dans|into|in|sur)\s+(?:le\s+|la\s+|l['’])?(?:champ\s+|field\s+)?["«]?([^"»]+?)["»]?\s*$/i,
+  )
+  if (dansChamp?.[1]) push(dansChamp[1])
+
+  const fieldPatterns: Array<{ re: RegExp; names: string[] }> = [
+    { re: /pr[eé]nom|first\s*name/i, names: ['Prénom', 'Prenom', 'First name', 'firstname', 'first_name'] },
+    {
+      re: /nom\s+de\s+famille|last\s*name|surname/i,
+      names: ['Nom de famille', 'Nom', 'Last name', 'lastname', 'last_name', 'surname'],
+    },
+    { re: /\bnom\b/i, names: ['Nom', 'Name', 'lastname', 'last_name'] },
+    {
+      re: /e-?mail|mail\b/i,
+      names: ['Email', 'E-mail', 'Mail', 'Adresse e-mail', 'email'],
+    },
+    {
+      re: /t[eé]l[eé]phone|phone|mobile|portable/i,
+      names: ['Téléphone', 'Telephone', 'Phone', 'Mobile', 'Tel', 'téléphone'],
+    },
+    { re: /ville|city/i, names: ['Ville', 'City'] },
+    { re: /soci[eé]t[eé]|entreprise|company/i, names: ['Société', 'Entreprise', 'Company'] },
+  ]
+  for (const { re, names } of fieldPatterns) {
+    if (re.test(label) || (step.targetHint && re.test(step.targetHint))) {
+      for (const n of names) push(n)
+    }
+  }
+
+  return hints
+}
+
 /**
  * Value to type into a field. Order:
  * 1) quoted text in the label (e.g. Taper 'Kylian Mbappé' …)
- * 2) targetHint when it is a query, not a CSS selector
+ * 2) targetHint when it is the value (not a field name / CSS selector)
  * 3) instructional prefix patterns (Type / Taper / Search / …)
  * 4) full label (last resort)
  */
@@ -265,7 +336,14 @@ export function searchQueryFromStep(step: RunnableStep): string {
 
   if (step.targetHint) {
     const hint = step.targetHint.trim()
-    if (hint && !looksLikeCssSelector(hint) && hint.length < 120) return hint
+    if (
+      hint &&
+      !looksLikeCssSelector(hint) &&
+      !looksLikeFieldName(hint) &&
+      hint.length < 120
+    ) {
+      return hint
+    }
   }
 
   const patterns = [
@@ -285,6 +363,107 @@ export function searchQueryFromStep(step: RunnableStep): string {
     }
   }
   return label
+}
+
+async function tryVisibleLocator(
+  page: Page,
+  factory: () => Locator,
+  timeoutMs = 700,
+): Promise<Locator | null> {
+  try {
+    const loc = factory()
+    if (await loc.isVisible({ timeout: timeoutMs })) return loc
+  } catch {
+    // ignore
+  }
+  return null
+}
+
+/**
+ * Resolve the input/textarea for a Type step. Prefer the named form field
+ * (Nom / Email / …) — never dump every value into the first text input.
+ */
+async function resolveTypeLocator(page: Page, step: RunnableStep): Promise<Locator | null> {
+  if (step.target && !/^https?:\/\//i.test(step.target)) {
+    const sel = step.target.split(',')[0]!.trim()
+    const byTarget = await tryVisibleLocator(page, () => page.locator(sel).first(), 900)
+    if (byTarget) return byTarget
+  }
+
+  for (const hint of fieldHintsFromStep(step)) {
+    const escaped = hint.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const pattern = new RegExp(escaped.slice(0, 40), 'i')
+
+    const byLabel = await tryVisibleLocator(
+      page,
+      () => page.getByLabel(pattern).first(),
+      800,
+    )
+    if (byLabel) return byLabel
+
+    const byRole = await tryVisibleLocator(
+      page,
+      () => page.getByRole('textbox', { name: pattern }).first(),
+      700,
+    )
+    if (byRole) return byRole
+
+    const attrSelectors = [
+      `input[placeholder*="${hint.replace(/"/g, '')}" i]`,
+      `textarea[placeholder*="${hint.replace(/"/g, '')}" i]`,
+      `input[name*="${hint.replace(/"/g, '').replace(/\s+/g, '')}" i]`,
+      `input[name*="${hint.replace(/"/g, '').replace(/\s+/g, '_').toLowerCase()}" i]`,
+      `input[aria-label*="${hint.replace(/"/g, '')}" i]`,
+      `input[id*="${hint.replace(/"/g, '').replace(/\s+/g, '').toLowerCase()}" i]`,
+    ]
+    for (const sel of attrSelectors) {
+      const loc = await tryVisibleLocator(page, () => page.locator(sel).first(), 500)
+      if (loc) return loc
+    }
+  }
+
+  if (isEmailFieldStep(step)) {
+    const emailLoc = await tryVisibleLocator(
+      page,
+      () =>
+        page
+          .locator(
+            'input[type="email"], input[name*="mail" i], input[id*="mail" i], input[autocomplete="email"]',
+          )
+          .first(),
+      800,
+    )
+    if (emailLoc) return emailLoc
+  }
+
+  if (isPhoneFieldStep(step)) {
+    const phoneLoc = await tryVisibleLocator(
+      page,
+      () =>
+        page
+          .locator(
+            'input[type="tel"], input[name*="phone" i], input[name*="tel" i], input[id*="phone" i], input[id*="tel" i], input[autocomplete="tel"]',
+          )
+          .first(),
+      800,
+    )
+    if (phoneLoc) return phoneLoc
+  }
+
+  // Search box only for real search Type steps — never for brochure/lead forms.
+  if (isSearchTypeStep(step)) {
+    return (
+      (await findSearchLocator(page)) ??
+      (await tryVisibleLocator(page, () => page.locator('input[type="text"]').first(), 600))
+    )
+  }
+
+  return null
+}
+
+async function fillField(locator: Locator, value: string): Promise<void> {
+  await locator.click({ timeout: 2000 })
+  await locator.fill(value, { timeout: 4000 })
 }
 
 /** Resolve a clickable locator without performing the click. */
@@ -426,17 +605,22 @@ async function executeStepWithCapture(
 
   if (shouldExecuteAsType(step)) {
     const value = searchQueryFromStep(step)
-    let loc: Locator | null = null
-    if (step.target && step.target.includes('input')) {
+    let loc = await resolveTypeLocator(page, step)
+    if (loc) {
       try {
-        loc = page.locator(step.target.split(',')[0]!.trim()).first()
-        await loc.fill(value, { timeout: 5000 })
+        await fillField(loc, value)
       } catch {
         loc = null
       }
     }
-    if (!loc) {
+    // Last resort for search-only steps — never for lead/brochure forms.
+    if (!loc && isSearchTypeStep(step)) {
       loc = await fillLikelySearch(page, value)
+    }
+    if (!loc) {
+      throw new Error(
+        `Could not find the form field for: ${step.label}. Refusing to type into an unrelated input.`,
+      )
     }
     const frame = await captureHighlighted(page, loc)
     // Submit via Enter only for Search-style steps. Plain Type (e.g. FR « Taper … »)
