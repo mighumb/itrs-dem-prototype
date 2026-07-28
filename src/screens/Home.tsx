@@ -260,13 +260,19 @@ export default function Home({
     })
   }
 
-  const enterPlanning = async (planSeed: DiscoveryPlan, userLine?: string) => {
+  const enterPlanning = async (
+    planSeed: DiscoveryPlan,
+    userLine?: string,
+    contextOverride?: DiscoveryContext | null,
+  ) => {
     const userMsg = userLine
       ? ({ id: uid('user'), role: 'user', content: userLine } as ChatMessage)
       : null
     if (userMsg) {
       pushMessages(userMsg)
     }
+    const planCtx = contextOverride ?? ctx
+    if (contextOverride) setCtx(contextOverride)
     // Keep Run/Lancer hidden until Gemini returns a complete plan.
     setPlan(null)
     setPhase('conversation')
@@ -277,8 +283,8 @@ export default function Home({
         userMessage: planSeed.prompt,
         messages: history,
         phase: 'planning',
-        context: ctx,
-        selectedProposal: ctx?.selectedProposal,
+        context: planCtx,
+        selectedProposal: planCtx?.selectedProposal,
         preferredLanguage: locale,
         signal,
         onStatus,
@@ -390,6 +396,21 @@ export default function Home({
       if (ai.aborted) return
       rememberSnapshot(ai)
 
+      // Model sometimes returns a ready plan instead of chooser options — honor it.
+      if (ai.plan && (ai.readyForPlan || ai.plan.steps.length > 0)) {
+        const formatted = formatPlanMessage(ai.plan)
+        const content =
+          ai.message.includes('1.') || ai.message.includes('1)')
+            ? ai.message
+            : ai.message
+              ? `${ai.message}\n\n${formatted}`
+              : formatted
+        pushAgentReply(content)
+        setPlan(ai.plan)
+        setPhase('planning')
+        return
+      }
+
       // Only open the floating form when Gemini returned real proposals — no mock fallback.
       if (ai.proposals && ai.proposals.length > 0) {
         setProposals(ai.proposals)
@@ -489,6 +510,40 @@ export default function Home({
           ? `${answerText || 'Oui'}\n\nBesoin initial: ${nextCtx.seed}`
           : answerText || 'Oui'
       await replyWithAiChat(affirm, history, nextCtx)
+      return
+    }
+
+    // Form / journey params already collected for a known destination → build the plan.
+    // (Previously we always opened “propose”, so the agent said “Voici le parcours” with no steps.)
+    const hasSite =
+      Boolean(nextCtx.url) ||
+      /https?:\/\/[^\s<>"']+/i.test(nextCtx.seed) ||
+      /(?:^|\s)(?:www\.)?[a-z0-9-]+(?:\.[a-z0-9-]+)+(?:\/\S*)?/i.test(nextCtx.seed)
+    if (hasSite && answered.length > 0) {
+      setCtx(nextCtx)
+      const title =
+        nextCtx.selectedProposal?.title?.trim() ||
+        (locale === 'fr' ? 'Parcours' : 'Journey')
+      const promptWithParams = [
+        nextCtx.seed,
+        answered.map((q) => `${q.prompt} → ${nextCtx.answers[q.id]}`).join('\n'),
+      ]
+        .filter(Boolean)
+        .join(' — ')
+      await enterPlanning(
+        {
+          title,
+          summary:
+            nextCtx.selectedProposal?.description?.trim() ||
+            (locale === 'fr'
+              ? 'Parcours prêt à lancer avec les paramètres fournis.'
+              : 'Journey ready to run with the provided parameters.'),
+          steps: [{ label: title, action: t('prepareJourney') }],
+          prompt: promptWithParams,
+        },
+        undefined,
+        nextCtx,
+      )
       return
     }
 
