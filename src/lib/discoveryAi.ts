@@ -12,6 +12,7 @@ import type {
 } from '../mock/discovery'
 import { t, type Locale } from '../i18n/messages'
 import type { ChatMessage } from '../types'
+import { ensureFormEntryInPlan } from './journeyLaunch'
 
 export {
   answersIncludeSiteDecline,
@@ -249,6 +250,7 @@ function finalizeDiscoveryResult(options: {
   /** User utterance for this turn — used to avoid reviving proposals after a decline. */
   userMessage?: string
   answers?: Record<string, string> | null
+  siteUrl?: string | null
 }): DiscoveryAiResult {
   const siteAnalysis = normalizeSiteAnalysis(options.siteAnalysis)
   const awaitingConfirm = siteAnalysis?.reason === 'awaiting_user_confirmation'
@@ -293,13 +295,22 @@ function finalizeDiscoveryResult(options: {
     }
   }
 
+  let plan = normalizePlan(options.plan, options.fallbackPrompt)
+  if (plan) {
+    plan = ensureFormEntryInPlan(plan, {
+      siteUrl: options.siteUrl ?? siteAnalysis?.url ?? null,
+      prompt: options.fallbackPrompt,
+      locale: options.preferredLanguage,
+    })
+  }
+
   return {
     message: message || geminiUnavailable(options.preferredLanguage).message,
     workTrace: normalizeWorkTrace(options.workTrace),
     formTitle: questions || proposals ? formTitle : null,
     questions,
     proposals,
-    plan: normalizePlan(options.plan, options.fallbackPrompt),
+    plan,
     readyForPlan: Boolean(options.readyForPlan),
     siteAnalysis,
     pageSnapshot: typeof options.pageSnapshot === 'string' ? options.pageSnapshot : null,
@@ -574,6 +585,7 @@ export async function requestDiscoveryAi(options: {
         mode,
         userMessage,
         answers: context?.answers ?? null,
+        siteUrl: context?.url ?? null,
       })
     }
 
@@ -605,6 +617,7 @@ export async function requestDiscoveryAi(options: {
       mode,
       userMessage,
       answers: context?.answers ?? null,
+      siteUrl: context?.url ?? null,
     })
   } catch (error) {
     if (

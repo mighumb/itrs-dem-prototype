@@ -37,6 +37,7 @@ import {
   agentIntroForLocale,
   buildJourneyFromDiscovery,
   buildJourneyFromPrompt,
+  ensureFormEntryInPlan,
   extractUrlFromText,
   formatJourneyTitle,
   runFallbackMessage,
@@ -70,6 +71,7 @@ import type {
 } from '../types'
 import { scheduleSummary, templateActions } from '../types'
 import type { DiscoveryPlan } from '../mock/discovery'
+import { formatPlanMessage } from '../mock/discovery'
 
 export interface NewJourneyHandle {
   commitAcceptSchedule: () => void
@@ -1395,22 +1397,43 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
 
         if (ai.aborted || abort.signal.aborted) return
 
+        const correctedPlan =
+          ai.plan && (ai.readyForPlan || ai.plan.steps.length > 0)
+            ? ensureFormEntryInPlan(ai.plan, {
+                siteUrl: seedUrl,
+                prompt: `${initialPrompt} ${journey.name}`,
+                locale,
+              })
+            : null
+
+        let agentContent = ai.message || (locale === 'fr' ? 'OK.' : 'OK.')
+        if (correctedPlan) {
+          const formatted = formatPlanMessage(correctedPlan)
+          const alreadyListed =
+            /\n\s*1[.)]\s/.test(agentContent) || /^\s*1[.)]\s/m.test(agentContent)
+          if (!alreadyListed) {
+            agentContent = agentContent.trim()
+              ? `${agentContent.trim()}\n\n${formatted}`
+              : formatted
+          }
+        }
+
         const agentMsg: ChatMessage = {
           id: `agent-gemini-${Date.now()}`,
           role: 'agent',
-          content: ai.message || (locale === 'fr' ? 'OK.' : 'OK.'),
+          content: agentContent,
         }
 
-        if (ai.plan && (ai.readyForPlan || ai.plan.steps.length > 0)) {
-          const nextStages = planToJourneyStages(ai.plan, steps, seedUrl, locale)
+        if (correctedPlan) {
+          const nextStages = planToJourneyStages(correctedPlan, steps, seedUrl, locale)
           setStages(nextStages)
           setFixActionsResolved(false)
           setScheduleResolved(false)
-          if (ai.plan.title) {
-            setJourneyName(ai.plan.title)
+          if (correctedPlan.title) {
+            setJourneyName(correctedPlan.title)
             onHeaderChange?.({
-              title: formatJourneyTitle(ai.plan.title, seedUrl, locale),
-              subtitle: isRunning ? t('running') : ai.plan.summary,
+              title: formatJourneyTitle(correctedPlan.title, seedUrl, locale),
+              subtitle: isRunning ? t('running') : correctedPlan.summary,
             })
           }
           setMessages((prev) => [

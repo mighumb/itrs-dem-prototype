@@ -147,6 +147,134 @@ function stagesFromActions(
   }))
 }
 
+function isConsentLabel(label: string): boolean {
+  return /cookie|bandeau|consent|rgpd|gdpr|didomi|sans accepter|tout accepter|tout refuser|accepte?r les cookies/i.test(
+    label,
+  )
+}
+
+function isFormTypeLabel(label: string): boolean {
+  return /\b(nom|pr[eé]nom|e-?mail|t[eé]l[eé]phone|phone|champ)\b/i.test(label)
+}
+
+function looksLikeFormOpenClick(label: string): boolean {
+  return /brochure|contact|devis|demo|essai|lead|formulaire|télécharg|download|inscription|signup|sign[- ]?up/i.test(
+    label,
+  )
+}
+
+/**
+ * Natural-path guard: after homepage Navigate, form Type steps need a Click that
+ * opens the form (e.g. « Brochure ») — otherwise the runner types on the home page.
+ */
+export function ensureFormEntryBeforeTypes(
+  actions: Array<Omit<JourneyAction, 'status'>>,
+  options?: { siteUrl?: string | null; prompt?: string; locale?: Locale },
+): Array<Omit<JourneyAction, 'status'>> {
+  if (actions.length < 2) return actions
+
+  const firstTypeIdx = actions.findIndex(
+    (a) => a.action === 'Type' && isFormTypeLabel(a.label),
+  )
+  if (firstTypeIdx < 0) return actions
+
+  const before = actions.slice(0, firstTypeIdx)
+  if (before.some((a) => a.action === 'Click' && looksLikeFormOpenClick(a.label))) {
+    return actions
+  }
+  // Already navigates to a deep form URL — no CTA click needed.
+  if (
+    before.some((a) => {
+      if (a.action !== 'Navigate') return false
+      const href = a.href ?? a.target ?? ''
+      return /\/(brochure|contact|demo|devis|lead|form)/i.test(href)
+    })
+  ) {
+    return actions
+  }
+
+  const locale = options?.locale ?? 'en'
+  const blob = `${options?.prompt ?? ''} ${options?.siteUrl ?? ''} ${actions.map((a) => a.label).join(' ')}`
+  let cta: string | null = null
+  if (/\/brochure|brochure/i.test(blob)) cta = 'Brochure'
+  else if (/\/contact|contact/i.test(blob)) cta = 'Contact'
+  else if (/devis/i.test(blob)) cta = 'Devis'
+  else if (/demo|essai/i.test(blob)) cta = locale === 'fr' ? 'Demander une démo' : 'Request a demo'
+  if (!cta) return actions
+
+  const navIdx = before.findIndex((a) => a.action === 'Navigate')
+  let at = Math.max(1, navIdx >= 0 ? navIdx + 1 : 1)
+  while (at < firstTypeIdx && isConsentLabel(actions[at]?.label ?? '')) at += 1
+
+  const clickStep: Omit<JourneyAction, 'status'> = {
+    id: 'discovery-form-entry',
+    label:
+      locale === 'fr'
+        ? `Cliquer sur « ${cta} » pour ouvrir le formulaire`
+        : `Click « ${cta} » to open the form`,
+    action: 'Click',
+    duration: '800ms',
+    targetHint: cta,
+    timeout: '30s',
+  }
+
+  const next = [...actions.slice(0, at), clickStep, ...actions.slice(at)]
+  next.forEach((step, index) => {
+    step.id = `discovery-${index + 1}`
+  })
+  return next
+}
+
+/** Patch a Discovery plan so chat + Steps match the runnable form-entry guard. */
+export function ensureFormEntryInPlan(
+  plan: DiscoveryPlan,
+  options?: { siteUrl?: string | null; prompt?: string; locale?: Locale },
+): DiscoveryPlan {
+  const actions: Array<Omit<JourneyAction, 'status'>> = plan.steps.map((step, index) => {
+    const action = normalizeAction(step.action, step.label)
+    return {
+      id: `discovery-${index + 1}`,
+      label: step.label,
+      action,
+      duration: '800ms',
+      target: step.href,
+      targetHint: step.targetHint,
+      href: step.href,
+      timeout: '30s',
+    }
+  })
+  const fixed = ensureFormEntryBeforeTypes(actions, {
+    siteUrl: options?.siteUrl ?? null,
+    prompt: `${options?.prompt ?? ''} ${plan.prompt} ${plan.title}`,
+    locale: options?.locale,
+  })
+  if (
+    fixed.length === plan.steps.length &&
+    fixed.every((a, i) => {
+      const s = plan.steps[i]!
+      return (
+        a.label === s.label &&
+        a.action === normalizeAction(s.action, s.label) &&
+        (a.href ?? undefined) === (s.href ?? undefined)
+      )
+    })
+  ) {
+    return plan
+  }
+  return {
+    ...plan,
+    steps: fixed.map((a) => {
+      const step: DiscoveryPlan['steps'][number] = {
+        label: a.label,
+        action: a.action,
+      }
+      if (a.targetHint) step.targetHint = a.targetHint
+      if (a.href) step.href = a.href
+      return step
+    }),
+  }
+}
+
 /**
  * Build a runnable workspace journey from the Discovery plan (source of truth for Playwright).
  */
@@ -156,12 +284,17 @@ export function buildJourneyFromDiscovery(options: {
   siteUrl?: string | null
   locale?: Locale
 }): JourneyTemplate {
-  const { plan, prompt, siteUrl, locale = 'en' } = options
+  const { prompt, siteUrl, locale = 'en' } = options
   const seedUrl =
     siteUrl ??
-    extractUrlFromText(plan.prompt) ??
+    extractUrlFromText(options.plan.prompt) ??
     extractUrlFromText(prompt) ??
-    extractUrlFromText(plan.steps.map((s) => s.label).join(' '))
+    extractUrlFromText(options.plan.steps.map((s) => s.label).join(' '))
+  const plan = ensureFormEntryInPlan(options.plan, {
+    siteUrl: seedUrl,
+    prompt,
+    locale,
+  })
 
   const actions: Omit<JourneyAction, 'status'>[] = plan.steps.map((step, index) => {
     const action = normalizeAction(step.action, step.label)
@@ -187,10 +320,6 @@ export function buildJourneyFromDiscovery(options: {
   })
 
   // Keep at most one cookie/CMP step — duplicates after later navigations confuse the run.
-  const isConsentLabel = (label: string) =>
-    /cookie|bandeau|consent|rgpd|gdpr|didomi|sans accepter|tout accepter|tout refuser|accepte?r les cookies/i.test(
-      label,
-    )
   let sawConsent = false
   const dedupedActions = actions.filter((step) => {
     if (!isConsentLabel(step.label)) return true
@@ -198,8 +327,8 @@ export function buildJourneyFromDiscovery(options: {
     sawConsent = true
     return true
   })
-  const finalActions = dedupedActions.length > 0 ? dedupedActions : actions
-  // Re-id after filter so timeline stays contiguous.
+  let finalActions = dedupedActions.length > 0 ? dedupedActions : actions
+  // Re-id after transforms so timeline stays contiguous.
   finalActions.forEach((step, index) => {
     step.id = `discovery-${index + 1}`
   })
