@@ -319,8 +319,11 @@ async function resolveClickLocator(page: Page, step: RunnableStep): Promise<Loca
   const textHints = [
     step.targetHint,
     extractQuotedText(step.label),
+    // Map instructional “submit search” phrases to real button labels.
+    isSearchSubmitClickLabel(step.label) ? 'Rechercher' : null,
+    isSearchSubmitClickLabel(step.label) ? 'Search' : null,
     step.label
-      .replace(/^(click|select|choose|open|choisis|sélectionne|ouvre|clique)\s+/i, '')
+      .replace(/^(click|select|choose|open|choisis|sélectionne|ouvre|clique|cliquer)\s+/i, '')
       .split(/\s+and\b/i)[0]
       ?.trim(),
   ].filter((v): v is string => Boolean(v && v.length > 1 && v.length < 80))
@@ -356,6 +359,45 @@ async function performClick(page: Page, locator: Locator): Promise<void> {
   await dismissNoise(page)
 }
 
+/** Click labels that mean “submit the search”, not “type the word recherche”. */
+export function isSearchSubmitClickLabel(label: string): boolean {
+  const t = label.trim()
+  const quoted = extractQuotedText(t)
+  if (quoted) return /^(rechercher|search)$/i.test(quoted)
+  return (
+    /lancer\s+la\s+recherch/i.test(t) ||
+    /submit\s+(the\s+)?search/i.test(t) ||
+    /^(rechercher|search)$/i.test(t) ||
+    /^(click|cliquer|clique)\s+(sur\s+)?(le\s+bouton\s+)?(rechercher|search)\b/i.test(t)
+  )
+}
+
+/**
+ * Decide Type vs Click without letting “recherch*” in a Click label win.
+ * Explicit plan actions always win; heuristics only when action is ambiguous.
+ */
+export function shouldExecuteAsType(step: RunnableStep): boolean {
+  const action = step.action.trim().toLowerCase()
+  if (action === 'click') return false
+  if (action === 'type' || action === 'search' || action === 'fill') return true
+  if (isSearchSubmitClickLabel(step.label)) return false
+  const blob = `${step.action} ${step.label}`
+  // Do NOT match bare “recherch*” here — that catches Click “Lancer la recherche”.
+  // “Rechercher « query »” (Type search+Enter) is covered by action === 'type' above.
+  if (/^(search|rechercher)\b/i.test(step.label.trim()) && /[«"']/.test(step.label)) {
+    return true
+  }
+  return /^(type|search|fill)\b/i.test(action) || /\b(type|taper|tape|fill|sais)\b/i.test(blob)
+}
+
+export function shouldExecuteAsClick(step: RunnableStep): boolean {
+  if (shouldExecuteAsType(step)) return false
+  const action = step.action.trim().toLowerCase()
+  if (action === 'click') return true
+  const blob = `${step.action} ${step.label}`
+  return /click|select|choose|choisis|sélectionne|ouvre|clique|lancer\s+la\s+recherch/i.test(blob)
+}
+
 /**
  * Run one step and return a screenshot. Click/Type shots include a blue
  * highlight around the interacted element (baked into the JPEG).
@@ -382,7 +424,7 @@ async function executeStepWithCapture(
     return captureFrame(page)
   }
 
-  if (action === 'type' || /type|search|fill|sais|recherch/i.test(blob)) {
+  if (shouldExecuteAsType(step)) {
     const value = searchQueryFromStep(step)
     let loc: Locator | null = null
     if (step.target && step.target.includes('input')) {
@@ -409,7 +451,7 @@ async function executeStepWithCapture(
     return frame
   }
 
-  if (action === 'click' || /click|select|choose|choisis|sélectionne|ouvre|clique/i.test(blob)) {
+  if (shouldExecuteAsClick(step)) {
     const loc = await resolveClickLocator(page, step)
     if (loc) {
       // Capture with blue box BEFORE the click (element may disappear after navigation).
@@ -423,6 +465,13 @@ async function executeStepWithCapture(
       await page.goto(href, { waitUntil: 'domcontentloaded', timeout: 25000 })
       await dismissNoise(page)
       return captureFrame(page)
+    }
+    // “Lancer la recherche” / Search submit with no visible button → Enter in focused field.
+    if (isSearchSubmitClickLabel(step.label)) {
+      const frame = await captureFrame(page)
+      await page.keyboard.press('Enter')
+      await page.waitForLoadState('domcontentloaded', { timeout: 15000 }).catch(() => undefined)
+      return frame
     }
     throw new Error(`Could not click target for: ${step.label}`)
   }

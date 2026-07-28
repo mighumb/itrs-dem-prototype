@@ -25,8 +25,17 @@ export function extractUrlFromText(text: string | null | undefined): string | nu
   return match?.[0]?.replace(/[.,);]+$/g, '') ?? null
 }
 
-function normalizeAction(action: string, label: string): string {
+/** Exported for regression checks — Click “Lancer la recherche” must stay Click. */
+export function normalizeAction(action: string, label: string): string {
+  const act = action.trim().toLowerCase()
   const blob = `${action} ${label}`.toLowerCase()
+
+  // Explicit plan actions win (LLM already chose Click vs Type).
+  if (act === 'click') return 'Click'
+  if (act === 'type' || act === 'search' || act === 'fill') return 'Type'
+  if (act === 'navigate') return 'Navigate'
+  if (act === 'verify' || act === 'wait') return 'Verify'
+
   if (
     /navigate|go to|open url|va sur|ouvre https?|ouvrir https?/i.test(blob) ||
     extractUrlFromText(label) ||
@@ -34,7 +43,11 @@ function normalizeAction(action: string, label: string): string {
   ) {
     return 'Navigate'
   }
-  if (/type|fill|sais|recherch|search|enter|entrer|renseign/i.test(blob)) return 'Type'
+  // Submit-search phrasing is a Click, not a Type (avoids typing “Lancer la recherche”).
+  if (/lancer\s+la\s+recherch|submit\s+(the\s+)?search/i.test(label)) return 'Click'
+  // Type only for fill/type verbs — not bare “recherch*” (that matches Click labels).
+  if (/\b(type|taper|tape|fill|sais|renseign)\b/i.test(blob)) return 'Type'
+  if (/^(search|rechercher)\b/i.test(label.trim()) && /[«"']/.test(label)) return 'Type'
   if (/click|select|choose|choisis|sélectionne|clique|ouvre\b/i.test(blob)) return 'Click'
   if (/verify|vérif|check|confirm|attendre|wait/i.test(blob)) return 'Verify'
   return action.trim() || 'Click'
