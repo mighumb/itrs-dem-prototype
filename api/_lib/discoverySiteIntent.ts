@@ -304,9 +304,11 @@ export function messageRequestsSiteWork(text: string): boolean {
 }
 
 /**
- * User already named a concrete journey outcome (beyond brand alone).
+ * User already named a concrete journey outcome (beyond brand / URL alone).
  * Used so proposals #1 must honor that ask after site confirm — not generic templates.
- * A deep URL path (e.g. /brochure, /contact, /devis) counts as stated intent.
+ *
+ * A deep URL path alone is a DESTINATION (where), not an outcome (what).
+ * e.g. https://www.hetic.net/brochure does NOT imply “télécharger la brochure”.
  */
 export function summarizeStatedJourneyIntent(text: string): string | null {
   const t = text.trim()
@@ -315,21 +317,35 @@ export function summarizeStatedJourneyIntent(text: string): string | null {
     return null
   }
 
-  const deep = intentFromDeepLocator(t)
-  if (deep) return deep
+  // Strip URLs/domains so path tokens (…/brochure) never count as journey verbs.
+  const withoutLocators = t
+    .replace(/https?:\/\/[^\s<>"']+/gi, ' ')
+    .replace(
+      /\b(?:www\.)?[a-z0-9][a-z0-9-]*\.[a-z]{2,}(?:\/[^\s<>"']*)?/gi,
+      ' ',
+    )
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  if (!withoutLocators || withoutLocators.length < 2) {
+    // Message is only a URL / host — destination lives in context.url, not intent.
+    return null
+  }
 
   const hasJourneyVerb =
-    /\b(achat|acheter|commande|commander|panier|livraison|livrer|checkout|purchase|buy|buying|order|orders|cart|delivery|recherche|search|connexion|login|log[\s-]?in|inscription|signup|sign[\s-]?up|parcours|journey|réserver|reserver|book(?:ing)?|payer|pay|payment|tunnel|brochure|télécharger|telecharger|download|formulaire|devis|contact|essai|trial|demo|démo)\b/i.test(
-      t,
+    /\b(achat|acheter|commande|commander|panier|livraison|livrer|checkout|purchase|buy|buying|order|orders|cart|delivery|recherche|search|connexion|login|log[\s-]?in|inscription|signup|sign[\s-]?up|parcours|journey|réserver|reserver|book(?:ing)?|payer|pay|payment|tunnel|brochure|télécharger|telecharger|download|formulaire|devis|contact|essai|trial|demo|démo|vérif(?:ier)?|verify|check|remplir|fill|soumettre|submit|accessib|visible|affich)/i.test(
+      withoutLocators,
     )
   if (!hasJourneyVerb) return null
-  // Brand-only leftovers like "Asos" / "monitor Boohoo" without a journey outcome → null
-  const withoutBrand = brandishLeftover(t)
-  if (!withoutBrand && !hasJourneyVerb) return null
+
+  // Prefer the full message (incl. URL) so the model keeps destination + outcome together.
   return t.length > 280 ? `${t.slice(0, 277)}…` : t
 }
 
-/** Extract journey intent from a deep URL / path in the user text. */
+/**
+ * Extract the deep destination URL/path from user text (where to monitor).
+ * Does NOT invent a journey outcome from the path slug.
+ */
 export function intentFromDeepLocator(text: string): string | null {
   const raw =
     text.match(/https?:\/\/[^\s<>"']+/i)?.[0]?.replace(/[.,);]+$/g, '') ??
@@ -340,27 +356,7 @@ export function intentFromDeepLocator(text: string): string | null {
     const u = new URL(href)
     const path = u.pathname.replace(/\/+$/, '') || '/'
     if (path === '/' && !u.search && !u.hash) return null
-    const segments = path.split('/').filter(Boolean)
-    const slug = decodeURIComponent(segments[segments.length - 1] || '')
-      .replace(/[_+.-]+/g, ' ')
-      .replace(/\.[a-z0-9]{2,5}$/i, '')
-      .trim()
-    const pathHint = slug || path
-    // FR/EN readable intent from common path tokens
-    const lower = path.toLowerCase()
-    let outcome = pathHint
-    if (/brochure|plaquette|catalogue|catalog/i.test(lower)) {
-      outcome = 'télécharger / remplir le formulaire brochure'
-    } else if (/contact|nous-contacter|get-in-touch/i.test(lower)) {
-      outcome = 'formulaire de contact'
-    } else if (/devis|quote|pricing|tarifs?/i.test(lower)) {
-      outcome = 'demande de devis / tarifs'
-    } else if (/essai|trial|demo|démo|signup|inscription|register/i.test(lower)) {
-      outcome = 'essai gratuit / inscription'
-    } else if (/cart|panier|checkout|bag/i.test(lower)) {
-      outcome = 'panier / checkout'
-    }
-    return `Destination ${u.origin}${path}${u.search}${u.hash} — parcours: ${outcome}`.slice(0, 280)
+    return `Destination ${u.origin}${path}${u.search}${u.hash}`.slice(0, 280)
   } catch {
     return null
   }

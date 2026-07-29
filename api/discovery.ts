@@ -214,12 +214,12 @@ function buildUserPrompt(
       ? `${body.userMessage}\n\n[Original monitoring request — honor for proposals #1]: ${statedJourneyIntent}`
       : body.userMessage
 
-  // Deep URL path (e.g. /brochure) already chooses the journey — inject an explicit
-  // guard so the model cannot fall back to “3 parcours sur {host} — lequel ?”.
+  // Deep URL = destination (where), not journey outcome (what).
+  // Lock the path; do NOT tell the model to collect form params / download.
   const deepFromMessage =
     intentFromDeepLocator(body.userMessage) ?? intentFromDeepLocator(seed)
-  if (attachSite && !confirmFirst && deepFromMessage && statedJourneyIntent) {
-    userMessage = `${userMessage}\n\n[Deep URL = chosen journey — do NOT ask which journey on the host; collect form params for this destination or set proposals[0] to it]: ${deepFromMessage}`
+  if (attachSite && !confirmFirst && deepFromMessage) {
+    userMessage = `${userMessage}\n\n[Deep URL = destination page only — lock this exact path. Do NOT infer the monitoring goal from the path slug (e.g. /brochure ≠ download). If the user did not say what to check on that page, return 2–3 proposals for THIS page (e.g. visibility/accessibility, fill fields, fill+submit) — never jump straight to form-param questions]: ${deepFromMessage}`
   }
 
   return JSON.stringify(
