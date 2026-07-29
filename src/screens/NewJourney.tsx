@@ -46,6 +46,7 @@ import {
   runStoppedMessage,
   type JourneyLaunchSession,
 } from '../lib/journeyLaunch'
+import { stripLocaleSearchNoiseSteps } from '../../api/_lib/urlPathHelpers'
 import { recordedStepsToJourneyStages, recordingSiteUrl, recordingTitle } from '../lib/recordedSteps'
 import {
   actionsToStages,
@@ -75,6 +76,7 @@ import {
   isBareJourneyLaunch,
   messageWithAuthoritativePlan,
   planFromJourneySteps,
+  sanitizeDiscoveryPlan,
   wantsJourneyLaunch,
   wantsPlanCorrection,
   wantsPlanInChat,
@@ -1472,12 +1474,59 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
               : null
 
         const correctedPlan = rawPlan
-          ? ensureFormEntryInPlan(rawPlan, {
-              siteUrl: seedUrl,
-              prompt: `${initialPrompt} ${journey.name}`,
-              locale,
-            })
+          ? sanitizeDiscoveryPlan(
+              ensureFormEntryInPlan(rawPlan, {
+                siteUrl: seedUrl,
+                prompt: `${initialPrompt} ${journey.name}`,
+                locale,
+              }),
+            )
           : null
+
+        // User called out locale-noise steps (« Rechercher fr ») — never re-display them.
+        // Prefer a plan rebuilt from the live steps with noise stripped; ignore model re-lists.
+        const localeNoiseComplaint =
+          /recherch\w*\s+[«"'“”]?fr\b|ouvrir\s+[«"'“”]?\s*fr\b|ces deux actions|remets?\s+à\s+nouveau|pourquoi tu (?:les )?remet|je les ai supprim/i.test(
+            trimmed,
+          ) || wantsPlanCorrection(trimmed)
+
+        let planForUi = correctedPlan
+        if (localeNoiseComplaint) {
+          const cleanedLive = sanitizeDiscoveryPlan(
+            planFromJourneySteps(
+              stripLocaleSearchNoiseSteps(
+                steps.map((s) => ({
+                  label: s.label,
+                  action: s.action,
+                  href: s.href,
+                  targetHint: s.targetHint,
+                })),
+              ),
+              {
+                title: correctedPlan?.title || journeyName || journey.name,
+                summary:
+                  correctedPlan?.summary ||
+                  (locale === 'fr'
+                    ? 'Parcours nettoyé des étapes superflues.'
+                    : 'Journey cleaned of superfluous steps.'),
+                prompt: correctedPlan?.prompt || initialPrompt || journey.name,
+              },
+            ),
+          )
+          planForUi =
+            correctedPlan &&
+            stripLocaleSearchNoiseSteps(correctedPlan.steps).length ===
+              correctedPlan.steps.length
+              ? sanitizeDiscoveryPlan(correctedPlan)
+              : cleanedLive
+          // If the model "fixed" plan still contains locale noise, force live cleaned steps.
+          if (
+            planForUi &&
+            stripLocaleSearchNoiseSteps(planForUi.steps).length !== planForUi.steps.length
+          ) {
+            planForUi = cleanedLive
+          }
+        }
 
         const defaultIntro =
           locale === 'fr'
@@ -1489,31 +1538,43 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
               : 'OK.'
 
         let agentContent = ai.message?.trim() || defaultIntro
-        if (correctedPlan) {
+        if (planForUi) {
           const patched =
-            correctedPlan.steps.length !== (rawPlan?.steps.length ?? 0) ||
-            correctedPlan.steps.some(
+            planForUi.steps.length !== (rawPlan?.steps.length ?? 0) ||
+            planForUi.steps.some(
               (s, i) =>
                 s.label !== rawPlan?.steps[i]?.label ||
                 s.action !== rawPlan?.steps[i]?.action,
             )
           // Launch intent: short ack only — steps panel already shows the graph.
           // Plan dump only when the user asked to see/fix the plan in chat.
-          if (launchIntent && !askPlan) {
+          if (launchIntent && !askPlan && !localeNoiseComplaint) {
             agentContent =
               ai.message?.trim() ||
               (locale === 'fr'
                 ? 'Je lance le parcours avec les étapes à jour — regarde le navigateur à droite.'
                 : "Launching the journey with the updated steps — watch the browser on the right.")
           } else {
-            if (patched && !/brochure|formulaire|ouvrir le formulaire|open the form/i.test(agentContent)) {
+            if (
+              localeNoiseComplaint &&
+              patched &&
+              !/supprim|retir|nettoy|removed|deleted|cleaned/i.test(agentContent)
+            ) {
+              agentContent =
+                locale === 'fr'
+                  ? 'Bien vu — j’ai retiré les étapes superflues liées au préfixe `/fr/` de l’URL. Voici le plan nettoyé :'
+                  : 'Good catch — I removed the superfluous steps from the `/fr/` URL prefix. Here is the cleaned plan:'
+            } else if (
+              patched &&
+              !/brochure|formulaire|ouvrir le formulaire|open the form/i.test(agentContent)
+            ) {
               const note =
                 locale === 'fr'
                   ? 'J’ai ajouté le clic d’ouverture du formulaire avant les saisies — voici le plan à jour :'
                   : 'I added the form-open click before the fill steps — here is the updated plan:'
               agentContent = note
             }
-            agentContent = messageWithAuthoritativePlan(agentContent, correctedPlan)
+            agentContent = messageWithAuthoritativePlan(agentContent, planForUi)
           }
         }
 
@@ -1523,16 +1584,16 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
           content: agentContent,
         }
 
-        if (correctedPlan) {
-          const nextStages = planToJourneyStages(correctedPlan, steps, seedUrl, locale)
+        if (planForUi) {
+          const nextStages = planToJourneyStages(planForUi, steps, seedUrl, locale)
           setStages(nextStages)
           setFixActionsResolved(false)
           setScheduleResolved(false)
-          if (correctedPlan.title) {
-            setJourneyName(correctedPlan.title)
+          if (planForUi.title) {
+            setJourneyName(planForUi.title)
             onHeaderChange?.({
-              title: formatJourneyTitle(correctedPlan.title, seedUrl, locale),
-              subtitle: isRunning ? t('running') : correctedPlan.summary,
+              title: formatJourneyTitle(planForUi.title, seedUrl, locale),
+              subtitle: isRunning ? t('running') : planForUi.summary,
             })
           }
           setMessages((prev) => [

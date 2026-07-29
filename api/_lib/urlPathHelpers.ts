@@ -91,7 +91,39 @@ export function queryFromDeepUrl(url: string): string | null {
 }
 
 function extractQuoted(label: string): string | null {
-  return label.match(/"([^"]+)"/)?.[1] ?? label.match(/«\s*([^»]+)\s*»/)?.[1] ?? null
+  return (
+    label.match(/"([^"]+)"/)?.[1] ??
+    label.match(/«\s*([^»]+)\s*»/)?.[1] ??
+    label.match(/'\s*([^']+)\s*'/)?.[1] ??
+    label.match(/“\s*([^”]+)\s*”/)?.[1] ??
+    null
+  )
+}
+
+/** Locale code targeted by a search/open step, if any. */
+function localeNoiseTarget(step: {
+  label: string
+  action: string
+  targetHint?: string
+}): string | null {
+  const candidates = [
+    extractQuoted(step.label),
+    step.targetHint,
+    // Quoted only — avoids matching “Ouvrir la page…”.
+    step.label.match(
+      /\b(?:recherch(?:er)?|search(?:\s+for)?|ouvrir|open)\s+[«"'“”]\s*([a-z]{2}(?:-[a-z]{2})?)\s*[»"'“”]/i,
+    )?.[1],
+    // Unquoted search whose entire query is a locale code.
+    step.label.match(
+      /\b(?:recherch(?:er)?|search(?:\s+for)?)\s+([a-z]{2}(?:-[a-z]{2})?)\s*$/i,
+    )?.[1],
+  ]
+  for (const raw of candidates) {
+    if (!raw) continue
+    const t = raw.trim()
+    if (isLocalePathSegment(t)) return t
+  }
+  return null
 }
 
 /**
@@ -101,8 +133,8 @@ export function stripLocaleSearchNoiseSteps<
   T extends { label: string; action: string; targetHint?: string },
 >(steps: T[]): T[] {
   return steps.filter((step) => {
-    const quoted = (extractQuoted(step.label) || step.targetHint || '').trim()
-    if (!quoted || !isLocalePathSegment(quoted)) return true
+    const locale = localeNoiseTarget(step)
+    if (!locale) return true
     const blob = `${step.action} ${step.label}`.toLowerCase()
     // Type/Click/Search whose only target is a locale code — superfluous.
     return !/(type|search|click|recherch|ouvrir|open|sais|taper)/i.test(blob)

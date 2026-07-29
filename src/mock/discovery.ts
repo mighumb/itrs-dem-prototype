@@ -1,3 +1,5 @@
+import { stripLocaleSearchNoiseSteps } from '../../api/_lib/urlPathHelpers'
+
 export type DiscoveryPhase = 'idle' | 'questionnaire' | 'proposals' | 'planning' | 'conversation'
 
 export interface DiscoveryQuestion {
@@ -487,8 +489,35 @@ export function buildConfigureQuestions(
   ]
 }
 
+/** Drop every numbered step line — model prose lists cannot be trusted. */
+export function stripAllNumberedStepLines(message: string): string {
+  return message
+    .split('\n')
+    .filter((line) => !/^\s*\*{0,2}\s*\d{1,2}[.)]\s+\S/.test(line.trim()))
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+/** Plan with locale-noise steps removed (search/open « fr », etc.). */
+export function sanitizeDiscoveryPlan(plan: DiscoveryPlan): DiscoveryPlan {
+  const steps = stripLocaleSearchNoiseSteps(plan.steps)
+  if (steps.length === plan.steps.length) {
+    const same = steps.every(
+      (s, i) =>
+        s.label === plan.steps[i]?.label &&
+        s.action === plan.steps[i]?.action &&
+        s.targetHint === plan.steps[i]?.targetHint &&
+        s.href === plan.steps[i]?.href,
+    )
+    if (same) return plan
+  }
+  return { ...plan, steps }
+}
+
 export function formatPlanMessage(plan: DiscoveryPlan): string {
-  const lines = plan.steps.map(
+  const steps = stripLocaleSearchNoiseSteps(plan.steps)
+  const lines = steps.map(
     (step, index) => `${index + 1}. **${step.action}** — ${step.label}`,
   )
   return `${plan.summary}\n\n${lines.join('\n')}`
@@ -506,7 +535,9 @@ export function stripTrailingPlanListing(message: string): string {
   while (i >= 0 && /^\s*$/.test(lines[i]!)) i -= 1
   if (
     i >= 0 &&
-    /plan|étape|etape|steps?|parcours|actions?|mis à jour|updated/i.test(lines[i]!)
+    /plan|étape|etape|steps?|parcours|actions?|mis à jour|updated|corrigé|corrected|nettoy/i.test(
+      lines[i]!,
+    )
   ) {
     i -= 1
   }
@@ -522,8 +553,11 @@ export function messageWithAuthoritativePlan(
   message: string,
   plan: DiscoveryPlan,
 ): string {
-  const formatted = formatPlanMessage(plan)
-  const intro = stripTrailingPlanListing(message || '')
+  const cleanPlan = sanitizeDiscoveryPlan(plan)
+  const formatted = formatPlanMessage(cleanPlan)
+  // Strip ALL model-authored numbered lines — claims like “je les ai supprimées”
+  // often still include the old list in prose.
+  const intro = stripAllNumberedStepLines(stripTrailingPlanListing(message || ''))
   return intro ? `${intro}\n\n${formatted}` : formatted
 }
 
