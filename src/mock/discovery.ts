@@ -572,6 +572,60 @@ export function wantsPlanCorrection(text: string): boolean {
   )
 }
 
+/**
+ * User wants to run / launch the current journey (not re-list the plan).
+ * Client should call Run/Lancer — do not treat as iterate→plan dump.
+ */
+export function wantsJourneyLaunch(text: string): boolean {
+  const t = text.toLowerCase().trim()
+  if (!t) return false
+  // Showing / fixing the plan is not a launch.
+  if (wantsPlanInChat(text)) return false
+  // “Lancer la recherche” is a step action, not run-the-journey.
+  if (/\blancer\s+la\s+recherch/i.test(t)) return false
+
+  if (
+    /^(ok|oui|yes|parfait|nickel|très bien|tres bien|allez|go)?\s*[,!]?\s*(lance|lancer|lançons|lancons|exécute|execute|run|start|démarre|demarre|relance|relancer)\b/i.test(
+      t,
+    )
+  ) {
+    return true
+  }
+  if (
+    /\b(lance|lancer|lançons|lancons|exécute|execute|run|start|démarre|demarre|relance|relancer)\b[\s\S]{0,40}\b(parcours|journey|plan|ça|ca|le|it|this)\b/i.test(
+      t,
+    )
+  ) {
+    return true
+  }
+  if (/^(go|run it|let'?s go|c'?est parti)\s*[.!]?$/i.test(t)) return true
+  return false
+}
+
+/**
+ * Launch command with little/no extra edit payload — safe to run immediately
+ * without an iterate round-trip.
+ */
+export function isBareJourneyLaunch(text: string): boolean {
+  if (!wantsJourneyLaunch(text)) return false
+  const stripped = text
+    .toLowerCase()
+    .replace(
+      /\b(ok|oui|yes|parfait|nickel|très bien|tres bien|allez|please|s['’]il te pla[iî]t|stp|merci|thanks)\b/gi,
+      ' ',
+    )
+    .replace(
+      /\b(lance|lancer|lançons|lancons|exécute|execute|run|start|démarre|demarre|relance|relancer)(\s+le)?(\s+parcours|\s+journey|\s+plan|\s+run)?\b/gi,
+      ' ',
+    )
+    .replace(/\b(go|run it|let'?s go|c'?est parti|ça|ca|le|it|this|alors|maintenant|svp)\b/gi, ' ')
+    .replace(/[.!?,:;]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  // Allow tiny leftovers (“maintenant”, “svp”) but not new params / step edits.
+  return stripped.length <= 12
+}
+
 export function agentNeedsMoreContextMessage(
   text: string,
   locale: 'en' | 'fr' = 'en',

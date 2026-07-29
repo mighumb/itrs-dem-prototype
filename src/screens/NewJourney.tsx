@@ -72,8 +72,10 @@ import type {
 import { scheduleSummary, templateActions } from '../types'
 import type { DiscoveryPlan } from '../mock/discovery'
 import {
+  isBareJourneyLaunch,
   messageWithAuthoritativePlan,
   planFromJourneySteps,
+  wantsJourneyLaunch,
   wantsPlanCorrection,
   wantsPlanInChat,
 } from '../mock/discovery'
@@ -1211,11 +1213,11 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
     ],
   )
 
-  const runReplay = useCallback(async () => {
-    if (isRunning || actionCount === 0) return
+  const runReplay = useCallback(async (overrideSteps?: JourneyAction[]) => {
+    const stepsToRun = overrideSteps ?? steps
+    if (isRunning || stepsToRun.length === 0) return
 
     const runId = ++runIdRef.current
-    const stepsToRun = steps
 
     setEditMode(false)
     hidePanel('monitoring')
@@ -1256,7 +1258,6 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
     setMessages((prev) => applyPostRunMessages(prev, journey, failedStep, { locale }))
   }, [
     isRunning,
-    actionCount,
     steps,
     journey,
     openPanel,
@@ -1410,6 +1411,13 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
       const userMsg: ChatMessage = { id: `user-${Date.now()}`, role: 'user', content: trimmed }
       setMessages((prev) => [...prev, userMsg])
       setInput('')
+
+      // "Lance le parcours" with an existing runnable journey → Run, don't re-dump the plan via iterate.
+      if (isBareJourneyLaunch(trimmed) && actionCount > 0) {
+        void runReplay()
+        return
+      }
+
       setAgentTyping(true)
       setWorkStatus(null)
 
@@ -1423,6 +1431,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
         extractUrlFromText(initialPrompt) ||
         steps.map((s) => extractUrlFromText(`${s.label} ${s.action} ${s.target ?? ''}`)).find(Boolean) ||
         null
+      const launchIntent = wantsJourneyLaunch(trimmed)
 
       try {
         const ai = await requestDiscoveryAi({
@@ -1488,14 +1497,24 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
                 s.label !== rawPlan?.steps[i]?.label ||
                 s.action !== rawPlan?.steps[i]?.action,
             )
-          if (patched && !/brochure|formulaire|ouvrir le formulaire|open the form/i.test(agentContent)) {
-            const note =
-              locale === 'fr'
-                ? 'J’ai ajouté le clic d’ouverture du formulaire avant les saisies — voici le plan à jour :'
-                : 'I added the form-open click before the fill steps — here is the updated plan:'
-            agentContent = note
+          // Launch intent: short ack only — steps panel already shows the graph.
+          // Plan dump only when the user asked to see/fix the plan in chat.
+          if (launchIntent && !askPlan) {
+            agentContent =
+              ai.message?.trim() ||
+              (locale === 'fr'
+                ? 'Je lance le parcours avec les étapes à jour — regarde le navigateur à droite.'
+                : "Launching the journey with the updated steps — watch the browser on the right.")
+          } else {
+            if (patched && !/brochure|formulaire|ouvrir le formulaire|open the form/i.test(agentContent)) {
+              const note =
+                locale === 'fr'
+                  ? 'J’ai ajouté le clic d’ouverture du formulaire avant les saisies — voici le plan à jour :'
+                  : 'I added the form-open click before the fill steps — here is the updated plan:'
+              agentContent = note
+            }
+            agentContent = messageWithAuthoritativePlan(agentContent, correctedPlan)
           }
-          agentContent = messageWithAuthoritativePlan(agentContent, correctedPlan)
         }
 
         const agentMsg: ChatMessage = {
@@ -1520,6 +1539,22 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
             ...prev.filter((m) => m.id !== 'done-2' && m.id !== RUN_OUTCOME_MESSAGE_ID),
             agentMsg,
           ])
+          // Launch (+ optional edits): apply steps then run — don't leave the user staring at a re-listed plan.
+          if (launchIntent && !askPlan) {
+            const launchSteps = flattenActions(nextStages)
+            window.setTimeout(() => {
+              if (!isRunningRef.current) void runReplay(launchSteps)
+            }, 50)
+          }
+          return
+        }
+
+        // Launch with no plan returned — still run the current steps.
+        if (launchIntent && actionCount > 0) {
+          setMessages((prev) => [...prev, agentMsg])
+          window.setTimeout(() => {
+            if (!isRunningRef.current) void runReplay()
+          }, 50)
           return
         }
 
@@ -1546,6 +1581,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
     [
       agentTyping,
       isRunning,
+      actionCount,
       locale,
       messages,
       steps,
@@ -1555,6 +1591,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
       session.siteUrl,
       onHeaderChange,
       onRequestNewJourney,
+      runReplay,
       t,
     ],
   )

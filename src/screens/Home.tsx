@@ -14,7 +14,7 @@ import {
   summarizeStatedJourneyIntent,
   type DiscoveryAiResult,
 } from '../lib/discoveryAi'
-import type { JourneyLaunchSession } from '../lib/journeyLaunch'
+import { runStartMessage, type JourneyLaunchSession } from '../lib/journeyLaunch'
 import {
   getHomeExamples,
   HOME_SAMPLE_LOGO_OPTICAL_BALANCE,
@@ -23,7 +23,9 @@ import {
 import {
   createDiscoveryContext,
   hasExploitableContext,
+  isBareJourneyLaunch,
   messageWithAuthoritativePlan,
+  wantsJourneyLaunch,
   type DiscoveryContext,
   type DiscoveryPhase,
   type DiscoveryPlan,
@@ -884,9 +886,31 @@ export default function Home({
     const history = historyPlus(userMsg)
 
     if (phase === 'planning') {
-      // Any new user turn while a plan is shown = iteration → hide Run/Lancer immediately.
-      setPlan(null)
-      setPhase('conversation')
+      // "Lance le parcours" → actually Run/Lancer. Do not clear the plan or re-dump steps.
+      if (plan && isBareJourneyLaunch(text)) {
+        pushAgentReply(runStartMessage(locale))
+        onStart({
+          prompt: plan.prompt,
+          messages: history,
+          plan,
+          siteUrl:
+            ctx?.url ??
+            plan.prompt.match(/https?:\/\/[^\s<>"']+/i)?.[0]?.replace(/[.,);]+$/g, '') ??
+            null,
+        })
+        return
+      }
+
+      // Soft launch wording with extras: keep Lancer visible; still iterate if needed.
+      const launchIntent = wantsJourneyLaunch(text)
+      const planSnapshot = plan
+
+      // Any other user turn while a plan is shown = iteration → hide Run/Lancer until a full plan returns.
+      // Exception: launch intent keeps the current plan so Lancer can reappear / auto-start.
+      if (!launchIntent) {
+        setPlan(null)
+        setPhase('conversation')
+      }
       await withTyping(async (signal, onStatus) => {
         const ai = await requestDiscoveryAi({
           mode: 'chat',
@@ -895,13 +919,29 @@ export default function Home({
           phase: 'planning',
           context: ctx,
           preferredLanguage: locale,
-        signal,
-        onStatus,
+          signal,
+          onStatus,
         })
         if (ai.aborted) return
         rememberSnapshot(ai)
-  
+
         if (ai.readyForPlan && ai.plan) {
+          if (launchIntent) {
+            // Launch + small edits: apply plan quietly and start — no redundant step dump.
+            pushAgentReply(ai.message?.trim() || runStartMessage(locale))
+            setPlan(ai.plan)
+            setPhase('planning')
+            onStart({
+              prompt: ai.plan.prompt,
+              messages: history,
+              plan: ai.plan,
+              siteUrl:
+                ctx?.url ??
+                ai.plan.prompt.match(/https?:\/\/[^\s<>"']+/i)?.[0]?.replace(/[.,);]+$/g, '') ??
+                null,
+            })
+            return
+          }
           const body = messageWithAuthoritativePlan(ai.message, ai.plan)
           pushAgentReply(body)
           setPlan(ai.plan)
@@ -929,10 +969,42 @@ export default function Home({
         // Iteration without a new complete plan: keep chatting, Run stays hidden.
         if (ai.plan && hasExploitableContext(text, ctx)) {
           const nextPlan = ai.plan
+          if (launchIntent) {
+            pushAgentReply(ai.message?.trim() || runStartMessage(locale))
+            setPlan(nextPlan)
+            setPhase('planning')
+            onStart({
+              prompt: nextPlan.prompt,
+              messages: history,
+              plan: nextPlan,
+              siteUrl:
+                ctx?.url ??
+                nextPlan.prompt.match(/https?:\/\/[^\s<>"']+/i)?.[0]?.replace(/[.,);]+$/g, '') ??
+                null,
+            })
+            return
+          }
           const body = messageWithAuthoritativePlan(ai.message, nextPlan)
           pushAgentReply(body)
           setPlan(nextPlan)
           setPhase('planning')
+          return
+        }
+
+        if (launchIntent && planSnapshot) {
+          // Model didn't return a plan — still honor launch with the settled plan.
+          pushAgentReply(ai.message?.trim() || runStartMessage(locale))
+          setPlan(planSnapshot)
+          setPhase('planning')
+          onStart({
+            prompt: planSnapshot.prompt,
+            messages: history,
+            plan: planSnapshot,
+            siteUrl:
+              ctx?.url ??
+              planSnapshot.prompt.match(/https?:\/\/[^\s<>"']+/i)?.[0]?.replace(/[.,);]+$/g, '') ??
+              null,
+          })
           return
         }
 
