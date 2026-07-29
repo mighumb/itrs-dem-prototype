@@ -278,9 +278,10 @@ async function installDestinationUrlGuard(
   await context.route(
     (url) => {
       try {
-        const u = new URL(url)
+        const href = typeof url === 'string' ? url : String(url)
+        const u = new URL(href)
         if (u.origin !== dest.origin) return false
-        if (urlPathKey(url) === destKey) return false
+        if (urlPathKey(href) === destKey) return false
         return areGeoPathSiblings(u.pathname, dest.pathname)
       } catch {
         return false
@@ -738,7 +739,7 @@ export function searchQueryFromStep(step: RunnableStep): string {
 }
 
 async function tryVisibleLocator(
-  page: Page,
+  _page: Page,
   factory: () => Locator,
   timeoutMs = 700,
 ): Promise<Locator | null> {

@@ -151,6 +151,18 @@ function stripMarkdownInline(text: string): string {
   return text.replace(/\*\*/g, '').replace(/^#+\s*/, '').trim()
 }
 
+/** Plan step actions — numbered lists of these are a plan, not journey proposals. */
+const PLAN_STEP_ACTION =
+  /^(Navigate|Click|Type|Verify|Select|Scroll|Wait|Hover|Assert|Press|Fill|Check|Uncheck|Upload|Download|Tap|Open)\b/i
+
+function looksLikePlanStepTitle(title: string): boolean {
+  const t = title.trim()
+  if (PLAN_STEP_ACTION.test(t)) return true
+  // e.g. "Navigate: Go to…" / "Click on Brochure"
+  if (/^(Navigate|Click|Type|Verify)\b[:\s—–-]/i.test(t)) return true
+  return false
+}
+
 /** When Gemini lists journeys in message but leaves proposals null/invalid. */
 export function recoverProposalsFromMessage(
   message: string,
@@ -183,6 +195,10 @@ export function recoverProposalsFromMessage(
       }
     }
 
+    // Numbered plan steps (Navigate / Click / Type / Verify…) must never become
+    // journey-chooser cards — that path frames the message with "pick one below".
+    if (looksLikePlanStepTitle(title)) continue
+
     if (!description && i + 1 < lines.length) {
       const nextLine = lines[i + 1]!.trim()
       if (
@@ -207,6 +223,14 @@ export function recoverProposalsFromMessage(
   }
 
   return proposals.length >= 2 ? proposals.slice(0, 3) : null
+}
+
+/** Canned "pick one in the form below" — wrong when a plan + Lancer is showing. */
+function looksLikeProposalChooserCopy(message: string, locale: Locale): boolean {
+  const trimmed = message.trim()
+  if (!trimmed) return false
+  if (trimmed === t(locale, 'journeysSuggested').trim()) return true
+  return /choisissez-en un dans le formulaire|pick one in the form below/i.test(trimmed)
 }
 
 function stripEnumeratedListFromMessage(message: string): string {
@@ -262,11 +286,25 @@ function finalizeDiscoveryResult(options: {
     awaitingConfirm || declined ? null : normalizeProposals(options.proposals)
   let message = options.message.trim()
 
+  let plan = normalizePlan(options.plan, options.fallbackPrompt)
+  if (plan) {
+    plan = ensureFormEntryInPlan(plan, {
+      siteUrl: options.siteUrl ?? siteAnalysis?.url ?? null,
+      prompt: options.fallbackPrompt,
+      locale: options.preferredLanguage,
+    })
+  }
+  const readyForPlan = Boolean(options.readyForPlan)
+  // Plan + Lancer wins: never recover/frame journey proposals from plan step lists.
+  const hasAuthoritativePlan = Boolean(plan && (readyForPlan || plan.steps.length > 0))
+
   // Never turn "1. Oui / 2. Non" confirm copy into journey proposal cards.
   // Also never revive proposals from prose after the user declined a site candidate
   // (API already nulls proposals[]; recovery must not undo that hard gate).
   // Relocalize must never invent journeys from a translate-only reply.
+  // When a runnable plan is present, numbered steps are the plan — not a chooser.
   if (
+    !hasAuthoritativePlan &&
     !proposals &&
     !questions &&
     !awaitingConfirm &&
@@ -276,7 +314,13 @@ function finalizeDiscoveryResult(options: {
     proposals = recoverProposalsFromMessage(message, options.fallbackPrompt)
   }
 
-  if (proposals && proposals.length > 0) {
+  if (hasAuthoritativePlan) {
+    proposals = null
+    // Drop canned chooser framing — Home will render the plan + Lancer.
+    if (looksLikeProposalChooserCopy(message, options.preferredLanguage)) {
+      message = ''
+    }
+  } else if (proposals && proposals.length > 0) {
     message = frameMessageForProposals(options.preferredLanguage, message)
   }
 
@@ -295,23 +339,22 @@ function finalizeDiscoveryResult(options: {
     }
   }
 
-  let plan = normalizePlan(options.plan, options.fallbackPrompt)
-  if (plan) {
-    plan = ensureFormEntryInPlan(plan, {
-      siteUrl: options.siteUrl ?? siteAnalysis?.url ?? null,
-      prompt: options.fallbackPrompt,
-      locale: options.preferredLanguage,
-    })
-  }
+  // Empty message is OK with an authoritative plan (plan text is injected in UI).
+  // Do not fall back to the "assistant unavailable" copy in that case.
+  const resolvedMessage = message.trim()
+    ? message
+    : hasAuthoritativePlan
+      ? ''
+      : geminiUnavailable(options.preferredLanguage).message
 
   return {
-    message: message || geminiUnavailable(options.preferredLanguage).message,
+    message: resolvedMessage,
     workTrace: normalizeWorkTrace(options.workTrace),
     formTitle: questions || proposals ? formTitle : null,
     questions,
     proposals,
     plan,
-    readyForPlan: Boolean(options.readyForPlan),
+    readyForPlan,
     siteAnalysis,
     pageSnapshot: typeof options.pageSnapshot === 'string' ? options.pageSnapshot : null,
     source: options.source,

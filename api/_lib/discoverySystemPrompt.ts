@@ -318,6 +318,7 @@ STATUS when verifying: be specific (“Checking steps 4–5…”) — never cla
 - HARD RULE when preferredLanguage is "fr": if a French consumer site exists for the brand (.fr, or fr.{brand}.com / {brand}.com/fr/), use THAT host in siteTarget talk, confirm copy, plan.prompt, Navigate hrefs, and message — never default to the US/global .com when a FR market site is known (amazon.fr not amazon.com, airbnb.fr not airbnb.com, asos.fr not asos.com). Only keep a generic .com when there is genuinely no FR market site and the product is international-only.
 - When context.url / siteTarget.url is already set, cite that exact host — do not "upgrade" or rewrite it to another TLD.
 - readyForPlan: true ONLY when returning a complete plan object ready for the Run/Lancer UI. Otherwise false.
+- HARD RULE — **plan ≠ chooser**: when readyForPlan is true / you return a runnable \`plan\`, set \`proposals\` to null. Message = short intro about this one plan (or empty). NEVER say “choisissez-en un dans le formulaire” / “pick one in the form below” — there is no chooser form on the plan + Lancer screen.
 - verification: required when readyForPlan is true; otherwise null. See “Browser verification” above. stepIndexes is 0-based into plan.steps; null or [] when scope is none/full.
 
 ## Mode hints (client may send mode)
