@@ -69,8 +69,10 @@ export default function Home({
   const chatEndRef = useRef<HTMLDivElement>(null)
   const formDockRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
-  /** Tab held — Tab+Enter inserts a newline (Enter alone sends). */
+  /** Tab held — Tab+Enter inserts a newline (Enter alone sends). Desktop only. */
   const tabHeldRef = useRef(false)
+  /** Matches Tailwind `md` — below this, Enter = newline and the Tab+Enter hint is hidden. */
+  const [isMobileComposer, setIsMobileComposer] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
   const messagesRef = useRef<ChatMessage[]>([])
   messagesRef.current = messages
@@ -112,6 +114,14 @@ export default function Home({
   useEffect(() => {
     onDiscoverySessionChange?.(inSession)
   }, [inSession, onDiscoverySessionChange])
+
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 767px)')
+    const sync = () => setIsMobileComposer(mq.matches)
+    sync()
+    mq.addEventListener('change', sync)
+    return () => mq.removeEventListener('change', sync)
+  }, [])
 
   // Keep the composer / Run / floating form reachable after long agent replies.
   // Document-scroll layout: without this, a tall plan leaves the input below the fold
@@ -1013,12 +1023,14 @@ export default function Home({
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Tab') {
-                  // Keep focus so Tab+Enter can insert a newline.
+                  // Keep focus so Tab+Enter can insert a newline (desktop).
                   e.preventDefault()
                   tabHeldRef.current = true
                   return
                 }
                 if (e.key !== 'Enter') return
+                // Mobile soft keyboard: Enter = newline, send via the arrow button only.
+                if (isMobileComposer) return
                 if (tabHeldRef.current || e.shiftKey) {
                   e.preventDefault()
                   insertNewlineAtCursor(e.currentTarget)
@@ -1064,7 +1076,7 @@ export default function Home({
           )}
         </div>
       </form>
-      <p className="mt-1.5 text-center text-[11px] text-zinc-400 dark:text-zinc-500">
+      <p className="mt-1.5 hidden text-center text-[11px] text-zinc-400 md:block dark:text-zinc-500">
         {t('composerNewlineHint')}
       </p>
     </div>
