@@ -10,6 +10,7 @@ import type {
 } from '../types'
 import { actionsToStages } from './journeyStages'
 import { ensureOutcomeVerify } from '../../api/_lib/planOutcomeVerify'
+import { stripLocaleSearchNoiseSteps } from '../../api/_lib/urlPathHelpers'
 
 /** Full Discovery → workspace handoff (not just a prompt string). */
 export type JourneyLaunchSession = {
@@ -267,7 +268,8 @@ export function ensureFormEntryInPlan(
     targetHint: a.targetHint,
     href: a.href,
   }))
-  const withOutcome = ensureOutcomeVerify(asGrounded)
+  const cleaned = stripLocaleSearchNoiseSteps(asGrounded)
+  const withOutcome = ensureOutcomeVerify(cleaned)
   const changed =
     withOutcome.length !== plan.steps.length ||
     withOutcome.some((a, i) => {

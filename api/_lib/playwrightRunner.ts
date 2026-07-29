@@ -67,6 +67,17 @@ function extractUrl(text: string | undefined | null): string | null {
 function isDeepUrl(url: string): boolean {
   try {
     const u = new URL(url)
+    const parts = u.pathname.split('/').filter(Boolean)
+    if (parts.length === 0 && !u.search && !u.hash) return false
+    if (
+      parts.length === 1 &&
+      /^[a-z]{2}(?:-[a-z]{2})?$/i.test(parts[0]!) &&
+      parts[0]!.length <= 5 &&
+      !u.search &&
+      !u.hash
+    ) {
+      return false
+    }
     const path = u.pathname.replace(/\/+$/, '') || '/'
     return path !== '/' || Boolean(u.search) || Boolean(u.hash)
   } catch {
@@ -78,7 +89,12 @@ export { isDeepUrl }
 
 function homepageOf(url: string): string {
   try {
-    return `${new URL(url).origin}/`
+    const u = new URL(url)
+    const parts = u.pathname.split('/').filter(Boolean)
+    if (parts[0] && /^[a-z]{2}(?:-[a-z]{2})?$/i.test(parts[0]) && parts[0].length <= 5) {
+      return `${u.origin}/${parts[0].toLowerCase()}/`
+    }
+    return `${u.origin}/`
   } catch {
     return url
   }
