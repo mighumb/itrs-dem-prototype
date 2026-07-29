@@ -653,11 +653,36 @@ export function isBareJourneyLaunch(text: string): boolean {
       ' ',
     )
     .replace(/\b(go|run it|let'?s go|c'?est parti|ça|ca|le|it|this|alors|maintenant|svp)\b/gi, ' ')
+    // “j’ai pas le bouton Lancer” is still a launch ask, not a plan edit.
+    .replace(
+      /\b(?:j['’]?ai\s+pas|je\s+n['’]?ai\s+pas|pas\s+de|missing|where(?:'s| is)?|montre|affiche|donne)\b[\s\S]{0,20}\b(?:bouton|button)?\s*[«"'“”]?lancer[»"'“”]?/gi,
+      ' ',
+    )
+    .replace(/\b(?:bouton|button)\s*[«"'“”]?lancer[»"'“”]?/gi, ' ')
     .replace(/[.!?,:;]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
   // Allow tiny leftovers (“maintenant”, “svp”) but not new params / step edits.
-  return stripped.length <= 12
+  return stripped.length <= 24
+}
+
+/** User is missing the Run/Lancer control and wants it back / to run. */
+export function wantsMissingRunButton(text: string): boolean {
+  const t = text.toLowerCase()
+  return (
+    /\b(?:pas|missing|where|où|affiche|montre|donne|reactive|réactive|active)\b[\s\S]{0,40}\b(?:bouton\s*)?[«"'“”]?lancer[»"'“”]?/i.test(
+      t,
+    ) || /\bbouton\s*[«"'“”]?lancer[»"'“”]?\b/i.test(t)
+  )
+}
+
+/** Locale-noise / superfluous step complaint (search/open « fr », etc.). */
+export function isLocaleNoiseComplaint(text: string): boolean {
+  return (
+    /recherch\w*\s+[«"'“”]?fr\b|ouvrir\s+[«"'“”]?\s*fr\b|ces deux actions|remets?\s+à\s+nouveau|pourquoi tu (?:les )?remet/i.test(
+      text,
+    ) || wantsPlanCorrection(text)
+  )
 }
 
 export function agentNeedsMoreContextMessage(

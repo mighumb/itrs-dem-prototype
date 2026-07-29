@@ -24,8 +24,11 @@ import {
   createDiscoveryContext,
   hasExploitableContext,
   isBareJourneyLaunch,
+  isLocaleNoiseComplaint,
   messageWithAuthoritativePlan,
+  sanitizeDiscoveryPlan,
   wantsJourneyLaunch,
+  wantsMissingRunButton,
   type DiscoveryContext,
   type DiscoveryPhase,
   type DiscoveryPlan,
@@ -886,31 +889,42 @@ export default function Home({
     const history = historyPlus(userMsg)
 
     if (phase === 'planning') {
-      // "Lance le parcours" → actually Run/Lancer. Do not clear the plan or re-dump steps.
-      if (plan && isBareJourneyLaunch(text)) {
+      const cleanCurrent = plan ? sanitizeDiscoveryPlan(plan) : null
+      // Launch / missing Lancer → run with the settled (sanitized) plan. Never re-dump dirty steps.
+      if (
+        cleanCurrent &&
+        (isBareJourneyLaunch(text) ||
+          wantsMissingRunButton(text) ||
+          (wantsJourneyLaunch(text) && !isLocaleNoiseComplaint(text)))
+      ) {
         pushAgentReply(runStartMessage(locale))
+        setPlan(cleanCurrent)
+        setPhase('planning')
         onStart({
-          prompt: plan.prompt,
+          prompt: cleanCurrent.prompt,
           messages: history,
-          plan,
+          plan: cleanCurrent,
           siteUrl:
             ctx?.url ??
-            plan.prompt.match(/https?:\/\/[^\s<>"']+/i)?.[0]?.replace(/[.,);]+$/g, '') ??
+            cleanCurrent.prompt.match(/https?:\/\/[^\s<>"']+/i)?.[0]?.replace(/[.,);]+$/g, '') ??
             null,
         })
         return
       }
 
-      // Soft launch wording with extras: keep Lancer visible; still iterate if needed.
       const launchIntent = wantsJourneyLaunch(text)
-      const planSnapshot = plan
+      const correcting = isLocaleNoiseComplaint(text)
+      const planSnapshot = cleanCurrent
 
-      // Any other user turn while a plan is shown = iteration → hide Run/Lancer until a full plan returns.
-      // Exception: launch intent keeps the current plan so Lancer can reappear / auto-start.
-      if (!launchIntent) {
+      // Corrections must keep Lancer visible. Only hide it for true brainstorm pivots.
+      if (!launchIntent && !correcting) {
         setPlan(null)
         setPhase('conversation')
+      } else if (correcting && planSnapshot) {
+        setPlan(planSnapshot)
+        setPhase('planning')
       }
+
       await withTyping(async (signal, onStatus) => {
         const ai = await requestDiscoveryAi({
           mode: 'chat',
@@ -926,25 +940,25 @@ export default function Home({
         rememberSnapshot(ai)
 
         if (ai.readyForPlan && ai.plan) {
+          const next = sanitizeDiscoveryPlan(ai.plan)
           if (launchIntent) {
-            // Launch + small edits: apply plan quietly and start — no redundant step dump.
-            pushAgentReply(ai.message?.trim() || runStartMessage(locale))
-            setPlan(ai.plan)
+            pushAgentReply(runStartMessage(locale))
+            setPlan(next)
             setPhase('planning')
             onStart({
-              prompt: ai.plan.prompt,
+              prompt: next.prompt,
               messages: history,
-              plan: ai.plan,
+              plan: next,
               siteUrl:
                 ctx?.url ??
-                ai.plan.prompt.match(/https?:\/\/[^\s<>"']+/i)?.[0]?.replace(/[.,);]+$/g, '') ??
+                next.prompt.match(/https?:\/\/[^\s<>"']+/i)?.[0]?.replace(/[.,);]+$/g, '') ??
                 null,
             })
             return
           }
-          const body = messageWithAuthoritativePlan(ai.message, ai.plan)
+          const body = messageWithAuthoritativePlan(ai.message, next)
           pushAgentReply(body)
-          setPlan(ai.plan)
+          setPlan(next)
           setPhase('planning')
           return
         }
@@ -966,11 +980,10 @@ export default function Home({
           return
         }
 
-        // Iteration without a new complete plan: keep chatting, Run stays hidden.
         if (ai.plan && hasExploitableContext(text, ctx)) {
-          const nextPlan = ai.plan
+          const nextPlan = sanitizeDiscoveryPlan(ai.plan)
           if (launchIntent) {
-            pushAgentReply(ai.message?.trim() || runStartMessage(locale))
+            pushAgentReply(runStartMessage(locale))
             setPlan(nextPlan)
             setPhase('planning')
             onStart({
@@ -991,9 +1004,8 @@ export default function Home({
           return
         }
 
-        if (launchIntent && planSnapshot) {
-          // Model didn't return a plan — still honor launch with the settled plan.
-          pushAgentReply(ai.message?.trim() || runStartMessage(locale))
+        if ((launchIntent || wantsMissingRunButton(text)) && planSnapshot) {
+          pushAgentReply(runStartMessage(locale))
           setPlan(planSnapshot)
           setPhase('planning')
           onStart({
@@ -1005,6 +1017,21 @@ export default function Home({
               planSnapshot.prompt.match(/https?:\/\/[^\s<>"']+/i)?.[0]?.replace(/[.,);]+$/g, '') ??
               null,
           })
+          return
+        }
+
+        // Correction with no new plan object — keep sanitized snapshot + Lancer.
+        if (correcting && planSnapshot) {
+          const body = messageWithAuthoritativePlan(
+            ai.message?.trim() ||
+              (locale === 'fr'
+                ? 'Bien vu — voici le plan nettoyé. Tu peux Lancer.'
+                : 'Good catch — here is the cleaned plan. You can Run.'),
+            planSnapshot,
+          )
+          pushAgentReply(body)
+          setPlan(planSnapshot)
+          setPhase('planning')
           return
         }
 
