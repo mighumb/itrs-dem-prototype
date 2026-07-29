@@ -81,10 +81,10 @@ Set on Vercel → Project → Settings → Environment Variables (Production + P
 | `GEMINI_API_KEY_2` | no | Free-tier failover — same **`gemini-2.5-flash`** |
 | `GEMINI_API_KEY_3`…`_5` | no | Extra free-tier failovers |
 | `GEMINI_API_KEYS` | no | Optional comma-separated free-tier list |
-| `GOOGLE_API_IP_LABEL` | no | **Last resort** billed key — also **`gemini-2.5-flash`** (prototype cost control) |
+| `GOOGLE_API_IP_LABEL` | no | **Last resort** billed key — also **`gemini-2.5-flash`** (prototype cost control). Must be enabled for **Preview + Production**. If missing or identical to `GEMINI_API_KEY`, free-tier 429s cannot failover. |
 | `GEMINI_MODEL` | no | Optional override for Flash model preference |
 
-On each Discovery request: all keys use Flash 2.5 (no Pro / no 3.6). If free keys fail on quota, paid key is last resort but still on Flash. After a free-tier reset, the next request starts again on `GEMINI_API_KEY`.
+On each Discovery request: all keys use Flash 2.5 (no Pro / no 3.6). If a free key hits a FreeTier hard quota, Discovery **jumps straight to the next key** (paid last resort) instead of retrying every Flash model. After a free-tier hit, warm instances prefer `GOOGLE_API_IP_LABEL` first for a short cooldown. Logs include a non-secret key roster (`GEMINI_API_KEY/free, GOOGLE_API_IP_LABEL/paid`) so missing paid env is obvious.
 
 ## Homepage sample journeys
 
