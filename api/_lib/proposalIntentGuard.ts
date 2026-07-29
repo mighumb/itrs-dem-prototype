@@ -123,42 +123,103 @@ function repairProposalFromIntent(
   }
 }
 
+/** When evidence is thin/blocked, still offer concrete paths for the stated outcome. */
+export function synthesizeProposalsFromIntent(
+  intent: string,
+  destination: string | null,
+  fr: boolean,
+): GuardProposal[] {
+  const cleaned = intent.replace(/https?:\/\/[^\s<>"']+/gi, ' ').replace(/\s+/g, ' ').trim()
+  const isWhitePaperDownload =
+    /t[eé]l[eé]charg|download/i.test(cleaned) &&
+    /livre\s*blanc|white\s*paper|position\s*paper|brochure/i.test(cleaned)
+
+  if (isWhitePaperDownload) {
+    const doc =
+      cleaned.match(/\bekara(?:\s+pod)?\b/i)?.[0]?.trim() ??
+      cleaned.match(/[«"']([^«"']{4,50})[»"']/)?.[1]?.trim() ??
+      (fr ? 'le livre blanc' : 'the white paper')
+    return [
+      {
+        id: 'intent-download-resources',
+        title: fr ? 'Télécharger via Ressources' : 'Download via Resources',
+        description: fr
+          ? `Depuis l’accueil, ouvrir Ressources / Livres blancs, trouver « ${clipLabel(doc, 28)} » et télécharger.`
+          : `From the homepage, open Resources / White papers, find “${clipLabel(doc, 28)}” and download.`,
+        prompt: intent.length > 400 ? `${intent.slice(0, 397)}…` : intent,
+      },
+      {
+        id: 'intent-download-search',
+        title: fr ? 'Télécharger via la recherche' : 'Download via site search',
+        description: fr
+          ? `Depuis l’accueil, rechercher « ${clipLabel(doc, 28)} », ouvrir le résultat et lancer le téléchargement.`
+          : `From the homepage, search “${clipLabel(doc, 28)}”, open the result, and download.`,
+        prompt: intent.length > 400 ? `${intent.slice(0, 397)}…` : intent,
+      },
+    ]
+  }
+
+  const primary = repairProposalFromIntent(intent, destination, fr)
+  if (!destination) return [primary]
+  return [
+    primary,
+    {
+      id: 'intent-alt-page',
+      title: fr ? 'Contrôler la page destination' : 'Check the destination page',
+      description: fr
+        ? `Vérifier que la page fournie charge et affiche le contenu attendu.`
+        : `Verify the provided page loads and shows the expected content.`,
+      prompt: fr
+        ? `Ouvrir ${destination} et vérifier le contenu clé (sans contrôler seulement l’accueil).`
+        : `Open ${destination} and verify key content (not homepage-only).`,
+    },
+  ]
+}
+
 /**
  * Ensure proposals[0] matches statedJourneyIntent when present.
- * Drops weak homepage cards; synthesizes #1 from the intent when needed.
+ * Synthesizes proposals when the model returns none / only weak homepage cards.
  */
 export function ensureProposalsHonorStatedIntent(
   proposals: unknown,
   statedJourneyIntent: string | null | undefined,
   options?: { destinationUrl?: string | null; preferredLanguage?: string | null },
 ): GuardProposal[] | null {
-  if (!Array.isArray(proposals) || proposals.length === 0) return null
-  const normalized = proposals.flatMap((raw) => {
-    if (!raw || typeof raw !== 'object') return []
-    const p = raw as Record<string, unknown>
-    if (typeof p.title !== 'string' || !p.title.trim()) return []
-    if (typeof p.description !== 'string' || !p.description.trim()) return []
-    if (typeof p.prompt !== 'string' || !p.prompt.trim()) return []
-    return [
-      {
-        id: typeof p.id === 'string' && p.id.trim() ? p.id : `proposal-${Math.random().toString(36).slice(2, 7)}`,
-        title: p.title.trim().slice(0, 120),
-        description: p.description.trim().slice(0, 220),
-        prompt: p.prompt.trim().slice(0, 500),
-      } satisfies GuardProposal,
-    ]
-  })
-  if (normalized.length === 0) return null
-
   const intent = typeof statedJourneyIntent === 'string' ? statedJourneyIntent.trim() : ''
+  const fr = (options?.preferredLanguage ?? 'en') === 'fr'
+  const destination = options?.destinationUrl ?? null
+
+  const normalized = Array.isArray(proposals)
+    ? proposals.flatMap((raw) => {
+        if (!raw || typeof raw !== 'object') return []
+        const p = raw as Record<string, unknown>
+        if (typeof p.title !== 'string' || !p.title.trim()) return []
+        if (typeof p.description !== 'string' || !p.description.trim()) return []
+        if (typeof p.prompt !== 'string' || !p.prompt.trim()) return []
+        return [
+          {
+            id:
+              typeof p.id === 'string' && p.id.trim()
+                ? p.id
+                : `proposal-${Math.random().toString(36).slice(2, 7)}`,
+            title: p.title.trim().slice(0, 120),
+            description: p.description.trim().slice(0, 220),
+            prompt: p.prompt.trim().slice(0, 500),
+          } satisfies GuardProposal,
+        ]
+      })
+    : []
+
   if (!intent) {
-    // Still drop pure homepage uptime cards when other proposals exist.
+    if (normalized.length === 0) return null
     const withoutWeak = normalized.filter((p) => !isWeakHomepageProposal(p))
     return (withoutWeak.length >= 2 ? withoutWeak : normalized).slice(0, 3)
   }
 
-  const fr = (options?.preferredLanguage ?? 'en') === 'fr'
-  const destination = options?.destinationUrl ?? null
+  if (normalized.length === 0) {
+    return synthesizeProposalsFromIntent(intent, destination, fr)
+  }
+
   const withoutWeak = normalized.filter((p) => !isWeakHomepageProposal(p))
   const pool = withoutWeak.length > 0 ? withoutWeak : normalized
 
@@ -168,19 +229,6 @@ export function ensureProposalsHonorStatedIntent(
     return [honored[0]!, ...rest].slice(0, 3)
   }
 
-  const repaired = repairProposalFromIntent(intent, destination, fr)
-  const rest = pool.filter((p) => !isWeakHomepageProposal(p)).slice(0, 2)
-  if (rest.length === 0 && destination) {
-    rest.push({
-      id: 'intent-alt-page',
-      title: fr ? 'Contrôler la page destination' : 'Check the destination page',
-      description: fr
-        ? `Vérifier que la page fournie charge et affiche le contenu attendu.`
-        : `Verify the provided page loads and shows the expected content.`,
-      prompt: fr
-        ? `Ouvrir ${destination} et vérifier le contenu clé (sans contrôler seulement l’accueil).`
-        : `Open ${destination} and verify key content (not homepage-only).`,
-    })
-  }
-  return [repaired, ...rest].slice(0, 3)
+  // Model missed the outcome — replace with synthesized paths for the stated ask.
+  return synthesizeProposalsFromIntent(intent, destination, fr)
 }

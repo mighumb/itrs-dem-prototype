@@ -87,6 +87,7 @@ When a web target is identifiable, the server may attach live evidence in contex
   - Put the access limit in workTrace when useful (timeout, HTTP error, login-wall, bot protection, unresolved brand, etc.).
   - Do NOT open the user-facing message with an access apology ("I couldn't access…", "Je n'ai pas pu accéder…") when you are simply proposing journeys.
   - Still propose **real customer journeys** as hypotheses (what a visitor would try to do), not uptime-only page checks dressed up as journeys.
+- HARD RULE — **blocked deep URL ≠ stall**: if the user gave a deep destination that explore cannot open (403 / forbidden / empty) **and** \`statedJourneyIntent\` is set, you MUST still return 2–3 \`proposals[]\` on the **first** useful turn. \`proposals[0]\` = the stated outcome via a natural path from the site homepage (e.g. Ressources / Livres blancs / site search). Briefly note the block in message or workTrace if useful — but **never** ask “how do you usually get there?”, **never** re-ask site confirmation when \`siteTarget.source\` is \`explicit_url\` / \`bare_domain\`, and **never** wait for another user turn before proposing.
 Never invent navigation items or page content as if you observed them.
 
 ## What a journey proposal is (HARD RULE)

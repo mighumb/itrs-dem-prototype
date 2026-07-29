@@ -220,9 +220,19 @@ function buildUserPrompt(
   // Bare deep URL alone must NOT be read as “download / submit”.
   const deepFromMessage =
     intentFromDeepLocator(body.userMessage) ?? intentFromDeepLocator(seed)
+  const exploreBlocked =
+    Boolean(explore && explore.ok === false) ||
+    Boolean(
+      explore?.pages?.some((p) =>
+        /403|forbidden|access denied/i.test(`${p.title ?? ''} ${p.heading ?? ''}`),
+      ),
+    )
   if (attachSite && !confirmFirst && deepFromMessage) {
     if (statedJourneyIntent) {
       userMessage = `${userMessage}\n\n[User stated BOTH an outcome and a deep destination. proposals[0] MUST implement the stated outcome — never replace it with homepage availability or “search from homepage”. Lock this exact path as the destination/context]: ${deepFromMessage}`
+      if (exploreBlocked) {
+        userMessage = `${userMessage}\n\n[HARD] Deep destination explore failed/blocked (e.g. 403). Do NOT ask the user how they usually navigate. Do NOT ask to re-confirm the site (URL was explicit). Return 2–3 proposals NOW for the stated outcome using a natural path from the site homepage (Ressources / search / menus) — mark as hypotheses if nav labels were not observed.`
+      }
     } else {
       userMessage = `${userMessage}\n\n[Deep URL = destination page only — lock this exact path. Do NOT infer the monitoring goal from the path slug (e.g. /brochure ≠ download). Return 2–3 proposals for THIS page (e.g. visibility/accessibility, fill fields, fill+submit) — never jump straight to form-param questions]: ${deepFromMessage}`
     }
@@ -768,14 +778,50 @@ function buildResultPayload(
   const host = candidateHostLabel(target?.url)
 
   // Root guard: stated outcome beats homepage / search-from-home templates.
-  if (proposals) {
-    const seed =
-      typeof body.context?.seed === 'string' ? body.context.seed.trim() : ''
-    const stated =
-      summarizeStatedJourneyIntent(body.userMessage) ??
-      summarizeStatedJourneyIntent(seed)
+  // Also synthesizes proposals when the model stalls on 403 / asks navigation questions.
+  const seed =
+    typeof body.context?.seed === 'string' ? body.context.seed.trim() : ''
+  const stated =
+    summarizeStatedJourneyIntent(body.userMessage) ??
+    summarizeStatedJourneyIntent(seed)
+  const destinationUrl = analysis?.url ?? target?.url ?? body.context?.url ?? null
+
+  if (!confirmFirst && !declined) {
+    // Drop model-invented site confirmation when the URL was already explicit.
+    if (
+      questions &&
+      (target?.source === 'explicit_url' || target?.source === 'bare_domain')
+    ) {
+      const filtered = questions.filter((q) => {
+        if (!q || typeof q !== 'object') return false
+        const prompt = String((q as { prompt?: unknown }).prompt ?? '')
+        return !/confirm(?:er)?\s+(?:le\s+)?site|is\s+.+\s+the\s+site|bien\s+sur\s+\w+\.com|url\s+à\s+surveiller/i.test(
+          prompt,
+        )
+      })
+      questions = filtered.length > 0 ? filtered : null
+    }
+    // Drop “how do you usually navigate?” when the outcome is already stated.
+    if (questions && stated) {
+      const filtered = questions.filter((q) => {
+        if (!q || typeof q !== 'object') return false
+        const prompt = String((q as { prompt?: unknown }).prompt ?? '')
+        return !/comment\s+tu\s+acc[eè]des|how\s+do\s+you\s+(?:usually\s+)?(?:access|get\s+there|navigate)|section\s+des\s+livres\s+blancs|habituellement/i.test(
+          prompt,
+        )
+      })
+      questions = filtered.length > 0 ? filtered : null
+    }
+  }
+
+  if (!confirmFirst && !declined && stated) {
     proposals = ensureProposalsHonorStatedIntent(proposals, stated, {
-      destinationUrl: analysis?.url ?? target?.url ?? body.context?.url ?? null,
+      destinationUrl,
+      preferredLanguage: lang,
+    })
+  } else if (proposals) {
+    proposals = ensureProposalsHonorStatedIntent(proposals, null, {
+      destinationUrl,
       preferredLanguage: lang,
     })
   }

@@ -141,6 +141,32 @@ function detectLoginWall(page: SiteExplorePage): boolean {
   return hasPasswordField && (loginCta || thinContent)
 }
 
+function isBlockedOrThinInventory(page: SiteExplorePage): boolean {
+  const blob = `${page.title ?? ''} ${page.heading ?? ''}`
+  if (/403\s*forbidden|access\s*denied|\bforbidden\b|attention required|just a moment/i.test(blob)) {
+    return true
+  }
+  return (page.links?.length ?? 0) + (page.buttons?.length ?? 0) < 2
+}
+
+/** When a deep destination is blocked, still crawl the market homepage for nav inventory. */
+function enqueueHomepageFallbacks(
+  queue: Array<{ url: string; score: number }>,
+  visited: Set<string>,
+  start: URL,
+): void {
+  const homes = new Set<string>([`${start.origin}/`])
+  const parts = start.pathname.split('/').filter(Boolean)
+  if (parts[0] && /^[a-z]{2}(?:-[a-z]{2})?$/i.test(parts[0])) {
+    homes.add(`${start.origin}/${parts[0].toLowerCase()}/`)
+  }
+  for (const home of homes) {
+    if (visited.has(home)) continue
+    if (queue.some((q) => q.url === home)) continue
+    queue.push({ url: home, score: 95 })
+  }
+}
+
 function linkScore(label: string, href: string): number {
   const blob = `${label} ${href}`.toLowerCase()
   let score = 0
@@ -442,6 +468,23 @@ export async function explorePublicSite(
           forms: inventory.forms,
         }
         pages.push(pageData)
+
+        // Deep URL blocked/empty → keep exploring from the homepage so proposals
+        // can use a natural path (nav / search) instead of stalling on 403.
+        if (
+          destinationUrl &&
+          urlPathKey(normalized) === urlPathKey(destinationUrl) &&
+          isBlockedOrThinInventory(pageData)
+        ) {
+          enqueueHomepageFallbacks(queue, visited, start)
+          onStatus?.(
+            t(
+              lang,
+              'Deep page blocked — exploring the homepage for another path…',
+              'Page profonde bloquée — j’explore l’accueil pour un autre chemin…',
+            ),
+          )
+        }
 
         for (const link of inventory.links) {
           const abs = relatedUrl(start, link.href)
