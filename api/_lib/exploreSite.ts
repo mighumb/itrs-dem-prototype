@@ -5,7 +5,16 @@
  */
 
 import type { Browser, Page } from 'playwright-core'
-import { dismissNoise, launchBrowser, createLocalizedPage } from './playwrightRunner.js'
+import {
+  dismissNoise,
+  launchBrowser,
+  createLocalizedPage,
+  enforceUserDestination,
+  isDeepUrl as runnerIsDeepUrl,
+  urlPathKey,
+  marketCountryFor,
+  type RunnerLocale,
+} from './playwrightRunner.js'
 import { analyzePublicSite, type SiteAnalysisResult } from './analyzeSite.js'
 
 export type SiteExploreLink = {
@@ -56,20 +65,34 @@ type ExploreCacheEntry = {
 
 const exploreCache = new Map<string, ExploreCacheEntry>()
 
-function cacheKeyFor(url: string): string {
+function cacheKeyFor(url: string, market: string): string {
   try {
-    return new URL(url).origin
+    const u = new URL(url)
+    const path = u.pathname.replace(/\/+$/, '') || '/'
+    // Path + market matter: /brochure (FR) must not reuse /brochure-inter (US) cache.
+    return `${u.origin}${path}|${market}`
   } catch {
-    return url
+    return `${url}|${market}`
   }
 }
 
 /** Read a still-fresh explore result without re-crawling (used on later Discovery turns). */
 export function peekExploreCache(url: string | null | undefined): SiteExploreResult | null {
   if (!url) return null
-  const entry = exploreCache.get(cacheKeyFor(url))
-  if (!entry || entry.expires <= Date.now()) return null
-  return entry.explore
+  // Prefer exact path+any market hit; fall back to scanning keys for same origin+path.
+  try {
+    const u = new URL(url)
+    const path = u.pathname.replace(/\/+$/, '') || '/'
+    const prefix = `${u.origin}${path}|`
+    for (const [key, entry] of exploreCache) {
+      if (!key.startsWith(prefix)) continue
+      if (entry.expires <= Date.now()) continue
+      return entry.explore
+    }
+  } catch {
+    // fall through
+  }
+  return null
 }
 
 type RawInventory = {
@@ -129,6 +152,7 @@ function linkScore(label: string, href: string): number {
     [/\/(product|products|shop|boutique|catalog)/i, 6],
     [/\/(destinations?|offers?|offres?|deals?)/i, 6],
     [/\/(contact|aide|help|support|faq)/i, 3],
+    [/\/(brochure|devis|demo|lead|formulaire|inscription)/i, 9],
     [/\/(about|a-propos|company)/i, 2],
   ] as const
   for (const [re, points] of boosts) {
@@ -310,7 +334,12 @@ export async function explorePublicSite(
     return { explore, analysis: toAnalysis(explore) }
   }
 
-  const cached = exploreCache.get(cacheKeyFor(start.toString()))
+  const destinationUrl = runnerIsDeepUrl(start.toString()) ? start.toString() : null
+  const runnerLocale: RunnerLocale = lang
+  const market = marketCountryFor(runnerLocale, destinationUrl)
+  const cacheKey = cacheKeyFor(start.toString(), market)
+
+  const cached = exploreCache.get(cacheKey)
   if (cached && cached.expires > Date.now()) {
     onStatus?.(
       t(
@@ -329,6 +358,7 @@ export async function explorePublicSite(
   let browser: Browser | null = null
   const pages: SiteExplorePage[] = []
   const visited = new Set<string>()
+  // Prefer the exact user URL first (deep path), then crawl outwards.
   const queue: Array<{ url: string; score: number }> = [{ url: start.toString(), score: 100 }]
 
   try {
@@ -336,6 +366,7 @@ export async function explorePublicSite(
     const page = await createLocalizedPage(browser, {
       preferredLanguage: lang,
       seedUrl: start.toString(),
+      destinationUrl,
     })
 
     while (queue.length > 0 && pages.length < maxPages && timeLeft() > 4_000) {
@@ -348,16 +379,31 @@ export async function explorePublicSite(
       visited.add(normalized)
 
       try {
+        const pathLabel = (() => {
+          try {
+            return new URL(normalized).pathname || '/'
+          } catch {
+            return '/'
+          }
+        })()
         if (pages.length === 0) {
           onStatus?.(
-            t(lang, 'Opening the homepage…', 'Ouverture de la page d’accueil…'),
+            t(
+              lang,
+              destinationUrl
+                ? `Opening ${pathLabel}…`
+                : 'Opening the homepage…',
+              destinationUrl
+                ? `Ouverture de ${pathLabel}…`
+                : 'Ouverture de la page d’accueil…',
+            ),
           )
         } else {
           onStatus?.(
             t(
               lang,
-              `Checking ${new URL(normalized).pathname || '/'}…`,
-              `Je regarde ${new URL(normalized).pathname || '/'}…`,
+              `Checking ${pathLabel}…`,
+              `Je regarde ${pathLabel}…`,
             ),
           )
         }
@@ -367,10 +413,24 @@ export async function explorePublicSite(
           timeout: Math.min(18_000, Math.max(5_000, timeLeft() - 2_000)),
         })
         await dismissNoise(page)
-        await new Promise((resolve) => setTimeout(resolve, 350))
+        // Hold the user-chosen deep URL if geo redirected to a sibling path.
+        if (
+          destinationUrl &&
+          urlPathKey(normalized) === urlPathKey(destinationUrl)
+        ) {
+          await enforceUserDestination(page, destinationUrl, runnerLocale)
+        }
+        await new Promise((resolve) => setTimeout(resolve, 450))
 
         const inventory = await collectInventory(page)
-        const finalUrl = page.url()
+        let finalUrl = page.url()
+        // Prefer reporting the contracted destination path (drop tracking query noise).
+        if (
+          destinationUrl &&
+          urlPathKey(finalUrl) === urlPathKey(destinationUrl)
+        ) {
+          finalUrl = destinationUrl
+        }
         const pageData: SiteExplorePage = {
           url: finalUrl,
           title: inventory.title,
@@ -410,7 +470,9 @@ export async function explorePublicSite(
           'Exploration navigateur vide — je tente un fetch simple…',
         ),
       )
-      const analysis = await analyzePublicSite(start.toString())
+      const analysis = await analyzePublicSite(start.toString(), {
+        preferredLanguage: lang,
+      })
       const explore: SiteExploreResult = {
         ok: analysis.ok,
         url: analysis.url,
@@ -434,10 +496,18 @@ export async function explorePublicSite(
     )
 
     const loginWall = pages.length > 0 && pages.every((p) => detectLoginWall(p))
+    // Prefer the user-provided start URL as the explore identity when we held it.
+    const primaryUrl =
+      (destinationUrl &&
+        pages.some((p) => urlPathKey(p.url) === urlPathKey(destinationUrl)) &&
+        destinationUrl) ||
+      pages[0]?.url ||
+      start.toString()
+
     if (loginWall) {
       const explore: SiteExploreResult = {
         ok: false,
-        url: pages[0]?.url ?? start.toString(),
+        url: primaryUrl,
         reason: 'Login-wall suspected — little public content available',
         method: 'playwright',
         pagesVisited: pages.length,
@@ -446,7 +516,7 @@ export async function explorePublicSite(
         title: pages[0]?.title ?? null,
       }
       const analysis = toAnalysis(explore)
-      exploreCache.set(cacheKeyFor(start.toString()), {
+      exploreCache.set(cacheKey, {
         expires: Date.now() + EXPLORE_CACHE_TTL_MS,
         explore,
         analysis,
@@ -456,7 +526,7 @@ export async function explorePublicSite(
 
     const explore: SiteExploreResult = {
       ok: true,
-      url: pages[0]?.url ?? start.toString(),
+      url: primaryUrl,
       reason: null,
       method: 'playwright',
       pagesVisited: pages.length,
@@ -465,7 +535,7 @@ export async function explorePublicSite(
       title: pages[0]?.title ?? null,
     }
     const analysis = toAnalysis(explore)
-    exploreCache.set(cacheKeyFor(start.toString()), {
+    exploreCache.set(cacheKey, {
       expires: Date.now() + EXPLORE_CACHE_TTL_MS,
       explore,
       analysis,
@@ -483,10 +553,12 @@ export async function explorePublicSite(
         'Échec de l’exploration navigateur — fallback fetch simple…',
       ),
     )
-    const analysis = await analyzePublicSite(start.toString())
+    const analysis = await analyzePublicSite(start.toString(), {
+      preferredLanguage: lang,
+    })
     const explore: SiteExploreResult = {
       ok: analysis.ok,
-      url: analysis.url,
+      url: destinationUrl || analysis.url,
       reason: analysis.ok ? `Playwright failed (${message}); used HTTP snapshot` : analysis.reason,
       method: analysis.ok ? 'http-fallback' : 'none',
       pagesVisited: 0,

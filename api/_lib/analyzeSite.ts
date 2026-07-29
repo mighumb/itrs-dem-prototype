@@ -105,7 +105,10 @@ export function extractHttpUrl(text: string | null | undefined): string | null {
   return `https://${hostPath}`
 }
 
-export async function analyzePublicSite(rawUrl: string): Promise<SiteAnalysisResult> {
+export async function analyzePublicSite(
+  rawUrl: string,
+  options?: { preferredLanguage?: 'en' | 'fr' | null },
+): Promise<SiteAnalysisResult> {
   let url = rawUrl.trim()
   if (!/^https?:\/\//i.test(url)) {
     url = `https://${url}`
@@ -138,6 +141,14 @@ export async function analyzePublicSite(rawUrl: string): Promise<SiteAnalysisRes
 
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
+  const market =
+    options?.preferredLanguage === 'fr' ||
+    /\.fr$/i.test(parsed.hostname) ||
+    /\/brochure(?!-inter)/i.test(parsed.pathname)
+      ? 'FR'
+      : options?.preferredLanguage === 'en' || /brochure-inter|\/en(\/|$)/i.test(parsed.pathname)
+        ? 'US'
+        : null
 
   try {
     const response = await fetch(parsed.toString(), {
@@ -148,6 +159,13 @@ export async function analyzePublicSite(rawUrl: string): Promise<SiteAnalysisRes
         'User-Agent':
           'ITRS-DEM-DiscoveryBot/1.0 (+https://itrs-dem-prototype.vercel.app; public monitoring analysis)',
         Accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.8',
+        'Accept-Language':
+          options?.preferredLanguage === 'fr'
+            ? 'fr-FR,fr;q=0.9,en;q=0.5'
+            : 'en-US,en;q=0.9',
+        ...(market
+          ? { Cookie: `__dplc=${market}; country=${market}; countryCode=${market}` }
+          : {}),
       },
     })
 

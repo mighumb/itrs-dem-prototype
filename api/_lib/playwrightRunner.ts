@@ -74,6 +74,8 @@ function isDeepUrl(url: string): boolean {
   }
 }
 
+export { isDeepUrl }
+
 function homepageOf(url: string): string {
   try {
     return `${new URL(url).origin}/`
@@ -191,36 +193,14 @@ async function applyMarketCookies(
 ): Promise<void> {
   try {
     const u = new URL(pageUrl)
-    const host = u.hostname
-    const base = host.replace(/^www\./i, '')
-    const domains = host === base ? [host, `.${base}`] : [host, `.${base}`, base]
-    const cookies = domains.flatMap((domain) => [
-      {
-        name: '__dplc',
-        value: country,
-        domain,
-        path: '/',
-        url: u.origin,
-      },
-      {
-        name: 'country',
-        value: country,
-        domain,
-        path: '/',
-        url: u.origin,
-      },
-      {
-        name: 'countryCode',
-        value: country,
-        domain,
-        path: '/',
-        url: u.origin,
-      },
+    // CRITICAL: cookie path must be `/`. If we pass url=…/brochure, Playwright
+    // scopes the cookie to that path and geo redirects (hetic __dplc) ignore it.
+    const originUrl = `${u.origin}/`
+    await context.addCookies([
+      { name: '__dplc', value: country, url: originUrl },
+      { name: 'country', value: country, url: originUrl },
+      { name: 'countryCode', value: country, url: originUrl },
     ])
-    // Playwright prefers either url or domain — use url-based cookies for reliability.
-    await context.addCookies(
-      cookies.map(({ name, value, url }) => ({ name, value, url })),
-    )
   } catch {
     // Best-effort market alignment.
   }
@@ -231,23 +211,40 @@ async function installGeoApiMocks(
   context: BrowserContext,
   country: MarketCountry,
 ): Promise<void> {
-  const payload = JSON.stringify({
+  const data = {
     ip: country === 'FR' ? '90.84.0.1' : '8.8.8.8',
     country,
     country_code: country,
     countryCode: country,
     country_name: country === 'FR' ? 'France' : 'United States',
-  })
+  }
   const fulfill = async (route: Route) => {
     const req = route.request()
     if (req.method() !== 'GET' && req.method() !== 'HEAD') {
       await route.continue()
       return
     }
+    // HETIC (and many CMPs) call ipinfo via jQuery JSONP — raw JSON breaks the
+    // callback and the site falls back to the international brochure URL.
+    let callback: string | null = null
+    try {
+      callback = new URL(req.url()).searchParams.get('callback')
+    } catch {
+      callback = null
+    }
+    const json = JSON.stringify(data)
+    if (callback && /^[a-zA-Z_$][\w.$]*$/.test(callback)) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/javascript; charset=utf-8',
+        body: `${callback}(${json});`,
+      })
+      return
+    }
     await route.fulfill({
       status: 200,
-      contentType: 'application/json',
-      body: payload,
+      contentType: 'application/json; charset=utf-8',
+      body: json,
     })
   }
   await context.route(/ipinfo\.io/i, fulfill)
@@ -258,10 +255,72 @@ async function installGeoApiMocks(
 }
 
 /**
+ * When the user chose a deep URL, rewrite same-origin geo/locale sibling
+ * document navigations back to that URL (e.g. /brochure-inter → /brochure).
+ * Cookie/IP mocks help, but edge rules (ASN / redirection.io) can still bounce.
+ *
+ * IMPORTANT: do NOT register a catch-all star-star route — continuing it bypasses
+ * later/earlier geo API mocks (Playwright only lets one handler win).
+ */
+async function installDestinationUrlGuard(
+  context: BrowserContext,
+  destinationUrl: string | null,
+): Promise<void> {
+  if (!destinationUrl || !isDeepUrl(destinationUrl)) return
+  let dest: URL
+  try {
+    dest = new URL(destinationUrl)
+  } catch {
+    return
+  }
+  const destKey = urlPathKey(destinationUrl)
+
+  await context.route(
+    (url) => {
+      try {
+        const u = new URL(url)
+        if (u.origin !== dest.origin) return false
+        if (urlPathKey(url) === destKey) return false
+        return areGeoPathSiblings(u.pathname, dest.pathname)
+      } catch {
+        return false
+      }
+    },
+    async (route) => {
+      const req = route.request()
+      const type = req.resourceType()
+      if (type !== 'document' && type !== 'other' && !req.isNavigationRequest()) {
+        await route.continue()
+        return
+      }
+      await route.continue({ url: destinationUrl })
+    },
+  )
+}
+
+/** /brochure ↔ /brochure-inter, /fr/… ↔ /en/…, etc. */
+export function areGeoPathSiblings(aPath: string, bPath: string): boolean {
+  const norm = (p: string) => p.replace(/\/+$/, '').toLowerCase() || '/'
+  const a = norm(aPath)
+  const b = norm(bPath)
+  if (a === b) return true
+  const strip = (p: string) =>
+    p
+      .replace(/-inter(national)?$/i, '')
+      .replace(/\/(en|fr|us|uk|de|es|it|pt|nl)(\/|$)/gi, '/')
+      .replace(/\/+/g, '/')
+      .replace(/\/+$/, '') || '/'
+  if (strip(a) === strip(b) && strip(a) !== '/') return true
+  // brochure ↔ brochure-inter
+  if (/brochure/i.test(a) && /brochure/i.test(b)) return true
+  return false
+}
+
+/**
  * If geo/cookie redirected away from the user-chosen deep URL, force it back.
  * Market cookies are aligned to whatever that destination needs.
  */
-async function enforceUserDestination(
+export async function enforceUserDestination(
   page: Page,
   destinationUrl: string | null,
   runnerLocale: RunnerLocale,
@@ -275,8 +334,15 @@ async function enforceUserDestination(
   const country = marketCountryFor(runnerLocale, destinationUrl)
   await applyMarketCookies(page.context(), destinationUrl, country)
   await page.goto(destinationUrl, { waitUntil: 'domcontentloaded', timeout: 35000 })
-  await page.waitForTimeout(400)
+  await page.waitForTimeout(500)
   await dismissNoise(page)
+  // Client-side geo scripts can still bounce once — hold the contract.
+  if (urlPathKey(page.url()) !== urlPathKey(destinationUrl)) {
+    await applyMarketCookies(page.context(), destinationUrl, country)
+    await page.goto(destinationUrl, { waitUntil: 'domcontentloaded', timeout: 35000 })
+    await page.waitForTimeout(400)
+    await dismissNoise(page)
+  }
   return urlPathKey(page.url()) === urlPathKey(destinationUrl)
 }
 
@@ -364,20 +430,24 @@ async function captureHighlighted(
 }
 
 const CONSENT_REFUSE_SELECTORS = [
+  '.didomi-continue-without-agreeing',
   'button:has-text("Continuer sans accepter")',
+  '[class*="continue-without-agreeing" i]',
   'button:has-text("Tout refuser")',
   'button:has-text("Refuser et fermer")',
-  'button:has-text("Refuser")',
-  'button:has-text("Reject all")',
-  'button:has-text("Reject All")',
-  'button:has-text("Reject")',
-  'button:has-text("Deny")',
-  'button:has-text("Decline")',
+  'button:has-text("Refuser et fermer")',
+  'button:has-text("Tout Refuser")',
   '#didomi-notice-disagree-button',
   '#onetrust-reject-all-handler',
+  'button:has-text("Reject all")',
+  'button:has-text("Reject All")',
+  'button:has-text("Deny all")',
+  'button:has-text("Decline all")',
   '[aria-label*="Refuse" i]',
   '[aria-label*="Disagree" i]',
-  '[aria-label*="Reject" i]',
+  '[aria-label*="Reject all" i]',
+  // Narrow single-word refuse — avoid matching form CTAs.
+  '#didomi-notice-disagree-button',
 ]
 
 const CONSENT_ACCEPT_SELECTORS = [
@@ -389,10 +459,7 @@ const CONSENT_ACCEPT_SELECTORS = [
   'button:has-text("Accept & Close")',
   'button:has-text("Agree and close")',
   'button:has-text("I agree")',
-  'button:has-text("Agree")',
-  'button:has-text("Accepter")',
-  'button:has-text("Accept")',
-  'button:has-text("OK")',
+  // Avoid bare "Accept" / "Accepter" / "OK" — they match form CTAs ("J'accepte", submit).
 ]
 
 export function isConsentStep(step: { label: string; action?: string; targetHint?: string }): boolean {
@@ -465,9 +532,27 @@ async function consentBannerVisible(page: Page): Promise<boolean> {
 export async function dismissNoise(page: Page) {
   for (let attempt = 0; attempt < 3; attempt++) {
     if (attempt > 0) await page.waitForTimeout(450)
-    const loc = await findConsentButton(page, 'auto')
+    // Prefer Didomi "continue without agreeing" (often a <span>, not a <button>).
+    const continueWithout = page.locator('.didomi-continue-without-agreeing').first()
+    if (await continueWithout.isVisible({ timeout: 280 }).catch(() => false)) {
+      try {
+        await continueWithout.click({ timeout: 1500 })
+        await page.waitForTimeout(350)
+        continue
+      } catch {
+        // fall through to generic consent search
+      }
+    }
+    const loc = await findConsentButton(page, 'refuse')
     if (!loc) return
     try {
+      // Never click the page's lead-form submit while dismissing cookies.
+      const id = (await loc.getAttribute('id').catch(() => '')) || ''
+      const text = ((await loc.textContent().catch(() => '')) || '').trim()
+      if (/edit-actions-submit|webform-button--submit/i.test(id)) return
+      if (/télécharge|download|brochure|envoyer|submit/i.test(text) && !/cookie|didomi|accepter les/i.test(text)) {
+        return
+      }
       await loc.click({ timeout: 1500 })
       await page.waitForTimeout(350)
     } catch {
@@ -1187,6 +1272,8 @@ export async function createLocalizedPage(
       'Accept-Language': isFr ? 'fr-FR,fr;q=0.9,en;q=0.5' : 'en-US,en;q=0.9',
     },
   })
+  await installDestinationUrlGuard(context, options?.destinationUrl ?? null)
+  // Register geo mocks AFTER the destination guard so they win for ipinfo/etc.
   await installGeoApiMocks(context, market)
   const cookieHost = options?.destinationUrl || options?.seedUrl
   if (cookieHost) {
