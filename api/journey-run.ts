@@ -18,6 +18,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const body = (req.body ?? {}) as {
     steps?: RunnableStep[]
     prompt?: string
+    siteUrl?: string | null
     preferredLanguage?: 'en' | 'fr'
   }
 
@@ -48,10 +49,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       ? body.preferredLanguage
       : undefined
 
+  const siteUrl =
+    typeof body.siteUrl === 'string' && body.siteUrl.trim()
+      ? body.siteUrl.trim()
+      : undefined
+
   try {
     await runJourneyWithPlaywright({
       steps,
       prompt: typeof body.prompt === 'string' ? body.prompt : undefined,
+      siteUrl,
       preferredLanguage,
       signal: abort.signal,
       onEvent: async (event) => {

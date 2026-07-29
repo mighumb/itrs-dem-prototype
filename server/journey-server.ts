@@ -40,7 +40,12 @@ const server = http.createServer(async (req, res) => {
     chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
   }
 
-  let body: { steps?: RunnableStep[]; prompt?: string } = {}
+  let body: {
+    steps?: RunnableStep[]
+    prompt?: string
+    siteUrl?: string | null
+    preferredLanguage?: 'en' | 'fr'
+  } = {}
   try {
     body = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}') as typeof body
   } catch {
@@ -75,9 +80,20 @@ const server = http.createServer(async (req, res) => {
   const abort = new AbortController()
   req.on('close', () => abort.abort())
 
+  const preferredLanguage =
+    body.preferredLanguage === 'fr' || body.preferredLanguage === 'en'
+      ? body.preferredLanguage
+      : undefined
+  const siteUrl =
+    typeof body.siteUrl === 'string' && body.siteUrl.trim()
+      ? body.siteUrl.trim()
+      : undefined
+
   await runJourneyWithPlaywright({
     steps,
     prompt: body.prompt,
+    siteUrl,
+    preferredLanguage,
     signal: abort.signal,
     onEvent: (event) => {
       if (abort.signal.aborted) return

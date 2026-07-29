@@ -735,6 +735,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
         const result = await runLiveJourney({
           steps: slice,
           prompt: initialPrompt,
+          siteUrl: session.siteUrl,
           preferredLanguage: locale,
           signal: controller.signal,
           onFrame: (frame) => {
@@ -880,7 +881,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
         }
       }
     },
-    [initialPrompt, locale, recordLastRunStep],
+    [initialPrompt, locale, recordLastRunStep, session.siteUrl],
   )
 
   const runSimulatedSteps = useCallback(

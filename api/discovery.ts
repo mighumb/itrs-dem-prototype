@@ -698,6 +698,7 @@ async function groundAndMaybeDryRunPlan(options: {
     steps: selected,
     prompt:
       typeof planObj.prompt === 'string' ? (planObj.prompt as string) : body.userMessage,
+    siteUrl: seedUrl,
     preferredLanguage: lang,
     deadlineMs: Math.min(18_000, budgetLeft() - 4_000),
   })
