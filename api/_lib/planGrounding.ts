@@ -368,6 +368,13 @@ export function groundingIssues(
   return issues.slice(0, 6)
 }
 
+export {
+  ensureOutcomeVerify,
+  isWeakPageLoadVerify,
+  outcomeVerifyFromSteps,
+} from './planOutcomeVerify.js'
+import { ensureOutcomeVerify } from './planOutcomeVerify.js'
+
 export function applyGroundingToPlan(
   plan: Record<string, unknown>,
   explore: SiteExploreResult | null,
@@ -375,19 +382,18 @@ export function applyGroundingToPlan(
 ): { plan: Record<string, unknown>; issues: string[] } {
   if (!plan || typeof plan !== 'object') return { plan, issues: [] }
   const rawSteps = Array.isArray(plan.steps) ? plan.steps : []
-  const steps: GroundedPlanStep[] = rawSteps
-    .map((step) => {
-      if (!step || typeof step !== 'object') return null
-      const s = step as Record<string, unknown>
-      if (typeof s.label !== 'string' || typeof s.action !== 'string') return null
-      return {
-        label: s.label,
-        action: s.action,
-        targetHint: typeof s.targetHint === 'string' ? s.targetHint : undefined,
-        href: typeof s.href === 'string' ? s.href : undefined,
-      }
-    })
-    .filter((s): s is GroundedPlanStep => Boolean(s))
+  const steps: GroundedPlanStep[] = rawSteps.flatMap((step) => {
+    if (!step || typeof step !== 'object') return []
+    const s = step as Record<string, unknown>
+    if (typeof s.label !== 'string' || typeof s.action !== 'string') return []
+    const out: GroundedPlanStep = {
+      label: s.label,
+      action: s.action,
+    }
+    if (typeof s.targetHint === 'string') out.targetHint = s.targetHint
+    if (typeof s.href === 'string') out.href = s.href
+    return [out]
+  })
 
   const seed =
     contextUrl ||
@@ -395,9 +401,10 @@ export function applyGroundingToPlan(
     null
   const enriched = enrichPlanStepsFromExplore(steps, explore)
   const naturalized = naturalizeDeepLinkEntry(enriched, seed)
-  const issues = groundingIssues(naturalized, explore)
+  const withOutcome = ensureOutcomeVerify(naturalized)
+  const issues = groundingIssues(withOutcome, explore)
   return {
-    plan: { ...plan, steps: naturalized },
+    plan: { ...plan, steps: withOutcome },
     issues,
   }
 }

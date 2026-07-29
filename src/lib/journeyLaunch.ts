@@ -9,6 +9,7 @@ import type {
   JourneyTemplateStage,
 } from '../types'
 import { actionsToStages } from './journeyStages'
+import { ensureOutcomeVerify } from '../../api/_lib/planOutcomeVerify'
 
 /** Full Discovery → workspace handoff (not just a prompt string). */
 export type JourneyLaunchSession = {
@@ -260,22 +261,29 @@ export function ensureFormEntryInPlan(
     prompt: `${options?.prompt ?? ''} ${plan.prompt} ${plan.title}`,
     locale: options?.locale,
   })
-  if (
-    fixed.length === plan.steps.length &&
-    fixed.every((a, i) => {
-      const s = plan.steps[i]!
+  const asGrounded = fixed.map((a) => ({
+    label: a.label,
+    action: a.action,
+    targetHint: a.targetHint,
+    href: a.href,
+  }))
+  const withOutcome = ensureOutcomeVerify(asGrounded)
+  const changed =
+    withOutcome.length !== plan.steps.length ||
+    withOutcome.some((a, i) => {
+      const s = plan.steps[i]
       return (
-        a.label === s.label &&
-        a.action === normalizeAction(s.action, s.label) &&
-        (a.href ?? undefined) === (s.href ?? undefined)
+        !s ||
+        a.label !== s.label ||
+        a.action !== normalizeAction(s.action, s.label) ||
+        (a.href ?? undefined) !== (s.href ?? undefined) ||
+        (a.targetHint ?? undefined) !== (s.targetHint ?? undefined)
       )
     })
-  ) {
-    return plan
-  }
+  if (!changed) return plan
   return {
     ...plan,
-    steps: fixed.map((a) => {
+    steps: withOutcome.map((a) => {
       const step: DiscoveryPlan['steps'][number] = {
         label: a.label,
         action: a.action,
