@@ -795,7 +795,7 @@ function buildResultPayload(
       const filtered = questions.filter((q) => {
         if (!q || typeof q !== 'object') return false
         const prompt = String((q as { prompt?: unknown }).prompt ?? '')
-        return !/confirm(?:er)?\s+(?:le\s+)?site|is\s+.+\s+the\s+site|bien\s+sur\s+\w+\.com|url\s+à\s+surveiller/i.test(
+        return !/confirm(?:er)?\s+(?:le\s+)?site|is\s+.+\s+the\s+site|bien\s+sur\s+\w+|site\s+à\s+surveiller|url\s+à\s+surveiller|official\s+site/i.test(
           prompt,
         )
       })
