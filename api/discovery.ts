@@ -37,6 +37,15 @@ import {
 import { geminiModelCandidates } from './_lib/geminiModels.js'
 import { geminiApiKeys } from './_lib/geminiKeys.js'
 import {
+  geminiApiKeysForRequest,
+  isFreeTierHardQuota,
+  isHardQuotaExhausted,
+  isQuotaError,
+  logGeminiKeyRoster,
+  markFreeTierExhausted,
+  retryDelayMs,
+} from './_lib/geminiFailover.js'
+import {
   computeVerificationSignals,
   parseVerificationDecision,
   resolveVerificationExecution,
@@ -407,28 +416,18 @@ async function handleRelocalize(
   sendStatus(fr ? 'Traduction du formulaire…' : 'Translating the form…')
 
   const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
-  const isQuotaError = (error: unknown) => {
-    const message = error instanceof Error ? error.message : String(error)
-    return /\b429\b|Too Many Requests|quota|rate.?limit/i.test(message)
-  }
-  const isHardQuotaExhausted = (error: unknown) => {
-    const message = error instanceof Error ? error.message : String(error)
-    return /limit:\s*0\b/i.test(message) || /GenerateRequestsPerDayPerProjectPerModel/i.test(message)
-  }
-  const retryDelayMs = (error: unknown) => {
-    const message = error instanceof Error ? error.message : String(error)
-    const match = message.match(/retry in ([\d.]+)\s*s/i)
-    if (!match) return 1500
-    return Math.min(8000, Math.max(500, Math.ceil(parseFloat(match[1]) * 1000)))
-  }
+  const keyEntries = apiKeyEntries
+  logGeminiKeyRoster(keyEntries, 'relocalize')
 
   let lastError: unknown
-  for (const entry of apiKeyEntries) {
+  for (const entry of keyEntries) {
     const genAI = new GoogleGenerativeAI(entry.key)
     const modelCandidates = geminiModelCandidates(entry.tier)
     let quotaHitsOnThisKey = 0
+    let skipRemainingModels = false
 
     for (const modelName of modelCandidates) {
+      if (skipRemainingModels) break
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
           const model = genAI.getGenerativeModel({
@@ -466,6 +465,14 @@ async function handleRelocalize(
           lastError = error
           if (isQuotaError(error)) {
             quotaHitsOnThisKey += 1
+            if (entry.tier === 'free' && isFreeTierHardQuota(error)) {
+              markFreeTierExhausted(error)
+              skipRemainingModels = true
+              console.error(
+                `[api/relocalize] ${entry.label} free-tier hard quota — jumping to next key`,
+              )
+              break
+            }
             if (isHardQuotaExhausted(error) || attempt === 1) break
             await sleep(retryDelayMs(error))
             continue
@@ -1017,10 +1024,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(405).json({ error: 'Method not allowed' })
   }
 
-  const apiKeyEntries = geminiApiKeys()
+  const apiKeyEntries = geminiApiKeysForRequest()
   if (apiKeyEntries.length === 0) {
     return res.status(500).json({ error: 'GEMINI_API_KEY is not configured' })
   }
+  logGeminiKeyRoster(apiKeyEntries)
 
   const body = (req.body ?? {}) as DiscoveryAiRequest
   if (!body.mode || typeof body.userMessage !== 'string') {
@@ -1054,29 +1062,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     ;({ analysis, explore } = await gatherSiteEvidence(body, target, sendStatus))
 
     const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
-    const isQuotaError = (error: unknown) => {
-      const message = error instanceof Error ? error.message : String(error)
-      return /\b429\b|Too Many Requests|quota|rate.?limit/i.test(message)
-    }
-    const isHardQuotaExhausted = (error: unknown) => {
-      const message = error instanceof Error ? error.message : String(error)
-      // Free-tier daily/minute caps reported as limit: 0 — retrying the same model wastes time.
-      return /limit:\s*0\b/i.test(message) || /GenerateRequestsPerDayPerProjectPerModel/i.test(message)
-    }
-    const retryDelayMs = (error: unknown) => {
-      const message = error instanceof Error ? error.message : String(error)
-      const match = message.match(/retry in ([\d.]+)\s*s/i)
-      if (!match) return 1500
-      return Math.min(8000, Math.max(500, Math.ceil(parseFloat(match[1]) * 1000)))
-    }
 
     let lastError: unknown
     for (const entry of apiKeyEntries) {
       const genAI = new GoogleGenerativeAI(entry.key)
       const modelCandidates = geminiModelCandidates(entry.tier)
       let quotaHitsOnThisKey = 0
+      let skipRemainingModels = false
 
       for (const modelName of modelCandidates) {
+        if (skipRemainingModels) break
         for (let attempt = 0; attempt < 2; attempt++) {
           try {
             const model = genAI.getGenerativeModel({
@@ -1149,6 +1144,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             )
             if (isQuotaError(error)) {
               quotaHitsOnThisKey += 1
+              if (entry.tier === 'free' && isFreeTierHardQuota(error)) {
+                markFreeTierExhausted(error)
+                skipRemainingModels = true
+                console.error(
+                  `[api/discovery] ${entry.label} free-tier hard quota — jumping to next key (paid if configured)`,
+                )
+                break
+              }
             }
             if (
               attempt === 0 &&
