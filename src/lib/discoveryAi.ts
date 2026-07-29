@@ -413,9 +413,18 @@ function normalizeSiteAnalysis(raw: unknown): SiteAnalysisInfo | null {
 }
 
 /** Honest outage notice — no scripted questionnaire / proposals / plans. */
-function geminiUnavailable(preferredLanguage: Locale): DiscoveryAiResult {
+function geminiUnavailable(
+  preferredLanguage: Locale,
+  reason?: string | null,
+): DiscoveryAiResult {
+  const quota =
+    typeof reason === 'string' &&
+    /\b429\b|Too Many Requests|quota|rate.?limit|Quota exceeded/i.test(reason)
   return {
-    message: t(preferredLanguage, 'assistantUnavailable'),
+    message: t(
+      preferredLanguage,
+      quota ? 'assistantQuotaExceeded' : 'assistantUnavailable',
+    ),
     workTrace: null,
     formTitle: null,
     questions: null,
@@ -670,6 +679,9 @@ export async function requestDiscoveryAi(options: {
     ) {
       return abortedResult()
     }
-    return geminiUnavailable(preferredLanguage)
+    return geminiUnavailable(
+      preferredLanguage,
+      error instanceof Error ? error.message : null,
+    )
   }
 }

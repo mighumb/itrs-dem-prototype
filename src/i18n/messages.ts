@@ -332,6 +332,8 @@ export const messages = {
     prepareJourney: 'Prepare journey',
     assistantUnavailable:
       'The assistant is unavailable right now. Try again in a moment — I won’t invent an offline journey.',
+    assistantQuotaExceeded:
+      'The AI quota is temporarily exhausted. Wait a minute and try again.',
   },
   fr: {
     signIn: 'Connexion',
@@ -663,6 +665,8 @@ export const messages = {
     prepareJourney: 'Préparer le parcours',
     assistantUnavailable:
       'L’assistant est indisponible pour le moment. Réessaie dans un instant — je ne peux pas inventer un parcours hors ligne.',
+    assistantQuotaExceeded:
+      'Quota IA temporairement épuisé. Attends une minute puis réessaie.',
   },
 } as const
 
