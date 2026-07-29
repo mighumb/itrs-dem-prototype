@@ -14,7 +14,7 @@ import {
   summarizeStatedJourneyIntent,
   type DiscoveryAiResult,
 } from '../lib/discoveryAi'
-import type { JourneyLaunchSession } from '../lib/journeyLaunch'
+import { runStartMessage, type JourneyLaunchSession } from '../lib/journeyLaunch'
 import {
   getHomeExamples,
   HOME_SAMPLE_LOGO_OPTICAL_BALANCE,
@@ -23,7 +23,12 @@ import {
 import {
   createDiscoveryContext,
   hasExploitableContext,
+  isBareJourneyLaunch,
+  isLocaleNoiseComplaint,
   messageWithAuthoritativePlan,
+  sanitizeDiscoveryPlan,
+  wantsJourneyLaunch,
+  wantsMissingRunButton,
   type DiscoveryContext,
   type DiscoveryPhase,
   type DiscoveryPlan,
@@ -884,9 +889,42 @@ export default function Home({
     const history = historyPlus(userMsg)
 
     if (phase === 'planning') {
-      // Any new user turn while a plan is shown = iteration → hide Run/Lancer immediately.
-      setPlan(null)
-      setPhase('conversation')
+      const cleanCurrent = plan ? sanitizeDiscoveryPlan(plan) : null
+      // Launch / missing Lancer → run with the settled (sanitized) plan. Never re-dump dirty steps.
+      if (
+        cleanCurrent &&
+        (isBareJourneyLaunch(text) ||
+          wantsMissingRunButton(text) ||
+          (wantsJourneyLaunch(text) && !isLocaleNoiseComplaint(text)))
+      ) {
+        pushAgentReply(runStartMessage(locale))
+        setPlan(cleanCurrent)
+        setPhase('planning')
+        onStart({
+          prompt: cleanCurrent.prompt,
+          messages: history,
+          plan: cleanCurrent,
+          siteUrl:
+            ctx?.url ??
+            cleanCurrent.prompt.match(/https?:\/\/[^\s<>"']+/i)?.[0]?.replace(/[.,);]+$/g, '') ??
+            null,
+        })
+        return
+      }
+
+      const launchIntent = wantsJourneyLaunch(text)
+      const correcting = isLocaleNoiseComplaint(text)
+      const planSnapshot = cleanCurrent
+
+      // Corrections must keep Lancer visible. Only hide it for true brainstorm pivots.
+      if (!launchIntent && !correcting) {
+        setPlan(null)
+        setPhase('conversation')
+      } else if (correcting && planSnapshot) {
+        setPlan(planSnapshot)
+        setPhase('planning')
+      }
+
       await withTyping(async (signal, onStatus) => {
         const ai = await requestDiscoveryAi({
           mode: 'chat',
@@ -895,16 +933,32 @@ export default function Home({
           phase: 'planning',
           context: ctx,
           preferredLanguage: locale,
-        signal,
-        onStatus,
+          signal,
+          onStatus,
         })
         if (ai.aborted) return
         rememberSnapshot(ai)
-  
+
         if (ai.readyForPlan && ai.plan) {
-          const body = messageWithAuthoritativePlan(ai.message, ai.plan)
+          const next = sanitizeDiscoveryPlan(ai.plan)
+          if (launchIntent) {
+            pushAgentReply(runStartMessage(locale))
+            setPlan(next)
+            setPhase('planning')
+            onStart({
+              prompt: next.prompt,
+              messages: history,
+              plan: next,
+              siteUrl:
+                ctx?.url ??
+                next.prompt.match(/https?:\/\/[^\s<>"']+/i)?.[0]?.replace(/[.,);]+$/g, '') ??
+                null,
+            })
+            return
+          }
+          const body = messageWithAuthoritativePlan(ai.message, next)
           pushAgentReply(body)
-          setPlan(ai.plan)
+          setPlan(next)
           setPhase('planning')
           return
         }
@@ -926,12 +980,57 @@ export default function Home({
           return
         }
 
-        // Iteration without a new complete plan: keep chatting, Run stays hidden.
         if (ai.plan && hasExploitableContext(text, ctx)) {
-          const nextPlan = ai.plan
+          const nextPlan = sanitizeDiscoveryPlan(ai.plan)
+          if (launchIntent) {
+            pushAgentReply(runStartMessage(locale))
+            setPlan(nextPlan)
+            setPhase('planning')
+            onStart({
+              prompt: nextPlan.prompt,
+              messages: history,
+              plan: nextPlan,
+              siteUrl:
+                ctx?.url ??
+                nextPlan.prompt.match(/https?:\/\/[^\s<>"']+/i)?.[0]?.replace(/[.,);]+$/g, '') ??
+                null,
+            })
+            return
+          }
           const body = messageWithAuthoritativePlan(ai.message, nextPlan)
           pushAgentReply(body)
           setPlan(nextPlan)
+          setPhase('planning')
+          return
+        }
+
+        if ((launchIntent || wantsMissingRunButton(text)) && planSnapshot) {
+          pushAgentReply(runStartMessage(locale))
+          setPlan(planSnapshot)
+          setPhase('planning')
+          onStart({
+            prompt: planSnapshot.prompt,
+            messages: history,
+            plan: planSnapshot,
+            siteUrl:
+              ctx?.url ??
+              planSnapshot.prompt.match(/https?:\/\/[^\s<>"']+/i)?.[0]?.replace(/[.,);]+$/g, '') ??
+              null,
+          })
+          return
+        }
+
+        // Correction with no new plan object — keep sanitized snapshot + Lancer.
+        if (correcting && planSnapshot) {
+          const body = messageWithAuthoritativePlan(
+            ai.message?.trim() ||
+              (locale === 'fr'
+                ? 'Bien vu — voici le plan nettoyé. Tu peux Lancer.'
+                : 'Good catch — here is the cleaned plan. You can Run.'),
+            planSnapshot,
+          )
+          pushAgentReply(body)
+          setPlan(planSnapshot)
           setPhase('planning')
           return
         }

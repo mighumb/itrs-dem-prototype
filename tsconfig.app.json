@@ -21,5 +21,5 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src", "api/_lib/discoverySiteIntent.ts"]
+  "include": ["src", "api/_lib/discoverySiteIntent.ts", "api/_lib/planOutcomeVerify.ts", "api/_lib/urlPathHelpers.ts"]
 }

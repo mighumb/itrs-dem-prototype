@@ -4,6 +4,12 @@
  */
 
 import type { SiteExploreResult } from './exploreSite.js'
+import {
+  homepageOf,
+  isDeepUrl,
+  queryFromDeepUrl,
+  stripLocaleSearchNoiseSteps,
+} from './urlPathHelpers.js'
 
 export type GroundedPlanStep = {
   label: string
@@ -11,6 +17,8 @@ export type GroundedPlanStep = {
   targetHint?: string
   href?: string
 }
+
+export { homepageOf, isDeepUrl, queryFromDeepUrl, stripLocaleSearchNoiseSteps } from './urlPathHelpers.js'
 
 function normalizeText(value: string): string {
   return value
@@ -128,52 +136,13 @@ export function enrichPlanStepsFromExplore(
 }
 
 /** Path beyond `/`, query, or hash → deep link (destination, not entry). */
-export function isDeepUrl(url: string): boolean {
-  try {
-    const u = new URL(url)
-    const path = u.pathname.replace(/\/+$/, '') || '/'
-    return path !== '/' || Boolean(u.search) || Boolean(u.hash)
-  } catch {
-    return false
-  }
-}
-
-export function homepageOf(url: string): string {
-  try {
-    return `${new URL(url).origin}/`
-  } catch {
-    return url
-  }
-}
+// isDeepUrl / homepageOf / queryFromDeepUrl live in urlPathHelpers (shared).
 
 function sameOrigin(a: string, b: string): boolean {
   try {
     return new URL(a).origin === new URL(b).origin
   } catch {
     return false
-  }
-}
-
-/** Derive a human search query from a deep URL path slug. */
-export function queryFromDeepUrl(url: string): string | null {
-  try {
-    const u = new URL(url)
-    const parts = u.pathname.split('/').filter(Boolean)
-    if (parts.length === 0) return null
-    // Skip boring prefixes (wiki, product, p, …)
-    const skip = new Set(['wiki', 'w', 'product', 'products', 'p', 'dp', 'item', 'articles', 'article'])
-    let slug = parts[parts.length - 1] || ''
-    if (parts.length >= 2 && skip.has(parts[0]!.toLowerCase())) {
-      slug = parts[parts.length - 1] || slug
-    }
-    const decoded = decodeURIComponent(slug)
-      .replace(/[_+]+/g, ' ')
-      .replace(/\.[a-z0-9]{2,5}$/i, '')
-      .replace(/\s+/g, ' ')
-      .trim()
-    return decoded.length >= 2 ? decoded : null
-  } catch {
-    return null
   }
 }
 
@@ -277,16 +246,19 @@ export function naturalizeDeepLinkEntry(
 ): GroundedPlanStep[] {
   if (steps.length === 0) return steps
 
-  const destination = hasTeleportEntry(steps, contextUrl)
-  if (!destination) return steps
+  // Drop “search/open fr” noise before deciding whether a real search path exists.
+  const base = stripLocaleSearchNoiseSteps(steps)
+
+  const destination = hasTeleportEntry(base, contextUrl)
+  if (!destination) return base
 
   // Already has a natural search/type step — only fix the first Navigate href.
-  if (steps.some(isSearchOrType)) {
-    const rewritten = steps.map((step, index) => {
+  if (base.some(isSearchOrType)) {
+    const rewritten = base.map((step, index) => {
       if (index !== 0 && !isNavigateAction(step)) return step
       if (!isNavigateAction(step)) return step
       // First navigate only
-      const firstNavIdx = steps.findIndex(isNavigateAction)
+      const firstNavIdx = base.findIndex(isNavigateAction)
       if (index !== firstNavIdx) return step
       if (step.href && isDeepUrl(step.href) && sameOrigin(step.href, destination)) {
         const home = homepageOf(destination)
@@ -307,7 +279,7 @@ export function naturalizeDeepLinkEntry(
 
   const home = homepageOf(destination)
   const query = queryFromDeepUrl(destination)
-  const langFr = /[àâäéèêëïîôùûüç]/i.test(steps.map((s) => s.label).join(' '))
+  const langFr = /[àâäéèêëïîôùûüç]/i.test(base.map((s) => s.label).join(' '))
 
   const entry: GroundedPlanStep[] = [
     {
@@ -330,7 +302,7 @@ export function naturalizeDeepLinkEntry(
   }
 
   // Drop early Navigate teleports to the same deep URL; keep later click/verify work.
-  const rest = steps.filter((step) => {
+  const rest = base.filter((step) => {
     if (!isNavigateAction(step)) return true
     const href = step.href
     if (href && isDeepUrl(href) && sameOrigin(href, destination)) return false
@@ -368,6 +340,13 @@ export function groundingIssues(
   return issues.slice(0, 6)
 }
 
+export {
+  ensureOutcomeVerify,
+  isWeakPageLoadVerify,
+  outcomeVerifyFromSteps,
+} from './planOutcomeVerify.js'
+import { ensureOutcomeVerify } from './planOutcomeVerify.js'
+
 export function applyGroundingToPlan(
   plan: Record<string, unknown>,
   explore: SiteExploreResult | null,
@@ -375,19 +354,18 @@ export function applyGroundingToPlan(
 ): { plan: Record<string, unknown>; issues: string[] } {
   if (!plan || typeof plan !== 'object') return { plan, issues: [] }
   const rawSteps = Array.isArray(plan.steps) ? plan.steps : []
-  const steps: GroundedPlanStep[] = rawSteps
-    .map((step) => {
-      if (!step || typeof step !== 'object') return null
-      const s = step as Record<string, unknown>
-      if (typeof s.label !== 'string' || typeof s.action !== 'string') return null
-      return {
-        label: s.label,
-        action: s.action,
-        targetHint: typeof s.targetHint === 'string' ? s.targetHint : undefined,
-        href: typeof s.href === 'string' ? s.href : undefined,
-      }
-    })
-    .filter((s): s is GroundedPlanStep => Boolean(s))
+  const steps: GroundedPlanStep[] = rawSteps.flatMap((step) => {
+    if (!step || typeof step !== 'object') return []
+    const s = step as Record<string, unknown>
+    if (typeof s.label !== 'string' || typeof s.action !== 'string') return []
+    const out: GroundedPlanStep = {
+      label: s.label,
+      action: s.action,
+    }
+    if (typeof s.targetHint === 'string') out.targetHint = s.targetHint
+    if (typeof s.href === 'string') out.href = s.href
+    return [out]
+  })
 
   const seed =
     contextUrl ||
@@ -395,9 +373,11 @@ export function applyGroundingToPlan(
     null
   const enriched = enrichPlanStepsFromExplore(steps, explore)
   const naturalized = naturalizeDeepLinkEntry(enriched, seed)
-  const issues = groundingIssues(naturalized, explore)
+  const cleaned = stripLocaleSearchNoiseSteps(naturalized)
+  const withOutcome = ensureOutcomeVerify(cleaned)
+  const issues = groundingIssues(withOutcome, explore)
   return {
-    plan: { ...plan, steps: naturalized },
+    plan: { ...plan, steps: withOutcome },
     issues,
   }
 }

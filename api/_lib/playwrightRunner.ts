@@ -1,4 +1,6 @@
-import type { Browser, Frame, Locator, Page } from 'playwright-core'
+import type { Browser, BrowserContext, Frame, Locator, Page, Route } from 'playwright-core'
+
+export type RunnerLocale = 'en' | 'fr'
 
 export type RunnableStep = {
   id: string
@@ -65,6 +67,17 @@ function extractUrl(text: string | undefined | null): string | null {
 function isDeepUrl(url: string): boolean {
   try {
     const u = new URL(url)
+    const parts = u.pathname.split('/').filter(Boolean)
+    if (parts.length === 0 && !u.search && !u.hash) return false
+    if (
+      parts.length === 1 &&
+      /^[a-z]{2}(?:-[a-z]{2})?$/i.test(parts[0]!) &&
+      parts[0]!.length <= 5 &&
+      !u.search &&
+      !u.hash
+    ) {
+      return false
+    }
     const path = u.pathname.replace(/\/+$/, '') || '/'
     return path !== '/' || Boolean(u.search) || Boolean(u.hash)
   } catch {
@@ -72,16 +85,31 @@ function isDeepUrl(url: string): boolean {
   }
 }
 
+export { isDeepUrl }
+
 function homepageOf(url: string): string {
   try {
-    return `${new URL(url).origin}/`
+    const u = new URL(url)
+    const parts = u.pathname.split('/').filter(Boolean)
+    if (parts[0] && /^[a-z]{2}(?:-[a-z]{2})?$/i.test(parts[0]) && parts[0].length <= 5) {
+      return `${u.origin}/${parts[0].toLowerCase()}/`
+    }
+    return `${u.origin}/`
   } catch {
     return url
   }
 }
 
 /** Prefer homepage as seed — deep links are destinations, not entry points. */
-function guessSeedUrl(steps: RunnableStep[], prompt?: string): string | null {
+function guessSeedUrl(
+  steps: RunnableStep[],
+  prompt?: string,
+  siteUrl?: string | null,
+): string | null {
+  if (siteUrl) {
+    const cleaned = extractUrl(siteUrl) || siteUrl
+    if (cleaned) return isDeepUrl(cleaned) ? homepageOf(cleaned) : cleaned
+  }
   for (const step of steps) {
     const raw =
       extractUrl(step.href) || extractUrl(step.target) || extractUrl(step.label)
@@ -90,6 +118,249 @@ function guessSeedUrl(steps: RunnableStep[], prompt?: string): string | null {
   const fromPrompt = extractUrl(prompt ?? null)
   if (fromPrompt) return isDeepUrl(fromPrompt) ? homepageOf(fromPrompt) : fromPrompt
   return null
+}
+
+/**
+ * User-chosen destination URL (deep path). This is the contract for the run —
+ * geo redirects must not silently replace it.
+ */
+export function guessDestinationUrl(
+  steps: RunnableStep[],
+  prompt?: string,
+  siteUrl?: string | null,
+): string | null {
+  const fromSite = siteUrl ? extractUrl(siteUrl) || siteUrl : null
+  if (fromSite && isDeepUrl(fromSite)) return fromSite
+
+  const fromPrompt = extractUrl(prompt ?? null)
+  if (fromPrompt && isDeepUrl(fromPrompt)) return fromPrompt
+
+  // Prefer form-like deep hrefs observed on Click/Navigate steps.
+  const deep: string[] = []
+  for (const step of steps) {
+    const raw =
+      extractUrl(step.href) || extractUrl(step.target) || extractUrl(step.label)
+    if (raw && isDeepUrl(raw)) deep.push(raw)
+  }
+  const formLike = deep.find((u) =>
+    /\/(brochure|contact|demo|devis|lead|form|inscription|signup)/i.test(u),
+  )
+  return formLike || deep[0] || null
+}
+
+function sameOrigin(a: string, b: string): boolean {
+  try {
+    return new URL(a).origin === new URL(b).origin
+  } catch {
+    return false
+  }
+}
+
+/** Path + search, trailing slash insensitive. */
+export function urlPathKey(url: string): string {
+  try {
+    const u = new URL(url)
+    const path = u.pathname.replace(/\/+$/, '') || '/'
+    return `${path}${u.search}`
+  } catch {
+    return url
+  }
+}
+
+export type MarketCountry = 'FR' | 'US'
+
+/**
+ * Default market from UI locale, overridden when the destination path itself
+ * signals an international / foreign segment (URL wins).
+ */
+export function marketCountryFor(
+  locale: RunnerLocale,
+  destinationUrl?: string | null,
+): MarketCountry {
+  if (destinationUrl) {
+    try {
+      const u = new URL(destinationUrl)
+      const path = u.pathname.toLowerCase()
+      if (
+        /brochure-inter|international|\/en(\/|$)|\/us(\/|$)|\/uk(\/|$)|\/de(\/|$)|\/es(\/|$)/i.test(
+          path,
+        )
+      ) {
+        return 'US'
+      }
+      if (
+        /\/fr(\/|$)/i.test(path) ||
+        /brochure(?!-inter)/i.test(path) ||
+        /\.fr$/i.test(u.hostname)
+      ) {
+        return 'FR'
+      }
+    } catch {
+      // fall through
+    }
+  }
+  return locale === 'fr' ? 'FR' : 'US'
+}
+
+async function applyMarketCookies(
+  context: BrowserContext,
+  pageUrl: string,
+  country: MarketCountry,
+): Promise<void> {
+  try {
+    const u = new URL(pageUrl)
+    // CRITICAL: cookie path must be `/`. If we pass url=…/brochure, Playwright
+    // scopes the cookie to that path and geo redirects (hetic __dplc) ignore it.
+    const originUrl = `${u.origin}/`
+    await context.addCookies([
+      { name: '__dplc', value: country, url: originUrl },
+      { name: 'country', value: country, url: originUrl },
+      { name: 'countryCode', value: country, url: originUrl },
+    ])
+  } catch {
+    // Best-effort market alignment.
+  }
+}
+
+/** Spoof common IP-geo APIs so sites don't lock market from Vercel US egress. */
+async function installGeoApiMocks(
+  context: BrowserContext,
+  country: MarketCountry,
+): Promise<void> {
+  const data = {
+    ip: country === 'FR' ? '90.84.0.1' : '8.8.8.8',
+    country,
+    country_code: country,
+    countryCode: country,
+    country_name: country === 'FR' ? 'France' : 'United States',
+  }
+  const fulfill = async (route: Route) => {
+    const req = route.request()
+    if (req.method() !== 'GET' && req.method() !== 'HEAD') {
+      await route.continue()
+      return
+    }
+    // HETIC (and many CMPs) call ipinfo via jQuery JSONP — raw JSON breaks the
+    // callback and the site falls back to the international brochure URL.
+    let callback: string | null = null
+    try {
+      callback = new URL(req.url()).searchParams.get('callback')
+    } catch {
+      callback = null
+    }
+    const json = JSON.stringify(data)
+    if (callback && /^[a-zA-Z_$][\w.$]*$/.test(callback)) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/javascript; charset=utf-8',
+        body: `${callback}(${json});`,
+      })
+      return
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json; charset=utf-8',
+      body: json,
+    })
+  }
+  await context.route(/ipinfo\.io/i, fulfill)
+  await context.route(/ipapi\.co/i, fulfill)
+  await context.route(/geojs\.io/i, fulfill)
+  await context.route(/ipgeolocation\.io/i, fulfill)
+  await context.route(/freegeoip\./i, fulfill)
+}
+
+/**
+ * When the user chose a deep URL, rewrite same-origin geo/locale sibling
+ * document navigations back to that URL (e.g. /brochure-inter → /brochure).
+ * Cookie/IP mocks help, but edge rules (ASN / redirection.io) can still bounce.
+ *
+ * IMPORTANT: do NOT register a catch-all star-star route — continuing it bypasses
+ * later/earlier geo API mocks (Playwright only lets one handler win).
+ */
+async function installDestinationUrlGuard(
+  context: BrowserContext,
+  destinationUrl: string | null,
+): Promise<void> {
+  if (!destinationUrl || !isDeepUrl(destinationUrl)) return
+  let dest: URL
+  try {
+    dest = new URL(destinationUrl)
+  } catch {
+    return
+  }
+  const destKey = urlPathKey(destinationUrl)
+
+  await context.route(
+    (url) => {
+      try {
+        const href = typeof url === 'string' ? url : String(url)
+        const u = new URL(href)
+        if (u.origin !== dest.origin) return false
+        if (urlPathKey(href) === destKey) return false
+        return areGeoPathSiblings(u.pathname, dest.pathname)
+      } catch {
+        return false
+      }
+    },
+    async (route) => {
+      const req = route.request()
+      const type = req.resourceType()
+      if (type !== 'document' && type !== 'other' && !req.isNavigationRequest()) {
+        await route.continue()
+        return
+      }
+      await route.continue({ url: destinationUrl })
+    },
+  )
+}
+
+/** /brochure ↔ /brochure-inter, /fr/… ↔ /en/…, etc. */
+export function areGeoPathSiblings(aPath: string, bPath: string): boolean {
+  const norm = (p: string) => p.replace(/\/+$/, '').toLowerCase() || '/'
+  const a = norm(aPath)
+  const b = norm(bPath)
+  if (a === b) return true
+  const strip = (p: string) =>
+    p
+      .replace(/-inter(national)?$/i, '')
+      .replace(/\/(en|fr|us|uk|de|es|it|pt|nl)(\/|$)/gi, '/')
+      .replace(/\/+/g, '/')
+      .replace(/\/+$/, '') || '/'
+  if (strip(a) === strip(b) && strip(a) !== '/') return true
+  // brochure ↔ brochure-inter
+  if (/brochure/i.test(a) && /brochure/i.test(b)) return true
+  return false
+}
+
+/**
+ * If geo/cookie redirected away from the user-chosen deep URL, force it back.
+ * Market cookies are aligned to whatever that destination needs.
+ */
+export async function enforceUserDestination(
+  page: Page,
+  destinationUrl: string | null,
+  runnerLocale: RunnerLocale,
+): Promise<boolean> {
+  if (!destinationUrl || !isDeepUrl(destinationUrl)) return false
+  const current = page.url()
+  if (!current || current === 'about:blank') return false
+  if (!sameOrigin(current, destinationUrl)) return false
+  if (urlPathKey(current) === urlPathKey(destinationUrl)) return false
+
+  const country = marketCountryFor(runnerLocale, destinationUrl)
+  await applyMarketCookies(page.context(), destinationUrl, country)
+  await page.goto(destinationUrl, { waitUntil: 'domcontentloaded', timeout: 35000 })
+  await page.waitForTimeout(500)
+  await dismissNoise(page)
+  // Client-side geo scripts can still bounce once — hold the contract.
+  if (urlPathKey(page.url()) !== urlPathKey(destinationUrl)) {
+    await applyMarketCookies(page.context(), destinationUrl, country)
+    await page.goto(destinationUrl, { waitUntil: 'domcontentloaded', timeout: 35000 })
+    await page.waitForTimeout(400)
+    await dismissNoise(page)
+  }
+  return urlPathKey(page.url()) === urlPathKey(destinationUrl)
 }
 
 const HIGHLIGHT_ID = '__dem_action_highlight__'
@@ -176,20 +447,24 @@ async function captureHighlighted(
 }
 
 const CONSENT_REFUSE_SELECTORS = [
+  '.didomi-continue-without-agreeing',
   'button:has-text("Continuer sans accepter")',
+  '[class*="continue-without-agreeing" i]',
   'button:has-text("Tout refuser")',
   'button:has-text("Refuser et fermer")',
-  'button:has-text("Refuser")',
-  'button:has-text("Reject all")',
-  'button:has-text("Reject All")',
-  'button:has-text("Reject")',
-  'button:has-text("Deny")',
-  'button:has-text("Decline")',
+  'button:has-text("Refuser et fermer")',
+  'button:has-text("Tout Refuser")',
   '#didomi-notice-disagree-button',
   '#onetrust-reject-all-handler',
+  'button:has-text("Reject all")',
+  'button:has-text("Reject All")',
+  'button:has-text("Deny all")',
+  'button:has-text("Decline all")',
   '[aria-label*="Refuse" i]',
   '[aria-label*="Disagree" i]',
-  '[aria-label*="Reject" i]',
+  '[aria-label*="Reject all" i]',
+  // Narrow single-word refuse — avoid matching form CTAs.
+  '#didomi-notice-disagree-button',
 ]
 
 const CONSENT_ACCEPT_SELECTORS = [
@@ -201,10 +476,7 @@ const CONSENT_ACCEPT_SELECTORS = [
   'button:has-text("Accept & Close")',
   'button:has-text("Agree and close")',
   'button:has-text("I agree")',
-  'button:has-text("Agree")',
-  'button:has-text("Accepter")',
-  'button:has-text("Accept")',
-  'button:has-text("OK")',
+  // Avoid bare "Accept" / "Accepter" / "OK" — they match form CTAs ("J'accepte", submit).
 ]
 
 export function isConsentStep(step: { label: string; action?: string; targetHint?: string }): boolean {
@@ -277,9 +549,27 @@ async function consentBannerVisible(page: Page): Promise<boolean> {
 export async function dismissNoise(page: Page) {
   for (let attempt = 0; attempt < 3; attempt++) {
     if (attempt > 0) await page.waitForTimeout(450)
-    const loc = await findConsentButton(page, 'auto')
+    // Prefer Didomi "continue without agreeing" (often a <span>, not a <button>).
+    const continueWithout = page.locator('.didomi-continue-without-agreeing').first()
+    if (await continueWithout.isVisible({ timeout: 280 }).catch(() => false)) {
+      try {
+        await continueWithout.click({ timeout: 1500 })
+        await page.waitForTimeout(350)
+        continue
+      } catch {
+        // fall through to generic consent search
+      }
+    }
+    const loc = await findConsentButton(page, 'refuse')
     if (!loc) return
     try {
+      // Never click the page's lead-form submit while dismissing cookies.
+      const id = (await loc.getAttribute('id').catch(() => '')) || ''
+      const text = ((await loc.textContent().catch(() => '')) || '').trim()
+      if (/edit-actions-submit|webform-button--submit/i.test(id)) return
+      if (/télécharge|download|brochure|envoyer|submit/i.test(text) && !/cookie|didomi|accepter les/i.test(text)) {
+        return
+      }
       await loc.click({ timeout: 1500 })
       await page.waitForTimeout(350)
     } catch {
@@ -465,7 +755,7 @@ export function searchQueryFromStep(step: RunnableStep): string {
 }
 
 async function tryVisibleLocator(
-  page: Page,
+  _page: Page,
   factory: () => Locator,
   timeoutMs = 700,
 ): Promise<Locator | null> {
@@ -741,6 +1031,7 @@ async function executeStepWithCapture(
   step: RunnableStep,
   seedUrl: string | null,
   runnerLocale: RunnerLocale = 'en',
+  destinationUrl: string | null = null,
 ): Promise<RunnerFrame> {
   const action = step.action.trim().toLowerCase()
   const blob = `${step.action} ${step.label}`
@@ -754,10 +1045,16 @@ async function executeStepWithCapture(
   ) {
     const dest = url || seedUrl
     if (!dest) throw new Error('No URL to navigate to')
+    const market = marketCountryFor(runnerLocale, destinationUrl)
+    await applyMarketCookies(page.context(), dest, market)
     await page.goto(dest, { waitUntil: 'domcontentloaded', timeout: 35000 })
     // CMPs (Didomi…) often inject after first paint — wait then dismiss once.
     await page.waitForTimeout(700)
     await dismissNoise(page)
+    // If this Navigate targeted the user destination (or we already should be there), hold the contract.
+    if (destinationUrl && (urlPathKey(dest) === urlPathKey(destinationUrl) || isDeepUrl(dest))) {
+      await enforceUserDestination(page, destinationUrl, runnerLocale)
+    }
     return captureFrame(page)
   }
 
@@ -774,6 +1071,9 @@ async function executeStepWithCapture(
   }
 
   if (shouldExecuteAsType(step)) {
+    if (destinationUrl) {
+      await enforceUserDestination(page, destinationUrl, runnerLocale)
+    }
     const value = searchQueryFromStep(step)
     let loc = await resolveTypeLocator(page, step)
     if (loc) {
@@ -848,23 +1148,45 @@ async function executeStepWithCapture(
       throw new Error(`Could not click consent control for: ${step.label}`)
     }
 
-    // Before submit / download CTAs, clear empty required selects (geo-gated brochure lists).
-    if (/télécharge|download|brochure|submit|envoyer|valider|je\s+télécharge/i.test(step.label)) {
-      await fillEmptyFormSelects(page)
+    // Submit/download CTAs only — not form-entry clicks like « Brochure » / « Contact ».
+    const isSubmitLike =
+      /télécharge|download|submit|envoyer|valider|je\s+télécharge/i.test(step.label) ||
+      (/inscription|sign[- ]?up/i.test(step.label) &&
+        !/ouvrir|open|cliquer|click/i.test(step.label))
+    const isFormEntryClick =
+      /brochure|contact|devis|demo|essai|lead|formulaire/i.test(step.label) && !isSubmitLike
+
+    // Before submit / download CTAs, clear empty required selects + check required consents.
+    if (isSubmitLike) {
+      if (destinationUrl) {
+        await enforceUserDestination(page, destinationUrl, runnerLocale)
+      }
+      await prepareFormForSubmit(page)
     }
 
     const loc = await resolveClickLocator(page, step)
     if (loc) {
       // Capture with blue box BEFORE the click (element may disappear after navigation).
-      const frame = await captureHighlighted(page, loc)
+      let frame = await captureHighlighted(page, loc)
       await performClick(page, loc)
+      // Form-entry clicks (Brochure, Contact…) often hit geo redirects — restore user URL.
+      if (destinationUrl && (isFormEntryClick || Boolean(step.href && isDeepUrl(step.href)))) {
+        await page.waitForLoadState('domcontentloaded', { timeout: 12000 }).catch(() => undefined)
+        const corrected = await enforceUserDestination(page, destinationUrl, runnerLocale)
+        if (corrected) frame = await captureFrame(page)
+      }
       return frame
     }
     // Fallback: direct navigation when only an href is known (no visible target).
     const href = step.href || (step.target && /^https?:\/\//i.test(step.target) ? step.target : null)
     if (href) {
+      const market = marketCountryFor(runnerLocale, destinationUrl || href)
+      await applyMarketCookies(page.context(), href, market)
       await page.goto(href, { waitUntil: 'domcontentloaded', timeout: 25000 })
       await dismissNoise(page)
+      if (destinationUrl) {
+        await enforceUserDestination(page, destinationUrl, runnerLocale)
+      }
       return captureFrame(page)
     }
     // “Lancer la recherche” / Search submit with no visible button → Enter in focused field.
@@ -927,8 +1249,6 @@ export async function launchBrowser(): Promise<Browser> {
   })
 }
 
-export type RunnerLocale = 'en' | 'fr'
-
 /** Prefer FR for French UI or French-market hosts (hetic.net, *.fr). */
 export function resolveRunnerLocale(
   preferredLanguage?: 'en' | 'fr' | null,
@@ -941,14 +1261,20 @@ export function resolveRunnerLocale(
 
 /**
  * Localized browser page so forms match what a FR (or EN) visitor sees —
- * phone country defaults, geo-gated fields, Accept-Language, etc.
+ * phone country defaults, geo-gated fields, Accept-Language, market cookies,
+ * and spoofed IP-geo APIs (Vercel egress is often US).
  */
 export async function createLocalizedPage(
   browser: Browser,
-  options?: { preferredLanguage?: 'en' | 'fr' | null; seedUrl?: string | null },
+  options?: {
+    preferredLanguage?: 'en' | 'fr' | null
+    seedUrl?: string | null
+    destinationUrl?: string | null
+  },
 ): Promise<Page> {
   const lang = resolveRunnerLocale(options?.preferredLanguage, options?.seedUrl)
   const isFr = lang === 'fr'
+  const market = marketCountryFor(lang, options?.destinationUrl)
   const context = await browser.newContext({
     viewport: { width: 1280, height: 800 },
     userAgent:
@@ -963,6 +1289,13 @@ export async function createLocalizedPage(
       'Accept-Language': isFr ? 'fr-FR,fr;q=0.9,en;q=0.5' : 'en-US,en;q=0.9',
     },
   })
+  await installDestinationUrlGuard(context, options?.destinationUrl ?? null)
+  // Register geo mocks AFTER the destination guard so they win for ipinfo/etc.
+  await installGeoApiMocks(context, market)
+  const cookieHost = options?.destinationUrl || options?.seedUrl
+  if (cookieHost) {
+    await applyMarketCookies(context, cookieHost, market)
+  }
   return context.newPage()
 }
 
@@ -1005,44 +1338,102 @@ async function ensurePhoneCountry(
 /**
  * Geo-gated brochure forms sometimes show an empty "- Select -" dropdown
  * that the Discovery plan never listed. Pick the first real option so submit works.
+ * Retries briefly so cascading selects (program → campus) can populate.
  */
 async function fillEmptyFormSelects(page: Page): Promise<void> {
-  const selects = page.locator('form select, select:visible')
-  const count = await selects.count().catch(() => 0)
-  for (let i = 0; i < Math.min(count, 10); i++) {
-    const sel = selects.nth(i)
-    try {
-      if (!(await sel.isVisible({ timeout: 300 }).catch(() => false))) continue
-      const selectedText = await sel
-        .evaluate((el) => {
-          const s = el as HTMLSelectElement
-          return (s.options[s.selectedIndex]?.textContent || '').trim()
-        })
-        .catch(() => '')
-      const value = await sel.inputValue().catch(() => '')
-      const empty =
-        !value ||
-        value === '_none' ||
-        value === '0' ||
-        /^-?\s*select\s*-?$/i.test(selectedText) ||
-        /^(choisir|sélectionner|selectionner|please select)/i.test(selectedText)
-      if (!empty) continue
+  for (let pass = 0; pass < 3; pass++) {
+    let filled = 0
+    const selects = page.locator('form select, select:visible')
+    const count = await selects.count().catch(() => 0)
+    for (let i = 0; i < Math.min(count, 12); i++) {
+      const sel = selects.nth(i)
+      try {
+        if (!(await sel.isVisible({ timeout: 300 }).catch(() => false))) continue
+        const selectedText = await sel
+          .evaluate((el) => {
+            const s = el as HTMLSelectElement
+            return (s.options[s.selectedIndex]?.textContent || '').trim()
+          })
+          .catch(() => '')
+        const value = await sel.inputValue().catch(() => '')
+        const empty =
+          !value ||
+          value === '_none' ||
+          value === '0' ||
+          /^-?\s*select\s*-?$/i.test(selectedText) ||
+          /^(choisir|sélectionner|selectionner|please select)/i.test(selectedText)
+        if (!empty) continue
 
-      const optionCount = await sel.locator('option').count()
-      for (let j = 0; j < optionCount; j++) {
-        const opt = sel.locator('option').nth(j)
-        const v = (await opt.getAttribute('value')) ?? ''
-        const t = ((await opt.textContent()) || '').trim()
-        if (!v || v === '_none' || v === '0') continue
-        if (/^-?\s*select\s*-?$/i.test(t)) continue
-        if (/^(choisir|sélectionner|selectionner|please select)/i.test(t)) continue
-        await sel.selectOption({ value: v })
-        break
+        const optionCount = await sel.locator('option').count()
+        for (let j = 0; j < optionCount; j++) {
+          const opt = sel.locator('option').nth(j)
+          const v = (await opt.getAttribute('value')) ?? ''
+          const t = ((await opt.textContent()) || '').trim()
+          if (!v || v === '_none' || v === '0') continue
+          if (/^-?\s*select\s*-?$/i.test(t)) continue
+          if (/^(choisir|sélectionner|selectionner|please select)/i.test(t)) continue
+          await sel.selectOption({ value: v })
+          filled += 1
+          await page.waitForTimeout(250)
+          break
+        }
+      } catch {
+        // continue
       }
+    }
+    if (filled === 0) break
+    await page.waitForTimeout(350)
+  }
+}
+
+/**
+ * Check required / consent checkboxes that often gate submit buttons.
+ * Generic across lead forms — not site-specific.
+ */
+async function checkRequiredFormControls(page: Page): Promise<void> {
+  const boxes = page.locator(
+    [
+      'form input[type="checkbox"][required]',
+      'form input[type="checkbox"][aria-required="true"]',
+      'form input[type="checkbox"].required',
+      'form input[type="checkbox"]',
+    ].join(', '),
+  )
+  const count = await boxes.count().catch(() => 0)
+  for (let i = 0; i < Math.min(count, 16); i++) {
+    const box = boxes.nth(i)
+    try {
+      if (!(await box.isVisible({ timeout: 250 }).catch(() => false))) continue
+      if (await box.isChecked().catch(() => true)) continue
+
+      const required = await box.evaluate((el) => {
+        const input = el as HTMLInputElement
+        if (input.required || input.getAttribute('aria-required') === 'true') return true
+        if (/\brequired\b/i.test(input.className)) return true
+        const label =
+          input.labels && input.labels[0]
+            ? input.labels[0].textContent || ''
+            : ''
+        const blob = `${input.name} ${input.id} ${input.value} ${label}`
+        return /accept|consent|rgpd|gdpr|privacy|cgu|cgv|politique|contact[ée]|j['’]accepte|i agree|opt[- ]?in/i.test(
+          blob,
+        )
+      })
+      if (!required) continue
+
+      await box.check({ timeout: 2000 }).catch(async () => {
+        await box.click({ timeout: 2000 }).catch(() => undefined)
+      })
+      await page.waitForTimeout(120)
     } catch {
       // continue
     }
   }
+}
+
+async function prepareFormForSubmit(page: Page): Promise<void> {
+  await fillEmptyFormSelects(page)
+  await checkRequiredFormControls(page)
 }
 
 async function resolveSelectLocator(page: Page, step: RunnableStep): Promise<Locator | null> {
@@ -1126,18 +1517,20 @@ async function performSelect(page: Page, locator: Locator, step: RunnableStep): 
 export async function runJourneyWithPlaywright(options: {
   steps: RunnableStep[]
   prompt?: string
+  siteUrl?: string | null
   preferredLanguage?: 'en' | 'fr' | null
   signal?: AbortSignal
   onEvent: (event: RunnerEvent) => void | Promise<void>
 }): Promise<void> {
-  const { steps, prompt, preferredLanguage, signal, onEvent } = options
+  const { steps, prompt, siteUrl, preferredLanguage, signal, onEvent } = options
   if (steps.length === 0) {
     await onEvent({ type: 'error', error: 'No steps to run' })
     return
   }
 
-  const seedUrl = guessSeedUrl(steps, prompt)
-  const runnerLocale = resolveRunnerLocale(preferredLanguage, seedUrl)
+  const seedUrl = guessSeedUrl(steps, prompt, siteUrl)
+  const destinationUrl = guessDestinationUrl(steps, prompt, siteUrl)
+  const runnerLocale = resolveRunnerLocale(preferredLanguage, seedUrl || siteUrl)
   let browser: Browser | null = null
 
   const throwIfAborted = () => {
@@ -1149,7 +1542,11 @@ export async function runJourneyWithPlaywright(options: {
     browser = await launchBrowser()
     throwIfAborted()
 
-    const page = await createLocalizedPage(browser, { preferredLanguage, seedUrl })
+    const page = await createLocalizedPage(browser, {
+      preferredLanguage,
+      seedUrl,
+      destinationUrl,
+    })
 
     const firstAction = steps[0]?.action.trim().toLowerCase() ?? ''
     const firstIsNavigate = /navigate|go to|open/i.test(firstAction)
@@ -1157,6 +1554,8 @@ export async function runJourneyWithPlaywright(options: {
     // (avoids double-load / teleporting past the planned entry).
     if (seedUrl && !firstIsNavigate) {
       await onEvent({ type: 'status', text: `Opening ${seedUrl}` })
+      const market = marketCountryFor(runnerLocale, destinationUrl)
+      await applyMarketCookies(page.context(), seedUrl, market)
       await page.goto(seedUrl, { waitUntil: 'domcontentloaded', timeout: 35000 }).catch(() => undefined)
       await dismissNoise(page)
     }
@@ -1170,7 +1569,13 @@ export async function runJourneyWithPlaywright(options: {
 
       const stepStartedAt = Date.now()
       try {
-        const frame = await executeStepWithCapture(page, step, seedUrl, runnerLocale)
+        const frame = await executeStepWithCapture(
+          page,
+          step,
+          seedUrl,
+          runnerLocale,
+          destinationUrl,
+        )
         throwIfAborted()
         const durationMs = Date.now() - stepStartedAt
         await onEvent({
@@ -1239,11 +1644,12 @@ export type DryRunResult = {
 export async function dryRunJourneyWithPlaywright(options: {
   steps: RunnableStep[]
   prompt?: string
+  siteUrl?: string | null
   preferredLanguage?: 'en' | 'fr' | null
   deadlineMs?: number
   onStatus?: (text: string) => void
 }): Promise<DryRunResult> {
-  const { steps, prompt, preferredLanguage, onStatus } = options
+  const { steps, prompt, siteUrl, preferredLanguage, onStatus } = options
   const deadlineMs = options.deadlineMs ?? 18_000
   const started = Date.now()
   const timeLeft = () => deadlineMs - (Date.now() - started)
@@ -1252,18 +1658,25 @@ export async function dryRunJourneyWithPlaywright(options: {
     return { ok: false, stepsOk: 0, failedIndex: null, failedLabel: null, error: 'No steps' }
   }
 
-  const seedUrl = guessSeedUrl(steps, prompt)
-  const runnerLocale = resolveRunnerLocale(preferredLanguage, seedUrl)
+  const seedUrl = guessSeedUrl(steps, prompt, siteUrl)
+  const destinationUrl = guessDestinationUrl(steps, prompt, siteUrl)
+  const runnerLocale = resolveRunnerLocale(preferredLanguage, seedUrl || siteUrl)
   let browser: Browser | null = null
 
   try {
     onStatus?.('Rehearsing the journey in the browser…')
     browser = await launchBrowser()
-    const page = await createLocalizedPage(browser, { preferredLanguage, seedUrl })
+    const page = await createLocalizedPage(browser, {
+      preferredLanguage,
+      seedUrl,
+      destinationUrl,
+    })
 
     const firstAction = steps[0]?.action.trim().toLowerCase() ?? ''
     const firstIsNavigate = /navigate|go to|open/i.test(firstAction)
     if (seedUrl && !firstIsNavigate && timeLeft() > 3_000) {
+      const market = marketCountryFor(runnerLocale, destinationUrl)
+      await applyMarketCookies(page.context(), seedUrl, market)
       await page.goto(seedUrl, {
         waitUntil: 'domcontentloaded',
         timeout: Math.min(20_000, timeLeft()),
@@ -1285,7 +1698,7 @@ export async function dryRunJourneyWithPlaywright(options: {
       const step = steps[i]!
       try {
         // Reuse the live path (including highlight) so dry-run matches production.
-        await executeStepWithCapture(page, step, seedUrl, runnerLocale)
+        await executeStepWithCapture(page, step, seedUrl, runnerLocale, destinationUrl)
         stepsOk += 1
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Step failed'

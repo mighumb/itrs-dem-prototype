@@ -46,6 +46,7 @@ import {
   runStoppedMessage,
   type JourneyLaunchSession,
 } from '../lib/journeyLaunch'
+import { stripLocaleSearchNoiseSteps } from '../../api/_lib/urlPathHelpers'
 import { recordedStepsToJourneyStages, recordingSiteUrl, recordingTitle } from '../lib/recordedSteps'
 import {
   actionsToStages,
@@ -72,8 +73,13 @@ import type {
 import { scheduleSummary, templateActions } from '../types'
 import type { DiscoveryPlan } from '../mock/discovery'
 import {
+  isBareJourneyLaunch,
+  isLocaleNoiseComplaint,
   messageWithAuthoritativePlan,
   planFromJourneySteps,
+  sanitizeDiscoveryPlan,
+  wantsJourneyLaunch,
+  wantsMissingRunButton,
   wantsPlanCorrection,
   wantsPlanInChat,
 } from '../mock/discovery'
@@ -735,6 +741,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
         const result = await runLiveJourney({
           steps: slice,
           prompt: initialPrompt,
+          siteUrl: session.siteUrl,
           preferredLanguage: locale,
           signal: controller.signal,
           onFrame: (frame) => {
@@ -880,7 +887,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
         }
       }
     },
-    [initialPrompt, locale, recordLastRunStep],
+    [initialPrompt, locale, recordLastRunStep, session.siteUrl],
   )
 
   const runSimulatedSteps = useCallback(
@@ -1210,11 +1217,11 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
     ],
   )
 
-  const runReplay = useCallback(async () => {
-    if (isRunning || actionCount === 0) return
+  const runReplay = useCallback(async (overrideSteps?: JourneyAction[]) => {
+    const stepsToRun = overrideSteps ?? steps
+    if (isRunning || stepsToRun.length === 0) return
 
     const runId = ++runIdRef.current
-    const stepsToRun = steps
 
     setEditMode(false)
     hidePanel('monitoring')
@@ -1255,7 +1262,6 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
     setMessages((prev) => applyPostRunMessages(prev, journey, failedStep, { locale }))
   }, [
     isRunning,
-    actionCount,
     steps,
     journey,
     openPanel,
@@ -1409,6 +1415,61 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
       const userMsg: ChatMessage = { id: `user-${Date.now()}`, role: 'user', content: trimmed }
       setMessages((prev) => [...prev, userMsg])
       setInput('')
+
+      // Launch / missing Lancer → run cleaned live steps. Never round-trip to the model
+      // (it re-injects Type/Click « fr » into the chat).
+      if (
+        actionCount > 0 &&
+        (isBareJourneyLaunch(trimmed) ||
+          wantsMissingRunButton(trimmed) ||
+          (wantsJourneyLaunch(trimmed) && !isLocaleNoiseComplaint(trimmed) && !wantsPlanInChat(trimmed)))
+      ) {
+        const cleaned = stripLocaleSearchNoiseSteps(steps)
+        if (cleaned.length !== steps.length) {
+          const cleanedPlan = sanitizeDiscoveryPlan(
+            planFromJourneySteps(
+              cleaned.map((s) => ({
+                label: s.label,
+                action: s.action,
+                href: s.href,
+                targetHint: s.targetHint,
+              })),
+              {
+                title: journeyName || journey.name,
+                summary:
+                  locale === 'fr'
+                    ? 'Parcours prêt à lancer.'
+                    : 'Journey ready to run.',
+                prompt: initialPrompt || journey.name,
+              },
+            ),
+          )
+          setStages(planToJourneyStages(cleanedPlan, steps, session.siteUrl, locale))
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `agent-launch-${Date.now()}`,
+              role: 'agent',
+              content: runStartMessage(locale),
+            },
+          ])
+          window.setTimeout(() => {
+            if (!isRunningRef.current) void runReplay(cleaned)
+          }, 50)
+          return
+        }
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `agent-launch-${Date.now()}`,
+            role: 'agent',
+            content: runStartMessage(locale),
+          },
+        ])
+        void runReplay()
+        return
+      }
+
       setAgentTyping(true)
       setWorkStatus(null)
 
@@ -1422,6 +1483,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
         extractUrlFromText(initialPrompt) ||
         steps.map((s) => extractUrlFromText(`${s.label} ${s.action} ${s.target ?? ''}`)).find(Boolean) ||
         null
+      const launchIntent = wantsJourneyLaunch(trimmed)
 
       try {
         const ai = await requestDiscoveryAi({
@@ -1462,12 +1524,59 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
               : null
 
         const correctedPlan = rawPlan
-          ? ensureFormEntryInPlan(rawPlan, {
-              siteUrl: seedUrl,
-              prompt: `${initialPrompt} ${journey.name}`,
-              locale,
-            })
+          ? sanitizeDiscoveryPlan(
+              ensureFormEntryInPlan(rawPlan, {
+                siteUrl: seedUrl,
+                prompt: `${initialPrompt} ${journey.name}`,
+                locale,
+              }),
+            )
           : null
+
+        // User called out locale-noise steps (« Rechercher fr ») — never re-display them.
+        const localeNoiseComplaint = isLocaleNoiseComplaint(trimmed)
+
+        let planForUi = correctedPlan
+        if (localeNoiseComplaint) {
+          const cleanedLive = sanitizeDiscoveryPlan(
+            planFromJourneySteps(
+              stripLocaleSearchNoiseSteps(
+                steps.map((s) => ({
+                  label: s.label,
+                  action: s.action,
+                  href: s.href,
+                  targetHint: s.targetHint,
+                })),
+              ),
+              {
+                title: correctedPlan?.title || journeyName || journey.name,
+                summary:
+                  correctedPlan?.summary ||
+                  (locale === 'fr'
+                    ? 'Parcours nettoyé des étapes superflues.'
+                    : 'Journey cleaned of superfluous steps.'),
+                prompt: correctedPlan?.prompt || initialPrompt || journey.name,
+              },
+            ),
+          )
+          planForUi =
+            correctedPlan &&
+            stripLocaleSearchNoiseSteps(correctedPlan.steps).length ===
+              correctedPlan.steps.length
+              ? sanitizeDiscoveryPlan(correctedPlan)
+              : cleanedLive
+          if (
+            planForUi &&
+            stripLocaleSearchNoiseSteps(planForUi.steps).length !== planForUi.steps.length
+          ) {
+            planForUi = cleanedLive
+          }
+        }
+
+        // Launch path must never paste the model's numbered list (often reintroduces « fr »).
+        if (launchIntent && planForUi) {
+          planForUi = sanitizeDiscoveryPlan(planForUi)
+        }
 
         const defaultIntro =
           locale === 'fr'
@@ -1479,22 +1588,38 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
               : 'OK.'
 
         let agentContent = ai.message?.trim() || defaultIntro
-        if (correctedPlan) {
+        if (planForUi) {
           const patched =
-            correctedPlan.steps.length !== (rawPlan?.steps.length ?? 0) ||
-            correctedPlan.steps.some(
+            planForUi.steps.length !== (rawPlan?.steps.length ?? 0) ||
+            planForUi.steps.some(
               (s, i) =>
                 s.label !== rawPlan?.steps[i]?.label ||
                 s.action !== rawPlan?.steps[i]?.action,
             )
-          if (patched && !/brochure|formulaire|ouvrir le formulaire|open the form/i.test(agentContent)) {
-            const note =
-              locale === 'fr'
-                ? 'J’ai ajouté le clic d’ouverture du formulaire avant les saisies — voici le plan à jour :'
-                : 'I added the form-open click before the fill steps — here is the updated plan:'
-            agentContent = note
+          if (launchIntent && !askPlan && !localeNoiseComplaint) {
+            agentContent = runStartMessage(locale)
+          } else {
+            if (
+              localeNoiseComplaint &&
+              patched &&
+              !/supprim|retir|nettoy|removed|deleted|cleaned/i.test(agentContent)
+            ) {
+              agentContent =
+                locale === 'fr'
+                  ? 'Bien vu — j’ai retiré les étapes superflues liées au préfixe `/fr/` de l’URL. Voici le plan nettoyé — tu peux Lancer :'
+                  : 'Good catch — I removed the superfluous steps from the `/fr/` URL prefix. Here is the cleaned plan — you can Run:'
+            } else if (
+              patched &&
+              !/brochure|formulaire|ouvrir le formulaire|open the form/i.test(agentContent)
+            ) {
+              const note =
+                locale === 'fr'
+                  ? 'J’ai ajouté le clic d’ouverture du formulaire avant les saisies — voici le plan à jour :'
+                  : 'I added the form-open click before the fill steps — here is the updated plan:'
+              agentContent = note
+            }
+            agentContent = messageWithAuthoritativePlan(agentContent, planForUi)
           }
-          agentContent = messageWithAuthoritativePlan(agentContent, correctedPlan)
         }
 
         const agentMsg: ChatMessage = {
@@ -1503,22 +1628,38 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
           content: agentContent,
         }
 
-        if (correctedPlan) {
-          const nextStages = planToJourneyStages(correctedPlan, steps, seedUrl, locale)
+        if (planForUi) {
+          const nextStages = planToJourneyStages(planForUi, steps, seedUrl, locale)
           setStages(nextStages)
           setFixActionsResolved(false)
           setScheduleResolved(false)
-          if (correctedPlan.title) {
-            setJourneyName(correctedPlan.title)
+          if (planForUi.title) {
+            setJourneyName(planForUi.title)
             onHeaderChange?.({
-              title: formatJourneyTitle(correctedPlan.title, seedUrl, locale),
-              subtitle: isRunning ? t('running') : correctedPlan.summary,
+              title: formatJourneyTitle(planForUi.title, seedUrl, locale),
+              subtitle: isRunning ? t('running') : planForUi.summary,
             })
           }
           setMessages((prev) => [
             ...prev.filter((m) => m.id !== 'done-2' && m.id !== RUN_OUTCOME_MESSAGE_ID),
             agentMsg,
           ])
+          // Launch (+ optional edits): apply steps then run — don't leave the user staring at a re-listed plan.
+          if (launchIntent && !askPlan) {
+            const launchSteps = flattenActions(nextStages)
+            window.setTimeout(() => {
+              if (!isRunningRef.current) void runReplay(launchSteps)
+            }, 50)
+          }
+          return
+        }
+
+        // Launch with no plan returned — still run the current steps.
+        if (launchIntent && actionCount > 0) {
+          setMessages((prev) => [...prev, agentMsg])
+          window.setTimeout(() => {
+            if (!isRunningRef.current) void runReplay()
+          }, 50)
           return
         }
 
@@ -1545,6 +1686,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
     [
       agentTyping,
       isRunning,
+      actionCount,
       locale,
       messages,
       steps,
@@ -1554,6 +1696,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
       session.siteUrl,
       onHeaderChange,
       onRequestNewJourney,
+      runReplay,
       t,
     ],
   )

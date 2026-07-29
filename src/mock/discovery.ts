@@ -1,3 +1,5 @@
+import { stripLocaleSearchNoiseSteps } from '../../api/_lib/urlPathHelpers'
+
 export type DiscoveryPhase = 'idle' | 'questionnaire' | 'proposals' | 'planning' | 'conversation'
 
 export interface DiscoveryQuestion {
@@ -487,8 +489,35 @@ export function buildConfigureQuestions(
   ]
 }
 
+/** Drop every numbered step line — model prose lists cannot be trusted. */
+export function stripAllNumberedStepLines(message: string): string {
+  return message
+    .split('\n')
+    .filter((line) => !/^\s*\*{0,2}\s*\d{1,2}[.)]\s+\S/.test(line.trim()))
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+/** Plan with locale-noise steps removed (search/open « fr », etc.). */
+export function sanitizeDiscoveryPlan(plan: DiscoveryPlan): DiscoveryPlan {
+  const steps = stripLocaleSearchNoiseSteps(plan.steps)
+  if (steps.length === plan.steps.length) {
+    const same = steps.every(
+      (s, i) =>
+        s.label === plan.steps[i]?.label &&
+        s.action === plan.steps[i]?.action &&
+        s.targetHint === plan.steps[i]?.targetHint &&
+        s.href === plan.steps[i]?.href,
+    )
+    if (same) return plan
+  }
+  return { ...plan, steps }
+}
+
 export function formatPlanMessage(plan: DiscoveryPlan): string {
-  const lines = plan.steps.map(
+  const steps = stripLocaleSearchNoiseSteps(plan.steps)
+  const lines = steps.map(
     (step, index) => `${index + 1}. **${step.action}** — ${step.label}`,
   )
   return `${plan.summary}\n\n${lines.join('\n')}`
@@ -506,7 +535,9 @@ export function stripTrailingPlanListing(message: string): string {
   while (i >= 0 && /^\s*$/.test(lines[i]!)) i -= 1
   if (
     i >= 0 &&
-    /plan|étape|etape|steps?|parcours|actions?|mis à jour|updated/i.test(lines[i]!)
+    /plan|étape|etape|steps?|parcours|actions?|mis à jour|updated|corrigé|corrected|nettoy/i.test(
+      lines[i]!,
+    )
   ) {
     i -= 1
   }
@@ -522,8 +553,11 @@ export function messageWithAuthoritativePlan(
   message: string,
   plan: DiscoveryPlan,
 ): string {
-  const formatted = formatPlanMessage(plan)
-  const intro = stripTrailingPlanListing(message || '')
+  const cleanPlan = sanitizeDiscoveryPlan(plan)
+  const formatted = formatPlanMessage(cleanPlan)
+  // Strip ALL model-authored numbered lines — claims like “je les ai supprimées”
+  // often still include the old list in prose.
+  const intro = stripAllNumberedStepLines(stripTrailingPlanListing(message || ''))
   return intro ? `${intro}\n\n${formatted}` : formatted
 }
 
@@ -569,6 +603,85 @@ export function wantsPlanInChat(text: string): boolean {
 export function wantsPlanCorrection(text: string): boolean {
   return /\b(corrige|correct|fix|update|mets? à jour|mauvais|pas bon|n'est pas bon|wrong|mixed|mélang|avant même|before.*(click|clic|type|sais))\b/i.test(
     text,
+  )
+}
+
+/**
+ * User wants to run / launch the current journey (not re-list the plan).
+ * Client should call Run/Lancer — do not treat as iterate→plan dump.
+ */
+export function wantsJourneyLaunch(text: string): boolean {
+  const t = text.toLowerCase().trim()
+  if (!t) return false
+  // Showing / fixing the plan is not a launch.
+  if (wantsPlanInChat(text)) return false
+  // “Lancer la recherche” is a step action, not run-the-journey.
+  if (/\blancer\s+la\s+recherch/i.test(t)) return false
+
+  if (
+    /^(ok|oui|yes|parfait|nickel|très bien|tres bien|allez|go)?\s*[,!]?\s*(lance|lancer|lançons|lancons|exécute|execute|run|start|démarre|demarre|relance|relancer)\b/i.test(
+      t,
+    )
+  ) {
+    return true
+  }
+  if (
+    /\b(lance|lancer|lançons|lancons|exécute|execute|run|start|démarre|demarre|relance|relancer)\b[\s\S]{0,40}\b(parcours|journey|plan|ça|ca|le|it|this)\b/i.test(
+      t,
+    )
+  ) {
+    return true
+  }
+  if (/^(go|run it|let'?s go|c'?est parti)\s*[.!]?$/i.test(t)) return true
+  return false
+}
+
+/**
+ * Launch command with little/no extra edit payload — safe to run immediately
+ * without an iterate round-trip.
+ */
+export function isBareJourneyLaunch(text: string): boolean {
+  if (!wantsJourneyLaunch(text)) return false
+  const stripped = text
+    .toLowerCase()
+    .replace(
+      /\b(ok|oui|yes|parfait|nickel|très bien|tres bien|allez|please|s['’]il te pla[iî]t|stp|merci|thanks)\b/gi,
+      ' ',
+    )
+    .replace(
+      /\b(lance|lancer|lançons|lancons|exécute|execute|run|start|démarre|demarre|relance|relancer)(\s+le)?(\s+parcours|\s+journey|\s+plan|\s+run)?\b/gi,
+      ' ',
+    )
+    .replace(/\b(go|run it|let'?s go|c'?est parti|ça|ca|le|it|this|alors|maintenant|svp)\b/gi, ' ')
+    // “j’ai pas le bouton Lancer” is still a launch ask, not a plan edit.
+    .replace(
+      /\b(?:j['’]?ai\s+pas|je\s+n['’]?ai\s+pas|pas\s+de|missing|where(?:'s| is)?|montre|affiche|donne)\b[\s\S]{0,20}\b(?:bouton|button)?\s*[«"'“”]?lancer[»"'“”]?/gi,
+      ' ',
+    )
+    .replace(/\b(?:bouton|button)\s*[«"'“”]?lancer[»"'“”]?/gi, ' ')
+    .replace(/[.!?,:;]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  // Allow tiny leftovers (“maintenant”, “svp”) but not new params / step edits.
+  return stripped.length <= 24
+}
+
+/** User is missing the Run/Lancer control and wants it back / to run. */
+export function wantsMissingRunButton(text: string): boolean {
+  const t = text.toLowerCase()
+  return (
+    /\b(?:pas|missing|where|où|affiche|montre|donne|reactive|réactive|active)\b[\s\S]{0,40}\b(?:bouton\s*)?[«"'“”]?lancer[»"'“”]?/i.test(
+      t,
+    ) || /\bbouton\s*[«"'“”]?lancer[»"'“”]?\b/i.test(t)
+  )
+}
+
+/** Locale-noise / superfluous step complaint (search/open « fr », etc.). */
+export function isLocaleNoiseComplaint(text: string): boolean {
+  return (
+    /recherch\w*\s+[«"'“”]?fr\b|ouvrir\s+[«"'“”]?\s*fr\b|ces deux actions|remets?\s+à\s+nouveau|pourquoi tu (?:les )?remet/i.test(
+      text,
+    ) || wantsPlanCorrection(text)
   )
 }
 

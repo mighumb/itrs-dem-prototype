@@ -23,6 +23,7 @@ import {
   messageRequestsSiteWork,
   summarizeStatedJourneyIntent,
 } from './_lib/discoverySiteIntent.js'
+import { ensureProposalsHonorStatedIntent } from './_lib/proposalIntentGuard.js'
 import {
   buildRelocalizeUserPrompt,
   mergeRelocalizedForm,
@@ -214,12 +215,29 @@ function buildUserPrompt(
       ? `${body.userMessage}\n\n[Original monitoring request — honor for proposals #1]: ${statedJourneyIntent}`
       : body.userMessage
 
-  // Deep URL path (e.g. /brochure) already chooses the journey — inject an explicit
-  // guard so the model cannot fall back to “3 parcours sur {host} — lequel ?”.
+  // Deep URL handling — destination (where) vs stated outcome (what).
+  // When the user already stated an outcome, that wins for proposals[0].
+  // Bare deep URL alone must NOT be read as “download / submit”.
   const deepFromMessage =
     intentFromDeepLocator(body.userMessage) ?? intentFromDeepLocator(seed)
-  if (attachSite && !confirmFirst && deepFromMessage && statedJourneyIntent) {
-    userMessage = `${userMessage}\n\n[Deep URL = chosen journey — do NOT ask which journey on the host; collect form params for this destination or set proposals[0] to it]: ${deepFromMessage}`
+  const exploreBlocked =
+    Boolean(explore && explore.ok === false) ||
+    Boolean(
+      explore?.pages?.some((p) =>
+        /403|forbidden|access denied/i.test(`${p.title ?? ''} ${p.heading ?? ''}`),
+      ),
+    )
+  if (attachSite && !confirmFirst && deepFromMessage) {
+    if (statedJourneyIntent) {
+      userMessage = `${userMessage}\n\n[User stated BOTH an outcome and a deep destination. proposals[0] MUST implement the stated outcome — never replace it with homepage availability or “search from homepage”. Lock this exact path as the destination/context]: ${deepFromMessage}`
+      if (exploreBlocked) {
+        userMessage = `${userMessage}\n\n[HARD] Deep destination explore failed/blocked (e.g. 403). Do NOT ask the user how they usually navigate. Do NOT ask to re-confirm the site (URL was explicit). Return 2–3 proposals NOW for the stated outcome using a natural path from the site homepage (Ressources / search / menus) — mark as hypotheses if nav labels were not observed.`
+      }
+    } else {
+      userMessage = `${userMessage}\n\n[Deep URL = destination page only — lock this exact path. Do NOT infer the monitoring goal from the path slug (e.g. /brochure ≠ download). Return 2–3 proposals for THIS page (e.g. visibility/accessibility, fill fields, fill+submit) — never jump straight to form-param questions]: ${deepFromMessage}`
+    }
+  } else if (attachSite && !confirmFirst && statedJourneyIntent) {
+    userMessage = `${userMessage}\n\n[Stated journey outcome — proposals[0] MUST match this; never substitute homepage availability]: ${statedJourneyIntent}`
   }
 
   return JSON.stringify(
@@ -698,6 +716,7 @@ async function groundAndMaybeDryRunPlan(options: {
     steps: selected,
     prompt:
       typeof planObj.prompt === 'string' ? (planObj.prompt as string) : body.userMessage,
+    siteUrl: seedUrl,
     preferredLanguage: lang,
     deadlineMs: Math.min(18_000, budgetLeft() - 4_000),
   })
@@ -747,7 +766,7 @@ function buildResultPayload(
   const declined = isSiteCandidateDeclined(body)
   // Hard gates: never ship journey proposals while confirming the site, or after the
   // user declined the candidate (e.g. « c'était juste un souhait »).
-  const proposals =
+  let proposals =
     confirmFirst || declined || !Array.isArray(parsed.proposals) ? null : parsed.proposals
   let questions = declined
     ? null
@@ -757,6 +776,55 @@ function buildResultPayload(
   const lang = body.preferredLanguage ?? body.context?.preferredLanguage ?? 'en'
   const fr = lang === 'fr'
   const host = candidateHostLabel(target?.url)
+
+  // Root guard: stated outcome beats homepage / search-from-home templates.
+  // Also synthesizes proposals when the model stalls on 403 / asks navigation questions.
+  const seed =
+    typeof body.context?.seed === 'string' ? body.context.seed.trim() : ''
+  const stated =
+    summarizeStatedJourneyIntent(body.userMessage) ??
+    summarizeStatedJourneyIntent(seed)
+  const destinationUrl = analysis?.url ?? target?.url ?? body.context?.url ?? null
+
+  if (!confirmFirst && !declined) {
+    // Drop model-invented site confirmation when the URL was already explicit.
+    if (
+      questions &&
+      (target?.source === 'explicit_url' || target?.source === 'bare_domain')
+    ) {
+      const filtered = questions.filter((q) => {
+        if (!q || typeof q !== 'object') return false
+        const prompt = String((q as { prompt?: unknown }).prompt ?? '')
+        return !/confirm(?:er)?\s+(?:le\s+)?site|is\s+.+\s+the\s+site|bien\s+sur\s+\w+|site\s+à\s+surveiller|url\s+à\s+surveiller|official\s+site/i.test(
+          prompt,
+        )
+      })
+      questions = filtered.length > 0 ? filtered : null
+    }
+    // Drop “how do you usually navigate?” when the outcome is already stated.
+    if (questions && stated) {
+      const filtered = questions.filter((q) => {
+        if (!q || typeof q !== 'object') return false
+        const prompt = String((q as { prompt?: unknown }).prompt ?? '')
+        return !/comment\s+tu\s+acc[eè]des|how\s+do\s+you\s+(?:usually\s+)?(?:access|get\s+there|navigate)|section\s+des\s+livres\s+blancs|habituellement/i.test(
+          prompt,
+        )
+      })
+      questions = filtered.length > 0 ? filtered : null
+    }
+  }
+
+  if (!confirmFirst && !declined && stated) {
+    proposals = ensureProposalsHonorStatedIntent(proposals, stated, {
+      destinationUrl,
+      preferredLanguage: lang,
+    })
+  } else if (proposals) {
+    proposals = ensureProposalsHonorStatedIntent(proposals, null, {
+      destinationUrl,
+      preferredLanguage: lang,
+    })
+  }
 
   // Server-owned URL fact-check UI: always the candidate host + decline.
   // Never ship model-invented alternate hosts as soft options.
