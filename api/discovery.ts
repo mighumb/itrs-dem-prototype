@@ -945,79 +945,6 @@ function buildResultPayload(
   }
 }
 
-/**
- * When Gemini is down (quota / 503) but the user already gave an explicit URL +
- * stated outcome, still return proposals so Discovery stays usable.
- */
-function buildOfflineStatedIntentFallback(
-  body: DiscoveryAiRequest,
-  analysis: SiteAnalysisResult | null,
-  target: ResolvedSiteTarget | null,
-  explore: SiteExploreResult | null,
-  streamedStatuses: string[],
-  geminiError: unknown,
-): ReturnType<typeof buildResultPayload> | null {
-  if (!['bootstrap', 'chat', 'propose'].includes(body.mode)) return null
-  if (isSiteCandidateDeclined(body)) return null
-
-  const confirmFirst = shouldConfirmBeforeExplore(body, target)
-  if (confirmFirst) return null
-
-  const seed =
-    typeof body.context?.seed === 'string' ? body.context.seed.trim() : ''
-  const stated =
-    summarizeStatedJourneyIntent(body.userMessage) ??
-    summarizeStatedJourneyIntent(seed)
-  if (!stated) return null
-
-  const destinationUrl =
-    analysis?.url ?? target?.url ?? body.context?.url ?? null
-  const explicit =
-    target?.source === 'explicit_url' ||
-    target?.source === 'bare_domain' ||
-    hasExplicitSiteLocator(body.userMessage) ||
-    hasExplicitSiteLocator(seed)
-  if (!destinationUrl || !explicit) return null
-
-  const lang = body.preferredLanguage ?? body.context?.preferredLanguage ?? 'en'
-  const fr = lang === 'fr'
-  const errMsg = geminiError instanceof Error ? geminiError.message : String(geminiError ?? '')
-  const quota = /\b429\b|Too Many Requests|quota|rate.?limit/i.test(errMsg)
-
-  console.error(
-    `[api/discovery] offline stated-intent fallback (${quota ? 'quota' : 'gemini-down'})`,
-    errMsg.slice(0, 200),
-  )
-
-  return buildResultPayload(
-    {
-      message: fr
-        ? quota
-          ? 'L’IA est temporairement saturée — voici des parcours basés sur ta demande. Choisis-en un pour continuer.'
-          : 'L’assistant est momentanément indisponible — voici des parcours basés sur ta demande. Choisis-en un pour continuer.'
-        : quota
-          ? 'The AI is temporarily rate-limited — here are journeys based on your ask. Pick one to continue.'
-          : 'The assistant is briefly unavailable — here are journeys based on your ask. Pick one to continue.',
-      proposals: [],
-      questions: null,
-      plan: null,
-      readyForPlan: false,
-      workTrace: [
-        fr
-          ? 'Parcours proposés hors ligne (demande + URL explicites)'
-          : 'Offline proposals (explicit URL + stated outcome)',
-      ],
-    },
-    analysis,
-    target,
-    explore,
-    body,
-    'offline-intent-fallback',
-    streamedStatuses,
-    false,
-  )
-}
-
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST')
@@ -1173,19 +1100,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     }
 
-    const offline = buildOfflineStatedIntentFallback(
-      body,
-      analysis,
-      target,
-      explore,
-      [],
-      lastError,
-    )
-    if (offline) {
-      writeNdjson(res, offline)
-      return res.end()
-    }
-
     const message = lastError instanceof Error ? lastError.message : 'Gemini request failed'
     writeNdjson(res, {
       type: 'error',
@@ -1205,21 +1119,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Gemini request failed'
     console.error('[api/discovery]', message)
-    const offline = buildOfflineStatedIntentFallback(
-      body,
-      analysis,
-      target,
-      explore,
-      [],
-      error,
-    )
-    if (offline) {
-      if (!res.headersSent) {
-        res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8')
-      }
-      writeNdjson(res, offline)
-      return res.end()
-    }
     if (!res.headersSent) {
       return res.status(502).json({ error: message })
     }
