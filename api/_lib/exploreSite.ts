@@ -153,6 +153,8 @@ function linkScore(label: string, href: string): number {
     [/\/(destinations?|offers?|offres?|deals?)/i, 6],
     [/\/(contact|aide|help|support|faq)/i, 3],
     [/\/(brochure|devis|demo|lead|formulaire|inscription)/i, 9],
+    [/\/(livres?-blanc|white-?papers?|resources?|ressources|ebooks?)/i, 9],
+    [/livre\s*blanc|white\s*paper|position\s*paper|t[eé]l[eé]charg|download/i, 9],
     [/\/(about|a-propos|company)/i, 2],
   ] as const
   for (const [re, points] of boosts) {
@@ -509,6 +511,32 @@ export async function explorePublicSite(
         ok: false,
         url: primaryUrl,
         reason: 'Login-wall suspected — little public content available',
+        method: 'playwright',
+        pagesVisited: pages.length,
+        pages,
+        snapshot,
+        title: pages[0]?.title ?? null,
+      }
+      const analysis = toAnalysis(explore)
+      exploreCache.set(cacheKey, {
+        expires: Date.now() + EXPLORE_CACHE_TTL_MS,
+        explore,
+        analysis,
+      })
+      return { explore, analysis }
+    }
+
+    // Bot / WAF blocks must not be treated as rich observed inventory.
+    const blockedPage = pages.find((p) =>
+      /403\s*forbidden|access\s*denied|\bforbidden\b|attention required|just a moment/i.test(
+        `${p.title ?? ''} ${p.heading ?? ''}`,
+      ),
+    )
+    if (blockedPage && pages.every((p) => (p.links?.length ?? 0) + (p.buttons?.length ?? 0) < 2)) {
+      const explore: SiteExploreResult = {
+        ok: false,
+        url: primaryUrl,
+        reason: 'Access blocked or challenge page — inventory incomplete',
         method: 'playwright',
         pagesVisited: pages.length,
         pages,

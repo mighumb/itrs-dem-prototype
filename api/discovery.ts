@@ -23,6 +23,7 @@ import {
   messageRequestsSiteWork,
   summarizeStatedJourneyIntent,
 } from './_lib/discoverySiteIntent.js'
+import { ensureProposalsHonorStatedIntent } from './_lib/proposalIntentGuard.js'
 import {
   buildRelocalizeUserPrompt,
   mergeRelocalizedForm,
@@ -214,12 +215,19 @@ function buildUserPrompt(
       ? `${body.userMessage}\n\n[Original monitoring request — honor for proposals #1]: ${statedJourneyIntent}`
       : body.userMessage
 
-  // Deep URL = destination (where), not journey outcome (what).
-  // Lock the path; do NOT tell the model to collect form params / download.
+  // Deep URL handling — destination (where) vs stated outcome (what).
+  // When the user already stated an outcome, that wins for proposals[0].
+  // Bare deep URL alone must NOT be read as “download / submit”.
   const deepFromMessage =
     intentFromDeepLocator(body.userMessage) ?? intentFromDeepLocator(seed)
   if (attachSite && !confirmFirst && deepFromMessage) {
-    userMessage = `${userMessage}\n\n[Deep URL = destination page only — lock this exact path. Do NOT infer the monitoring goal from the path slug (e.g. /brochure ≠ download). If the user did not say what to check on that page, return 2–3 proposals for THIS page (e.g. visibility/accessibility, fill fields, fill+submit) — never jump straight to form-param questions]: ${deepFromMessage}`
+    if (statedJourneyIntent) {
+      userMessage = `${userMessage}\n\n[User stated BOTH an outcome and a deep destination. proposals[0] MUST implement the stated outcome — never replace it with homepage availability or “search from homepage”. Lock this exact path as the destination/context]: ${deepFromMessage}`
+    } else {
+      userMessage = `${userMessage}\n\n[Deep URL = destination page only — lock this exact path. Do NOT infer the monitoring goal from the path slug (e.g. /brochure ≠ download). Return 2–3 proposals for THIS page (e.g. visibility/accessibility, fill fields, fill+submit) — never jump straight to form-param questions]: ${deepFromMessage}`
+    }
+  } else if (attachSite && !confirmFirst && statedJourneyIntent) {
+    userMessage = `${userMessage}\n\n[Stated journey outcome — proposals[0] MUST match this; never substitute homepage availability]: ${statedJourneyIntent}`
   }
 
   return JSON.stringify(
@@ -748,7 +756,7 @@ function buildResultPayload(
   const declined = isSiteCandidateDeclined(body)
   // Hard gates: never ship journey proposals while confirming the site, or after the
   // user declined the candidate (e.g. « c'était juste un souhait »).
-  const proposals =
+  let proposals =
     confirmFirst || declined || !Array.isArray(parsed.proposals) ? null : parsed.proposals
   let questions = declined
     ? null
@@ -758,6 +766,19 @@ function buildResultPayload(
   const lang = body.preferredLanguage ?? body.context?.preferredLanguage ?? 'en'
   const fr = lang === 'fr'
   const host = candidateHostLabel(target?.url)
+
+  // Root guard: stated outcome beats homepage / search-from-home templates.
+  if (proposals) {
+    const seed =
+      typeof body.context?.seed === 'string' ? body.context.seed.trim() : ''
+    const stated =
+      summarizeStatedJourneyIntent(body.userMessage) ??
+      summarizeStatedJourneyIntent(seed)
+    proposals = ensureProposalsHonorStatedIntent(proposals, stated, {
+      destinationUrl: analysis?.url ?? target?.url ?? body.context?.url ?? null,
+      preferredLanguage: lang,
+    })
+  }
 
   // Server-owned URL fact-check UI: always the candidate host + decline.
   // Never ship model-invented alternate hosts as soft options.
