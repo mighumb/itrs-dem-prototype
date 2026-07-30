@@ -168,11 +168,13 @@ function isConsentLabel(label: string): boolean {
 }
 
 function isFormTypeLabel(label: string): boolean {
-  return /\b(nom|pr[eé]nom|e-?mail|t[eé]l[eé]phone|phone|champ)\b/i.test(label)
+  return /\b(nom|pr[eé]nom|e-?mail|t[eé]l[eé]phone|phone|champ|mot\s*de\s*passe|password)\b/i.test(
+    label,
+  )
 }
 
 function looksLikeFormOpenClick(label: string): boolean {
-  return /brochure|contact|devis|demo|essai|lead|formulaire|télécharg|download|inscription|signup|sign[- ]?up/i.test(
+  return /brochure|contact|devis|demo|essai|lead|formulaire|télécharg|download|inscription|signup|sign[- ]?up|connexion|login|sign[- ]?in|se\s+connecter|je\s+me\s+connecte/i.test(
     label,
   )
 }
@@ -201,7 +203,7 @@ export function ensureFormEntryBeforeTypes(
     before.some((a) => {
       if (a.action !== 'Navigate') return false
       const href = a.href ?? a.target ?? ''
-      return /\/(brochure|contact|demo|devis|lead|form)/i.test(href)
+      return /\/(brochure|contact|demo|devis|lead|form|login|signin|connexion)/i.test(href)
     })
   ) {
     return actions
@@ -214,6 +216,9 @@ export function ensureFormEntryBeforeTypes(
   else if (/\/contact|contact/i.test(blob)) cta = 'Contact'
   else if (/devis/i.test(blob)) cta = 'Devis'
   else if (/demo|essai/i.test(blob)) cta = locale === 'fr' ? 'Demander une démo' : 'Request a demo'
+  else if (/connexion|login|sign[- ]?in|mot\s*de\s*passe|password|espace\s+client/i.test(blob)) {
+    cta = locale === 'fr' ? 'Connexion' : 'Log in'
+  }
   if (!cta) return actions
 
   const navIdx = before.findIndex((a) => a.action === 'Navigate')
