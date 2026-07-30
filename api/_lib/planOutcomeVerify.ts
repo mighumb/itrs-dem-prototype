@@ -14,14 +14,24 @@ export type OutcomeVerifyStep = {
 export function isWeakPageLoadVerify(label: string): boolean {
   const l = label.trim()
   if (!l) return true
+  // Vague “an element of the customer area / interface” is not a real outcome.
+  if (
+    /pr[eé]sence\s+d['’]?un\s+[eé]l[eé]ment|un\s+[eé]l[eé]ment\s+de\s+l['’]?espace|customer\s+area|espace\s+client|l['’]?interface|an\s+element\s+of|tableau\s+de\s+bord\s+ou\s+un\s+menu|dashboard\s+or\s+a\s+main\s+menu/i.test(
+      l,
+    )
+  ) {
+    return true
+  }
   // Already names a real outcome → keep.
   if (
-    /confirmation|confirmé|télécharg|download|merci|thank|succ[eè]s|success|panier|cart|r[eé]sultats?|results?|devis|quote|section|statistiques|email\s+field|champ|ajout/i.test(
+    /confirmation|confirmé|télécharg|download|merci|thank|succ[eè]s|success|panier|cart|r[eé]sultats?|results?|devis|quote|section|statistiques|email\s+field|d[eé]connexion|logout|mon\s+compte|bienvenue|welcome|dashboard|tableau\s+de\s+bord|ajout/i.test(
       l,
     )
   ) {
     return false
   }
+  // “champ” alone is not a journey outcome (often leftover form-field checks).
+  if (/^v[eé]rifier\s+(le\s+|la\s+|l['’])?champ\b/i.test(l)) return true
   return /page\s+se\s+charge|loads?\s+correctly|page\s+loads|page\s+(répond|responds)|chargement\s+(correct|ok)|homepage\s+responds|disponible|availability|page\s+s['’]?affiche|verify\s+the\s+page|v[eé]rifier\s+que\s+la\s+page|page\s+loaded|correctement/i.test(
     l,
   )
@@ -58,6 +68,17 @@ export function outcomeVerifyFromSteps(
           ? 'Vérifier le message de confirmation d’envoi'
           : 'Verify the form submission confirmation message',
         targetHint: 'confirmation',
+      }
+    }
+    if (
+      /se\s+connecter|je\s+me\s+connecte|sign\s*in|log\s*in|connexion|connecter/i.test(blob) &&
+      !/ouvrir|open\s+(the\s+)?(login|connexion)/i.test(blob)
+    ) {
+      return {
+        label: langFr
+          ? 'Vérifier l’accès à l’espace client (Déconnexion / Mon compte / tableau de bord)'
+          : 'Verify access to the account area (Logout / My account / dashboard)',
+        targetHint: langFr ? 'Déconnexion' : 'Logout',
       }
     }
     if (/panier|add to cart|ajouter au panier|bag/i.test(blob)) {
@@ -108,7 +129,8 @@ export function ensureOutcomeVerify<T extends OutcomeVerifyStep>(steps: T[]): T[
       ...last,
       action: 'Verify',
       label: outcome.label,
-      targetHint: last.targetHint || outcome.targetHint,
+      // Prefer the outcome hint — vague leftovers like “élément” must not stick.
+      targetHint: outcome.targetHint,
     }
     return next
   }

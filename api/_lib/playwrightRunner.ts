@@ -130,10 +130,10 @@ export function guessDestinationUrl(
   siteUrl?: string | null,
 ): string | null {
   const fromSite = siteUrl ? extractUrl(siteUrl) || siteUrl : null
-  if (fromSite && isDeepUrl(fromSite)) return fromSite
+  if (fromSite && isDeepUrl(fromSite) && !isAuthGatewayPath(fromSite)) return fromSite
 
   const fromPrompt = extractUrl(prompt ?? null)
-  if (fromPrompt && isDeepUrl(fromPrompt)) return fromPrompt
+  if (fromPrompt && isDeepUrl(fromPrompt) && !isAuthGatewayPath(fromPrompt)) return fromPrompt
 
   // Prefer form-like deep hrefs observed on Click/Navigate steps.
   const deep: string[] = []
@@ -145,7 +145,22 @@ export function guessDestinationUrl(
   const formLike = deep.find((u) =>
     /\/(brochure|contact|demo|devis|lead|form|inscription|signup)/i.test(u),
   )
-  return formLike || deep[0] || null
+  // Auth/gateway paths must not become the run "hold destination" — after Click
+  // « Connexion » / SSO the runner must stay on the post-gateway page, not snap back.
+  const nonAuth = deep.find((u) => !isAuthGatewayPath(u))
+  return formLike || nonAuth || null
+}
+
+/** Login / SSO / auth gateway URLs — deep but not a sticky destination contract. */
+export function isAuthGatewayPath(url: string): boolean {
+  try {
+    const path = new URL(url).pathname.toLowerCase()
+    return /\/(login|log-?in|signin|sign-?in|connexion|auth|sso|oauth|account\/login|session)(\/|$)/i.test(
+      path,
+    )
+  } catch {
+    return /\/(login|signin|connexion|auth|sso)(\/|$)/i.test(url)
+  }
 }
 
 function sameOrigin(a: string, b: string): boolean {
@@ -631,7 +646,7 @@ function looksLikeFieldName(hint: string): boolean {
   const h = hint.trim()
   if (!h || h.length > 60) return false
   if (/@/.test(h) || /\d{5,}/.test(h)) return false
-  return /^(nom(\s+de\s+famille)?|pr[eé]nom|name|first\s*names?|last\s*names?|e-?mails?|mails?|t[eé]l[eé]phones?|phones?|mobiles?|portables?|adresses?|villes?|pays|companies|soci[eé]t[eé]s?|entreprises?|codes?\s*postaux?|zip|postal|subject|objet|message|comments?)$/i.test(
+  return /^(nom(\s+de\s+famille)?|pr[eé]nom|name|first\s*names?|last\s*names?|e-?mails?|mails?|t[eé]l[eé]phones?|phones?|mobiles?|portables?|mots?\s*de\s*passe|passwords?|adresses?|villes?|pays|companies|soci[eé]t[eé]s?|entreprises?|codes?\s*postaux?|zip|postal|subject|objet|message|comments?)$/i.test(
     h,
   )
 }
@@ -651,6 +666,16 @@ function isPhoneFieldStep(step: RunnableStep): boolean {
   return /t[eé]l[eé]phone|phone|mobile|portable/i.test(
     `${step.label} ${step.targetHint ?? ''} ${step.target ?? ''}`,
   )
+}
+
+function isPasswordFieldStep(step: RunnableStep): boolean {
+  return /mot\s*de\s*passe|password|passwd|\bpwd\b/i.test(
+    `${step.label} ${step.targetHint ?? ''} ${step.target ?? ''}`,
+  )
+}
+
+function isCredentialTypeStep(step: RunnableStep): boolean {
+  return isEmailFieldStep(step) || isPasswordFieldStep(step)
 }
 
 /** Visible field names to try when resolving a Type target (not the typed value). */
@@ -696,6 +721,17 @@ function fieldHintsFromStep(step: RunnableStep): string[] {
         'téléphone',
         'galileo_phone',
         'tel',
+      ],
+    },
+    {
+      re: /mot\s*de\s*passe|password|passwd|\bpwd\b/i,
+      names: [
+        'Mot de passe',
+        'Password',
+        'password',
+        'passwd',
+        'pwd',
+        'current-password',
       ],
     },
     { re: /ville|city/i, names: ['Ville', 'City'] },
@@ -823,6 +859,30 @@ async function resolveTypeLocator(page: Page, step: RunnableStep): Promise<Locat
       800,
     )
     if (emailLoc) return emailLoc
+  }
+
+  if (isPasswordFieldStep(step)) {
+    const passwordLoc = await tryVisibleLocator(
+      page,
+      () =>
+        page
+          .locator(
+            [
+              'input[type="password"]',
+              'input[autocomplete="current-password"]',
+              'input[autocomplete="new-password"]',
+              'input[name*="pass" i]',
+              'input[name*="pwd" i]',
+              'input[id*="pass" i]',
+              'input[id*="pwd" i]',
+              'input[placeholder*="mot de passe" i]',
+              'input[placeholder*="password" i]',
+            ].join(', '),
+          )
+          .first(),
+      800,
+    )
+    if (passwordLoc) return passwordLoc
   }
 
   // Drupal / CRM name fields (e.g. HETIC Galileo brochure).
@@ -1071,7 +1131,9 @@ async function executeStepWithCapture(
   }
 
   if (shouldExecuteAsType(step)) {
-    if (destinationUrl) {
+    // Credential Types: never yank back to a sticky /login destination — the
+    // gateway Click may have opened SSO, a modal, or a deeper auth path.
+    if (destinationUrl && !isCredentialTypeStep(step) && !isAuthGatewayPath(destinationUrl)) {
       await enforceUserDestination(page, destinationUrl, runnerLocale)
     }
     const value = searchQueryFromStep(step)
@@ -1154,11 +1216,13 @@ async function executeStepWithCapture(
       (/inscription|sign[- ]?up/i.test(step.label) &&
         !/ouvrir|open|cliquer|click/i.test(step.label))
     const isFormEntryClick =
-      /brochure|contact|devis|demo|essai|lead|formulaire/i.test(step.label) && !isSubmitLike
+      /brochure|contact|devis|demo|essai|lead|formulaire|connexion|login|sign[- ]?in|je\s+me\s+connecte/i.test(
+        step.label,
+      ) && !isSubmitLike
 
     // Before submit / download CTAs, clear empty required selects + check required consents.
     if (isSubmitLike) {
-      if (destinationUrl) {
+      if (destinationUrl && !isAuthGatewayPath(destinationUrl)) {
         await enforceUserDestination(page, destinationUrl, runnerLocale)
       }
       await prepareFormForSubmit(page)
@@ -1169,8 +1233,15 @@ async function executeStepWithCapture(
       // Capture with blue box BEFORE the click (element may disappear after navigation).
       let frame = await captureHighlighted(page, loc)
       await performClick(page, loc)
-      // Form-entry clicks (Brochure, Contact…) often hit geo redirects — restore user URL.
-      if (destinationUrl && (isFormEntryClick || Boolean(step.href && isDeepUrl(step.href)))) {
+      // Brochure/contact form-entry only — never snap auth gateway clicks back to /login.
+      const isLoginGatewayClick =
+        /connexion|login|sign[- ]?in|se\s+connecter|je\s+me\s+connecte/i.test(step.label)
+      if (
+        destinationUrl &&
+        !isAuthGatewayPath(destinationUrl) &&
+        !isLoginGatewayClick &&
+        (isFormEntryClick || Boolean(step.href && isDeepUrl(step.href)))
+      ) {
         await page.waitForLoadState('domcontentloaded', { timeout: 12000 }).catch(() => undefined)
         const corrected = await enforceUserDestination(page, destinationUrl, runnerLocale)
         if (corrected) frame = await captureFrame(page)
@@ -1199,12 +1270,33 @@ async function executeStepWithCapture(
     throw new Error(`Could not click target for: ${step.label}`)
   }
 
-  // Verify / wait / unknown — observe current page; highlight the checked text when possible.
+  // Verify — assert critical-path success when a targetHint is provided.
   await new Promise((resolve) => setTimeout(resolve, 500))
   let verifyLoc: Locator | null = null
   if (step.targetHint) {
     verifyLoc = page.getByText(step.targetHint, { exact: false }).first()
-    await verifyLoc.waitFor({ state: 'visible', timeout: 8000 }).catch(() => undefined)
+    const visible = await verifyLoc
+      .waitFor({ state: 'visible', timeout: 8000 })
+      .then(() => true)
+      .catch(() => false)
+    if (!visible) {
+      // Also try role/landmark-ish login success signals when hint is generic.
+      const alt = page
+        .locator(
+          'a:has-text("Déconnexion"), a:has-text("Logout"), a:has-text("Mon compte"), [aria-label*="logout" i], [aria-label*="déconnexion" i]',
+        )
+        .first()
+      const altOk = await alt
+        .waitFor({ state: 'visible', timeout: 2500 })
+        .then(() => true)
+        .catch(() => false)
+      if (altOk) {
+        return captureHighlighted(page, alt)
+      }
+      throw new Error(
+        `Verify failed — could not find « ${step.targetHint} » on the page after the critical path.`,
+      )
+    }
   } else if (step.target && !/^https?:\/\//i.test(step.target)) {
     verifyLoc = page.locator(step.target).first()
     await verifyLoc.waitFor({ state: 'visible', timeout: 8000 }).catch(() => undefined)
@@ -1218,6 +1310,7 @@ async function executeStepWithCapture(
       // plain capture
     }
   }
+  // Vague Verify with no hint — observe only (cannot invent a success signal).
   return captureFrame(page)
 }
 

@@ -210,6 +210,99 @@ function ensureSectionDepth(
   return [...withoutTrailingVerify, click, verify].slice(0, 8)
 }
 
+/**
+ * Login gateway guard: before Type email/password, require a Click that opens
+ * the credential form (e.g. « Connexion », « Je me connecte ») when explore
+ * never saw a password field on the landing page.
+ */
+export function ensureLoginGatewayBeforeCredentials(
+  steps: GroundedPlanStep[],
+  explore: SiteExploreResult | null,
+): GroundedPlanStep[] {
+  if (steps.length < 2) return steps
+
+  const firstCredIdx = steps.findIndex((step) => {
+    if (!/type|fill|search/i.test(step.action) && !/^(type|taper|tape|sais)/i.test(step.label)) {
+      return false
+    }
+    return /e-?mail|mail\b|mot\s*de\s*passe|password|passwd|\bpwd\b/i.test(
+      `${step.label} ${step.targetHint ?? ''}`,
+    )
+  })
+  if (firstCredIdx < 0) return steps
+
+  const before = steps.slice(0, firstCredIdx)
+  if (
+    before.some((step) =>
+      /click|cliquer/i.test(`${step.action} ${step.label}`) &&
+      /connexion|login|sign[- ]?in|se\s+connecter|je\s+me\s+connecte|mon\s+compte|account/i.test(
+        step.label,
+      ),
+    )
+  ) {
+    return steps
+  }
+  // Already navigates straight into a page that explore shows has a password field.
+  const exploreHasPassword = Boolean(
+    explore?.pages?.some((page) =>
+      page.forms.some((form) =>
+        form.fields.some((field) => /pass|pwd|mot\s*de\s*passe|motdepasse/i.test(field)),
+      ),
+    ),
+  )
+  if (exploreHasPassword) return steps
+
+  const { buttons, links } = inventoryIndex(
+    explore ?? {
+      ok: false,
+      method: 'none',
+      pagesVisited: 0,
+      pages: [],
+      title: null,
+      url: '',
+      reason: null,
+      snapshot: null,
+    },
+  )
+  const loginCta =
+    buttons.find((b) =>
+      /connexion|je\s+me\s+connecte|se\s+connecter|sign\s*in|log\s*in|mon\s+compte/i.test(b.raw),
+    )?.raw ??
+    links.find((l) =>
+      /connexion|login|sign[- ]?in|account/i.test(`${l.label} ${l.href}`),
+    )?.label ??
+    null
+
+  // Prefer an observed CTA; otherwise a generic Connexion click still beats typing blind.
+  const cta = loginCta || (preferFrLabels(steps) ? 'Connexion' : 'Log in')
+  const langFr = preferFrLabels(steps) || /connexion|connecter/i.test(cta)
+
+  const navIdx = before.findIndex(isNavigateAction)
+  let at = Math.max(1, navIdx >= 0 ? navIdx + 1 : 1)
+  while (
+    at < firstCredIdx &&
+    /cookie|consent|didomi|rgpd|accepter/i.test(steps[at]?.label ?? '')
+  ) {
+    at += 1
+  }
+
+  const clickStep: GroundedPlanStep = {
+    action: 'Click',
+    label: langFr
+      ? `Cliquer sur « ${cta} » pour ouvrir le formulaire de connexion`
+      : `Click « ${cta} » to open the login form`,
+    targetHint: cta,
+  }
+  const linkMatch = links.find((l) => normalizeText(l.label) === normalizeText(cta))
+  if (linkMatch?.href) clickStep.href = linkMatch.href
+
+  return [...steps.slice(0, at), clickStep, ...steps.slice(at)].slice(0, 8)
+}
+
+function preferFrLabels(steps: GroundedPlanStep[]): boolean {
+  return /[àâäéèêëïîôùûüç]/i.test(steps.map((s) => s.label).join(' '))
+}
+
 function isNavigateAction(step: GroundedPlanStep): boolean {
   return /navigate|go to|open/i.test(step.action) || /navigate|va sur|ouvre https?/i.test(step.label)
 }
@@ -372,7 +465,8 @@ export function applyGroundingToPlan(
     explore?.pages?.[0]?.url ||
     null
   const enriched = enrichPlanStepsFromExplore(steps, explore)
-  const naturalized = naturalizeDeepLinkEntry(enriched, seed)
+  const withLoginGateway = ensureLoginGatewayBeforeCredentials(enriched, explore)
+  const naturalized = naturalizeDeepLinkEntry(withLoginGateway, seed)
   const cleaned = stripLocaleSearchNoiseSteps(naturalized)
   const withOutcome = ensureOutcomeVerify(cleaned)
   const issues = groundingIssues(withOutcome, explore)
