@@ -121,7 +121,7 @@ function suggestFromSignals(input: {
   mode: string
   hints: ReturnType<typeof classifyUserChangeHints>
 }): Pick<VerificationSignals, 'suggestedScope' | 'suggestedReason'> {
-  const { hasPriorExplore, urlChanged, hasAnswers, mode, hints } = input
+  const { hasPriorExplore, urlChanged, mode, hints } = input
 
   if (hints.userAskedExplicitVerify) {
     return {
@@ -132,36 +132,21 @@ function suggestFromSignals(input: {
   if (urlChanged || hints.newUrlOrSite || hints.replaceWholeJourney) {
     return {
       suggestedScope: 'full',
-      suggestedReason: 'Destination or whole journey changed — prior explore may not apply',
+      suggestedReason: 'Destination or whole journey changed — rehearse the full path',
     }
   }
-  if (hints.editOrAddStep) {
+  if (hints.editOrAddStep && mode === 'iterate') {
     return {
       suggestedScope: 'delta',
-      suggestedReason: 'Structural step edit — verify only the affected window',
+      suggestedReason: 'Structural step edit on an existing plan — verify the affected window',
     }
   }
-  if (hasPriorExplore && (hasAnswers || mode === 'plan') && hints.paramsOrAnswersOnly) {
-    return {
-      suggestedScope: 'none',
-      suggestedReason: 'Prior explore exists; turn looks like params / answers only',
-    }
-  }
-  if (!hasPriorExplore) {
-    return {
-      suggestedScope: 'full',
-      suggestedReason: 'No prior page evidence in this session — first browser check is useful',
-    }
-  }
-  if (mode === 'iterate') {
-    return {
-      suggestedScope: 'delta',
-      suggestedReason: 'Iterate on an existing plan — prefer a targeted check when structure moves',
-    }
-  }
+  // Default for a ready plan: execute every step in Playwright (explore ≠ journey verify).
   return {
-    suggestedScope: 'none',
-    suggestedReason: 'Prior explore available and no strong change signal — skip by default',
+    suggestedScope: 'full',
+    suggestedReason: hasPriorExplore
+      ? 'Ready plan — rehearse each action end-to-end (inventory explore is not enough)'
+      : 'No prior page evidence — first end-to-end browser rehearsal',
   }
 }
 
@@ -292,12 +277,13 @@ export function resolveVerificationExecution(options: {
     source = 'safety'
   }
 
-  // Safety: no prior evidence → a first check is warranted unless the model
-  // explicitly chose none with a reason (still allow none for pure chat plans).
-  if (scope === 'none' && !signals.hasPriorExplore && !decision) {
-    scope = 'full'
-    reason = signals.suggestedReason
-    source = 'signals'
+  // Ready plan → always rehearse actions. Explore only inventories pages; it does not
+  // click the journey. Skipping dry-run left login gateways (CTA before form) unverified.
+  if (scope === 'none' && readyForPlan) {
+    scope = signals.changeHints.editOrAddStep && signals.mode === 'iterate' ? 'delta' : 'full'
+    reason =
+      'Ready plan must be rehearsed step-by-step in Playwright before Lancer (explore ≠ verify)'
+    source = 'safety'
   }
 
   // Explicit user ask to verify should not be silently dropped.
@@ -305,27 +291,6 @@ export function resolveVerificationExecution(options: {
     scope = signals.changeHints.editOrAddStep ? 'delta' : 'full'
     reason = 'User asked to verify — honoring explicit request'
     source = 'safety'
-  }
-
-  // Params-only after a prior explore: do NOT re-run Playwright just because the
-  // model asked for full/delta. The first explore already mapped the fields; this
-  // turn only injects answers. (Explicit verify / URL / step edits still verify.)
-  const paramsOnlyAfterExplore =
-    signals.hasPriorExplore &&
-    !signals.userAskedExplicitVerify &&
-    !signals.urlChanged &&
-    !signals.changeHints.newUrlOrSite &&
-    !signals.changeHints.replaceWholeJourney &&
-    !signals.changeHints.editOrAddStep &&
-    (signals.changeHints.paramsOrAnswersOnly ||
-      (signals.hasAnswers && (signals.mode === 'plan' || signals.mode === 'configure')))
-
-  if (paramsOnlyAfterExplore && scope !== 'none') {
-    scope = 'none'
-    reason =
-      'Prior explore already mapped this page; params/answers only — skipped redundant dry-run'
-    source = 'safety'
-    stepIndexes = []
   }
 
   if (scope === 'delta') {

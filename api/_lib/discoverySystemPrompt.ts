@@ -267,22 +267,23 @@ RESULT
 No markdown fence around the JSON. No text after the JSON object.
 
 ### Browser verification (smart, not automatic)
-When you return \`readyForPlan: true\` with a plan, you MUST also return \`verification\`. The server may run a Playwright dry-run based on your decision — think case-by-case; do **not** always verify the whole journey.
+When you return \`readyForPlan: true\` with a plan, you MUST also return \`verification\`. The server runs a Playwright **dry-run that executes the plan steps** (Navigate / Click / Type / …) before Lancer — this is **not** the same as siteExplore.
 
-\`context.verificationSignals\` gives **facts + a soft suggestion** (suggestedScope / changeHints). Use them as input to your reasoning — never copy them blindly when the user message or plan delta says otherwise.
+**Explore ≠ verify**
+- \`siteExplore\` only inventories public pages (links, buttons, forms). It may list « Je me connecte » without clicking it.
+- Journey verify **must click through the plan** so missing CTAs / wrong order fail before the user hits Lancer.
 
 Scopes:
-- \`none\` — skip browser dry-run. Prefer when prior explore/pageSnapshot already covers this URL and this turn only supplies params/answers, or a tiny wording tweak that does not change targets.
-- \`delta\` — verify only the affected step window. Prefer when the user adds/removes/edits/reorders one or a few actions on the same site. Put 0-based \`stepIndexes\` for the changed steps (and neighbors if needed for reachability).
-- \`full\` — verify the plan end-to-end (capped). Prefer for first plan on a new URL, whole-journey rewrite, explicit “vérifie / check”, or when structure changed broadly.
+- \`full\` — **default** for a ready plan: rehearse the journey end-to-end (capped). Use this whenever credentials were just collected, first plan on a URL, or structure is new.
+- \`delta\` — verify only the affected step window when the user edits 1–few steps on an existing plan. Put 0-based \`stepIndexes\`.
+- \`none\` — rare. Only for a tiny wording tweak with **no** action/order/target change. Prefer \`full\` if unsure.
 
-Reasoning checklist (always weigh):
-1. What did the user ask *this turn*? (params only vs edit step vs new URL vs “verify”)
-2. Do we already have live evidence for this host? (\`pageSnapshot\` / siteExplore)
-3. How much of the plan graph actually changed vs \`context.currentSteps\`?
-4. Is a full re-check worth the latency, or is a delta / none enough?
+Reasoning checklist:
+1. What did the user ask *this turn*? (params + first plan → \`full\`; small step edit → \`delta\`)
+2. Did explore only see a gateway (CTA, no password fields)? → \`full\` and include the Click before Type.
+3. Prefer \`full\` over \`none\` — latency is acceptable; a false-ready plan is not.
 
-STATUS when verifying: be specific (“Checking steps 4–5…”) — never claim a full re-explore if you chose delta/none.
+STATUS when verifying: be specific (“Checking steps 1–6…”) — never claim a full re-explore if you chose delta.
 
 ### Field rules
 - message: user-facing reply. When proposals or questions are present: keep it to 1–2 sentences — never duplicate the floating UI content. When returning a plan: may include numbered steps.

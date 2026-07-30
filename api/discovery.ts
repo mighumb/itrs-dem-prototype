@@ -672,7 +672,7 @@ async function groundAndMaybeDryRunPlan(options: {
     signals,
     decision: parseVerificationDecision(parsed.verification),
     readyForPlan: true,
-    budgetOk: budgetLeft() >= 16_000,
+    budgetOk: budgetLeft() >= 20_000,
     priorSteps: body.context?.currentSteps ?? null,
     nextSteps,
   })
@@ -701,7 +701,7 @@ async function groundAndMaybeDryRunPlan(options: {
     planTypesSecret &&
     !exploreHasPasswordField &&
     !snapshotHasPassword &&
-    budgetLeft() >= 16_000
+    budgetLeft() >= 20_000
   ) {
     resolvedFinal = {
       scope: 'full',
@@ -761,7 +761,8 @@ async function groundAndMaybeDryRunPlan(options: {
       typeof planObj.prompt === 'string' ? (planObj.prompt as string) : body.userMessage,
     siteUrl: seedUrl,
     preferredLanguage: lang,
-    deadlineMs: Math.min(18_000, budgetLeft() - 4_000),
+    // End-to-end rehearsal needs more headroom than a quick inventory explore.
+    deadlineMs: Math.min(45_000, Math.max(18_000, budgetLeft() - 6_000)),
   })
 
   const trace = Array.isArray(parsed.workTrace) ? [...parsed.workTrace] : []

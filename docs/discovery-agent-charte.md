@@ -262,7 +262,7 @@ Tu conserves le fil de la conversation (cible, décisions, params affichés, pla
 | Charte versionnée dans GitHub (`docs/`) | Oui |
 | System prompt EN | Fait — `api/_lib/discoverySystemPrompt.ts` |
 | Analyse site réelle | Fait — Playwright explore (`exploreSite.ts`) + fallback HTTP (`analyzeSite.ts`) |
-| Steps ancrés (targetHint/href) + dry-run avant Run | Fait — `planGrounding.ts` + dry-run Playwright |
+| Steps ancrés (targetHint/href) + dry-run avant Run | Fait — `planGrounding.ts` + dry-run Playwright **full par défaut** (explore ≠ verify) |
 | Cache explore (TTL) / hôtes liés | Fait — cache origine 15 min + eTLD+1 |
 | Send → Stop | Fait — AbortController + bouton stop |
 | Trace condensée | Fait — STATUS Gemini + statuts explore/dry-run serveur |
