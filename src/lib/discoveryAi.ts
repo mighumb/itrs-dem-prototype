@@ -98,10 +98,11 @@ function normalizeQuestions(raw: unknown): DiscoveryQuestion[] | null {
       if (!item || typeof item !== 'object') return null
       const q = item as Record<string, unknown>
       if (typeof q.prompt !== 'string' || !q.prompt.trim()) return null
-      // Free-text / PII: at most ONE suggested preset; custom = footer only.
-      // Never keep meta rows like “Autre email” (that is the footer’s job).
+      // Free-text / PII / secrets: at most ONE suggested preset; custom = footer only.
+      // Password must stay free-text — otherwise 0-option secret questions are dropped
+      // and login drips across turns (email form → chat asking for password).
       const looksFreeText =
-        /e-?mail|mail|téléphone|telephone|phone|prénom|prenom|first\s*name|nom\b|last\s*name|coordonn/i.test(
+        /e-?mail|mail|téléphone|telephone|phone|prénom|prenom|first\s*name|nom\b|last\s*name|coordonn|mot\s*de\s*passe|password|passwd|pwd|secret|otp|identifiant|username|user\s*name|login|utilisateur/i.test(
           q.prompt,
         )
       let options = Array.isArray(q.options)
