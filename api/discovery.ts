@@ -676,20 +676,56 @@ async function groundAndMaybeDryRunPlan(options: {
     priorSteps: body.context?.currentSteps ?? null,
     nextSteps,
   })
-  // Echo the resolved policy for debugging / workTrace honesty (not user-facing message).
-  parsed.verification = {
-    scope: resolved.scope,
-    reason: resolved.reason,
-    stepIndexes: resolved.stepIndexes,
-    source: resolved.source,
+
+  // Login gateway clamp: plan Types a password but explore never saw a password field
+  // (e.g. eurecia.com/login only has « Je me connecte »). Force a browser check so
+  // missing CTA clicks surface before the user runs the journey.
+  let resolvedFinal = resolved
+  const planTypesSecret = nextSteps.some((step) =>
+    /password|mot\s*de\s*passe|passwd|\bpwd\b/i.test(
+      `${step.action ?? ''} ${step.label ?? ''}`,
+    ),
+  )
+  const exploreHasPasswordField = Boolean(
+    explore?.pages?.some((page) =>
+      page.forms.some((form) =>
+        form.fields.some((field) => /pass|pwd|mot\s*de\s*passe|motdepasse/i.test(field)),
+      ),
+    ),
+  )
+  const snapshotHasPassword =
+    typeof body.context?.pageSnapshot === 'string' &&
+    /type=["']password["']|mot\s*de\s*passe|password/i.test(body.context.pageSnapshot)
+  if (
+    resolvedFinal.scope === 'none' &&
+    planTypesSecret &&
+    !exploreHasPasswordField &&
+    !snapshotHasPassword &&
+    budgetLeft() >= 16_000
+  ) {
+    resolvedFinal = {
+      scope: 'full',
+      reason:
+        'Plan types credentials but explore saw no password field — likely a login gateway; verifying full path',
+      stepIndexes: [],
+      source: 'safety',
+    }
   }
 
-  if (resolved.scope === 'none') {
+  // Echo the resolved policy for debugging / workTrace honesty (not user-facing message).
+  parsed.verification = {
+    scope: resolvedFinal.scope,
+    reason: resolvedFinal.reason,
+    stepIndexes: resolvedFinal.stepIndexes,
+    source: resolvedFinal.source,
+  }
+
+  if (resolvedFinal.scope === 'none') {
     const trace = Array.isArray(parsed.workTrace) ? [...parsed.workTrace] : []
     trace.push(
       lang === 'fr'
-        ? `Vérif navigateur : non (${resolved.reason})`
-        : `Browser verify: none (${resolved.reason})`,
+        ? `Vérif navigateur : non (${resolvedFinal.reason})`
+        : `Browser verify: none (${resolvedFinal.reason})`,
     )
     parsed.workTrace = trace.slice(0, 8)
     return parsed
@@ -699,15 +735,15 @@ async function groundAndMaybeDryRunPlan(options: {
   const runnable = planStepsToRunnable(planObj, seedUrl)
   const selected = selectStepsForVerification(
     runnable,
-    resolved.scope,
-    resolved.stepIndexes,
+    resolvedFinal.scope,
+    resolvedFinal.stepIndexes,
     8,
   )
   if (selected.length === 0) return parsed
 
   const rangeLabel =
-    resolved.scope === 'delta' && resolved.stepIndexes.length > 0
-      ? resolved.stepIndexes.map((i) => i + 1).join(', ')
+    resolvedFinal.scope === 'delta' && resolvedFinal.stepIndexes.length > 0
+      ? resolvedFinal.stepIndexes.map((i) => i + 1).join(', ')
       : null
   sendStatus(
     lang === 'fr'
@@ -732,16 +768,16 @@ async function groundAndMaybeDryRunPlan(options: {
   if (dry.ok) {
     trace.push(
       lang === 'fr'
-        ? `Répétition OK (${dry.stepsOk} étape${dry.stepsOk > 1 ? 's' : ''}, scope ${resolved.scope})`
-        : `Dry-run OK (${dry.stepsOk} step${dry.stepsOk > 1 ? 's' : ''}, scope ${resolved.scope})`,
+        ? `Répétition OK (${dry.stepsOk} étape${dry.stepsOk > 1 ? 's' : ''}, scope ${resolvedFinal.scope})`
+        : `Dry-run OK (${dry.stepsOk} step${dry.stepsOk > 1 ? 's' : ''}, scope ${resolvedFinal.scope})`,
     )
   } else {
     trace.push(
       lang === 'fr'
-        ? `Répétition partielle (${resolved.scope}) — étape ${
+        ? `Répétition partielle (${resolvedFinal.scope}) — étape ${
             dry.failedIndex != null ? dry.failedIndex + 1 : '?'
           } fragile${dry.error ? ` (${dry.error})` : ''}`
-        : `Partial dry-run (${resolved.scope}) — step ${
+        : `Partial dry-run (${resolvedFinal.scope}) — step ${
             dry.failedIndex != null ? dry.failedIndex + 1 : '?'
           } fragile${dry.error ? ` (${dry.error})` : ''}`,
     )

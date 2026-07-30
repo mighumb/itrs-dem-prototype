@@ -601,7 +601,7 @@ export function wantsPlanInChat(text: string): boolean {
 
 /** User says the plan/order is wrong and wants it fixed. */
 export function wantsPlanCorrection(text: string): boolean {
-  return /\b(corrige|correct|fix|update|mets? à jour|mauvais|pas bon|n'est pas bon|wrong|mixed|mélang|avant même|before.*(click|clic|type|sais))\b/i.test(
+  return /\b(corrige|correct|fix|update|mets? à jour|mauvais|pas bon|n'est pas bon|wrong|mixed|mélang|avant même|before.*(click|clic|type|sais)|il manque|manque (une |l['’])?(étape|etape|action|click|clic)|ajoute[rz]? (un |une )?(click|clic|étape|etape|action|bouton)|avant de (saisir|taper|remplir|cliquer)|before (typing|filling|entering)|je me connecte|forgot (a |the )?(step|click|action))\b/i.test(
     text,
   )
 }

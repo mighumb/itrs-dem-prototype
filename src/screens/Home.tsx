@@ -29,6 +29,7 @@ import {
   sanitizeDiscoveryPlan,
   wantsJourneyLaunch,
   wantsMissingRunButton,
+  wantsPlanCorrection,
   type DiscoveryContext,
   type DiscoveryPhase,
   type DiscoveryPlan,
@@ -913,14 +914,15 @@ export default function Home({
       }
 
       const launchIntent = wantsJourneyLaunch(text)
-      const correcting = isLocaleNoiseComplaint(text)
+      const correcting = isLocaleNoiseComplaint(text) || wantsPlanCorrection(text)
       const planSnapshot = cleanCurrent
 
       // Corrections must keep Lancer visible. Only hide it for true brainstorm pivots.
       if (!launchIntent && !correcting) {
         setPlan(null)
         setPhase('conversation')
-      } else if (correcting && planSnapshot) {
+      } else if (planSnapshot) {
+        // Hold the previous plan (and Lancer) while the model revises steps.
         setPlan(planSnapshot)
         setPhase('planning')
       }
@@ -939,7 +941,9 @@ export default function Home({
         if (ai.aborted) return
         rememberSnapshot(ai)
 
-        if (ai.readyForPlan && ai.plan) {
+        // Any structured plan with steps after a planning turn → show Lancer again.
+        // Do not require readyForPlan (models often forget the flag on corrections).
+        if (ai.plan && ai.plan.steps.length > 0) {
           const next = sanitizeDiscoveryPlan(ai.plan)
           if (launchIntent) {
             pushAgentReply(runStartMessage(locale))
@@ -980,30 +984,6 @@ export default function Home({
           return
         }
 
-        if (ai.plan && hasExploitableContext(text, ctx)) {
-          const nextPlan = sanitizeDiscoveryPlan(ai.plan)
-          if (launchIntent) {
-            pushAgentReply(runStartMessage(locale))
-            setPlan(nextPlan)
-            setPhase('planning')
-            onStart({
-              prompt: nextPlan.prompt,
-              messages: history,
-              plan: nextPlan,
-              siteUrl:
-                ctx?.url ??
-                nextPlan.prompt.match(/https?:\/\/[^\s<>"']+/i)?.[0]?.replace(/[.,);]+$/g, '') ??
-                null,
-            })
-            return
-          }
-          const body = messageWithAuthoritativePlan(ai.message, nextPlan)
-          pushAgentReply(body)
-          setPlan(nextPlan)
-          setPhase('planning')
-          return
-        }
-
         if ((launchIntent || wantsMissingRunButton(text)) && planSnapshot) {
           pushAgentReply(runStartMessage(locale))
           setPlan(planSnapshot)
@@ -1036,6 +1016,11 @@ export default function Home({
         }
 
         pushAgentReply(ai.message)
+        // Stay in planning with the snapshot if we still have one — never strand a plan without Lancer.
+        if (planSnapshot) {
+          setPlan(planSnapshot)
+          setPhase('planning')
+        }
       })
       return
     }
