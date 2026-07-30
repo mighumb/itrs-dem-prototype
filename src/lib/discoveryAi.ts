@@ -98,23 +98,27 @@ function normalizeQuestions(raw: unknown): DiscoveryQuestion[] | null {
       if (!item || typeof item !== 'object') return null
       const q = item as Record<string, unknown>
       if (typeof q.prompt !== 'string' || !q.prompt.trim()) return null
-      // Free-text / PII / secrets: at most ONE suggested preset; custom = footer only.
-      // Password must stay free-text — otherwise 0-option secret questions are dropped
-      // and login drips across turns (email form → chat asking for password).
+      // Free-text journey params / PII / secrets: at most ONE suggested preset;
+      // custom = footer “Autre chose…”. Must NOT drop these when options < 2 —
+      // that silently killed “quel produit rechercher ?” while keeping quantity.
       const looksFreeText =
-        /e-?mail|mail|téléphone|telephone|phone|prénom|prenom|first\s*name|nom\b|last\s*name|coordonn|mot\s*de\s*passe|password|passwd|pwd|secret|otp|identifiant|username|user\s*name|login|utilisateur/i.test(
+        /e-?mail|mail|téléphone|telephone|phone|prénom|prenom|first\s*name|nom\b|last\s*name|coordonn|mot\s*de\s*passe|password|passwd|pwd|secret|otp|identifiant|username|user\s*name|login|utilisateur|produit|product|recherch|search(\s+query)?|requ[eê]te|sku|r[eé]f[eé]rence|quantit[eé]|quantity|\bqty\b|ville|city|date|taille|size|adresse|address/i.test(
           q.prompt,
         )
       let options = Array.isArray(q.options)
         ? q.options
             .filter((o): o is string => typeof o === 'string' && o.trim().length > 0)
             .filter((o) => !isRedundantOtherOption(o))
-            .slice(0, looksFreeText ? 1 : 3)
         : []
-      // Choice questions need at least 2 real options.
-      if (!looksFreeText && options.length < 2) return null
+      // <2 options ⇒ free-text question (0–1 preset). ≥2 ⇒ choice (cap 3).
+      // Never drop a valid prompt just because Gemini omitted choice options.
+      if (options.length < 2 || looksFreeText) {
+        options = options.slice(0, 1)
+      } else {
+        options = options.slice(0, 3)
+      }
       return {
-        id: typeof q.id === 'string' ? q.id : `q-${index + 1}`,
+        id: typeof q.id === 'string' && q.id.trim() ? q.id : `q-${index + 1}`,
         prompt: q.prompt.trim(),
         options,
       }
