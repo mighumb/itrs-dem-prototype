@@ -355,6 +355,7 @@ export function withoutTransientRunMessages(messages: ChatMessage[]): ChatMessag
     if (message.id.startsWith('agent-continue-')) return false
     if (message.id.startsWith('agent-live-ok-')) return false
     if (message.id.startsWith('agent-fallback-')) return false
+    if (message.id.startsWith('agent-runner-unavailable-')) return false
     return true
   })
 }

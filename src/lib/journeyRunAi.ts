@@ -59,7 +59,7 @@ function frameFromEvent(event: {
 
 /**
  * Stream a real Playwright journey run from /api/journey-run.
- * Falls back to throwing if the runner is unavailable (caller may simulate).
+ * Returns unavailable when the runner cannot be reached — callers must not simulate.
  */
 export async function runLiveJourney(options: {
   steps: Array<Pick<JourneyStep, 'id' | 'label' | 'action' | 'target' | 'targetHint' | 'href'>>

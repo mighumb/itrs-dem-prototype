@@ -32,7 +32,6 @@ export default function MonitoringColumn({
   const showAlert = failedCount > 0
   const alertTitle = t('stepFailureDetected')
   const alertMessage = tf('stepsFailedInRun', { count: failedCount })
-  const isSimulated = lastRun?.mode === 'simulated'
 
   const lightboxSteps = useMemo(
     () => runSteps.filter((step) => Boolean(step.screenshotDataUrl)),
@@ -77,18 +76,12 @@ export default function MonitoringColumn({
   ) : (
     <div className="flex shrink-0 items-start gap-2 border-t border-emerald-200/60 bg-emerald-50 px-3 py-2.5 text-[11px] text-emerald-800 dark:border-emerald-900/40 dark:bg-emerald-950/40 dark:text-emerald-200">
       <CheckCircle2 size={14} className="mt-0.5 shrink-0" />
-      {lastRun?.mode === 'playwright' ? t('monitoringFromThisRun') : t('liveMonitoringActive')}
+      {t('monitoringFromThisRun')}
     </div>
   )
 
   const scrollBody = (
     <div className="@container/monitoring min-h-0 flex-1 overflow-y-auto overscroll-contain p-4">
-      {isSimulated && (
-        <div className="mb-4 rounded-xl border border-amber-200/80 bg-amber-50/90 px-3 py-2.5 text-xs text-amber-900">
-          {t('monitoringSimulatedBanner')}
-        </div>
-      )}
-
       {showAlert && (
         <div className="mb-4 flex gap-2 rounded-xl border border-red-200/80 bg-red-50/90 p-3">
           <AlertTriangle size={16} className="mt-0.5 shrink-0 text-red-600" />
