@@ -1,5 +1,5 @@
-import { ChevronRight, Download, FileJson, Sparkles, X } from 'lucide-react'
 import { useLocale } from '../context/LocaleContext'
+import { ChevronRight, Download, FileJson, Sparkles, X } from 'lucide-react'
 import type { MessageKey } from '../i18n/messages'
 import type { ChatMessage } from '../types'
 
@@ -14,19 +14,6 @@ const QUICK_PROMPTS: { id: string; labelKey: MessageKey }[] = [
   { id: 'failing-journeys', labelKey: 'agentPromptFailing' },
   { id: 'dashboard', labelKey: 'agentPromptDashboard' },
 ]
-
-function downloadAttachment(filename: string, mimeType: string, text: string) {
-  const blob = new Blob([text], { type: mimeType || 'application/json' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  a.rel = 'noopener'
-  document.body.appendChild(a)
-  a.click()
-  a.remove()
-  window.setTimeout(() => URL.revokeObjectURL(url), 1_000)
-}
 
 export default function GlobalAgent({ open, onToggle, onNavigate }: GlobalAgentProps) {
   const { t } = useLocale()
@@ -79,11 +66,9 @@ export default function GlobalAgent({ open, onToggle, onNavigate }: GlobalAgentP
       </div>
 
       <footer className="border-t border-zinc-100 p-3 dark:border-zinc-800">
-        <input
-          type="text"
-          placeholder={t('askAnything')}
-          className="w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2.5 text-sm outline-none transition focus:border-[#0071e3] focus:bg-white focus:ring-2 focus:ring-[#0071e3]/20 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:bg-zinc-900"
-        />
+        <p className="text-center text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
+          {t('globalAgentInputHint')}
+        </p>
       </footer>
     </aside>
   )
@@ -150,9 +135,18 @@ export function AgentMessage({
         <div className={`flex min-w-0 ${isAgent ? 'justify-start' : 'justify-end'}`}>
           <button
             type="button"
-            onClick={() =>
-              downloadAttachment(attachment.filename, attachment.mimeType, attachment.text)
-            }
+            onClick={() => {
+              const blob = new Blob([attachment.text], { type: attachment.mimeType || 'application/json' })
+              const url = URL.createObjectURL(blob)
+              const a = document.createElement('a')
+              a.href = url
+              a.download = attachment.filename
+              a.rel = 'noopener'
+              document.body.appendChild(a)
+              a.click()
+              a.remove()
+              window.setTimeout(() => URL.revokeObjectURL(url), 1_000)
+            }}
             className="group flex max-w-[85%] min-w-0 cursor-pointer items-center gap-2.5 rounded-xl border border-zinc-200 bg-white px-3 py-2.5 text-left transition hover:border-zinc-300 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:border-zinc-600 dark:hover:bg-zinc-800"
             title={t('downloadJsonFile')}
           >

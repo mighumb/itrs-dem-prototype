@@ -247,11 +247,35 @@ export const messages = {
     scheduleCustomAgent: 'Perfect — **{summary}**. Create an account to activate monitoring.',
     skipMonitoringHint: 'No problem. Open **Monitoring** from the panel bar anytime to see a preview.',
     fixLocatorUpdated:
-      'I updated **{label}** — the target moved on the page (`{from}` → `{to}`). Continuing from here.',
+      '**Automatic locator tweak** (not a full AI rewrite) — I updated **{label}** (`{from}` → `{to}`). Continuing from here.',
     fixLocatorRefreshed:
-      'I refreshed the locator for **{label}** to match the current page. Continuing from here.',
+      '**Automatic locator tweak** — I refreshed the target for **{label}** to match the current page. Continuing from here.',
     stillRunningBusy:
       "I'm still running the journey — we can refine it once the run finishes.",
+    chatQueuedWhileRunning:
+      "Message saved — I'll answer as soon as the run finishes.",
+    dryRunPartialWarning:
+      '**Heads-up:** the browser dry-run flagged a fragile step (see Behind the scenes). You can still Run, but expect a possible hiccup.',
+    planNotAppliedHint:
+      '**Not applied yet** — the Steps panel is unchanged. Say “apply it” or “update the plan” when you want me to commit the change.',
+    planStepsAdded: '**{delta} step(s) added** to the journey.',
+    planStepsRemoved: '**{delta} step(s) removed** from the journey.',
+    workspaceReadyToRun:
+      'Journey is ready — review the steps, chat to refine, then press **Run** in User journey when you want a live Playwright replay.',
+    workspacePlanPatchedIntro:
+      'I updated the journey plan (form open before fills). Here are the steps in the conversation:',
+    workspacePlanSyncIntro: 'Here is the journey plan as it will be replayed:',
+    workspacePlanLocaleCleanIntro:
+      'Good catch — I removed superfluous steps tied to the `/fr/` URL prefix. Here is the cleaned plan — you can Run:',
+    workspacePlanFormPatchIntro:
+      'I added the form-open click before the fill steps — here is the updated plan:',
+    workspacePlanShowIntro: 'Here is the full plan, shown in the conversation:',
+    extensionRecordingAgentNote:
+      'Imported steps stay authoritative for Run — ask me to **apply** a change if you want the panel updated.',
+    runnerMonitoringUnavailable:
+      'No live metrics yet — the browser runner was unavailable for this attempt. Fix connectivity or retry Run.',
+    globalAgentInputHint: 'Discovery chat lives on Home — use quick links below or open Home.',
+    readyToRunSubtitle: 'Ready to run',
     layoutStable: 'Stable',
     layoutMostlyStable: 'Mostly stable',
     layoutUnstable: 'Unstable',
@@ -590,11 +614,36 @@ export const messages = {
     skipMonitoringHint:
       'Pas de souci. Ouvre **Monitoring** depuis la barre de panneaux quand tu veux un aperçu.',
     fixLocatorUpdated:
-      'J’ai mis à jour **{label}** — la cible a bougé sur la page (`{from}` → `{to}`). Je continue.',
+      '**Ajustement automatique du localisateur** (pas une réécriture IA complète) — j’ai mis à jour **{label}** (`{from}` → `{to}`). Je continue.',
     fixLocatorRefreshed:
-      'J’ai rafraîchi le localisateur pour **{label}** afin de coller à la page actuelle. Je continue.',
+      '**Ajustement automatique du localisateur** — j’ai rafraîchi la cible pour **{label}** sur la page actuelle. Je continue.',
     stillRunningBusy:
       'Je suis encore en train d’exécuter le parcours — on pourra l’affiner dès que le run est terminé.',
+    chatQueuedWhileRunning:
+      'Message enregistré — je réponds dès que le run est terminé.',
+    dryRunPartialWarning:
+      '**Attention :** la répétition navigateur a signalé une étape fragile (voir En coulisses). Tu peux quand même Lancer, mais un accroc est possible.',
+    planNotAppliedHint:
+      '**Pas encore appliqué** — le panneau Étapes n’a pas changé. Dis « applique » ou « mets le plan à jour » pour valider.',
+    planStepsAdded: '**{delta} étape(s) ajoutée(s)** au parcours.',
+    planStepsRemoved: '**{delta} étape(s) retirée(s)** du parcours.',
+    workspaceReadyToRun:
+      'Parcours prêt — relis les étapes, affine dans le chat, puis **Lancer** dans Parcours utilisateur pour un rejeu Playwright live.',
+    workspacePlanPatchedIntro:
+      'J’ai mis à jour le plan (ouverture du formulaire avant les saisies). Voici les étapes dans la conversation :',
+    workspacePlanSyncIntro: 'Voici le plan du parcours tel qu’il sera rejoué :',
+    workspacePlanLocaleCleanIntro:
+      'Bien vu — j’ai retiré les étapes superflues liées au préfixe `/fr/` de l’URL. Voici le plan nettoyé — tu peux Lancer :',
+    workspacePlanFormPatchIntro:
+      'J’ai ajouté le clic d’ouverture du formulaire avant les saisies — voici le plan à jour :',
+    workspacePlanShowIntro: 'Voici le plan complet, affiché dans la conversation :',
+    extensionRecordingAgentNote:
+      'Les étapes importées restent la référence pour Lancer — demande-moi d’**appliquer** si tu veux mettre à jour le panneau.',
+    runnerMonitoringUnavailable:
+      'Pas encore de métriques live — le runner navigateur était indisponible sur cette tentative. Vérifie la connectivité ou relance.',
+    globalAgentInputHint:
+      'Le chat Discovery est sur l’accueil — utilise les raccourcis ci-dessous ou ouvre l’accueil.',
+    readyToRunSubtitle: 'Prêt à lancer',
     layoutStable: 'Stable',
     layoutMostlyStable: 'Plutôt stable',
     layoutUnstable: 'Instable',

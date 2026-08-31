@@ -678,10 +678,8 @@ export function wantsMissingRunButton(text: string): boolean {
 
 /** Locale-noise / superfluous step complaint (search/open « fr », etc.). */
 export function isLocaleNoiseComplaint(text: string): boolean {
-  return (
-    /recherch\w*\s+[«"'“”]?fr\b|ouvrir\s+[«"'“”]?\s*fr\b|ces deux actions|remets?\s+à\s+nouveau|pourquoi tu (?:les )?remet/i.test(
-      text,
-    ) || wantsPlanCorrection(text)
+  return /recherch\w*\s+[«"'“”]?fr\b|ouvrir\s+[«"'“”]?\s*fr\b|ces deux actions|remets?\s+à\s+nouveau|pourquoi tu (?:les )?remet/i.test(
+    text,
   )
 }
 

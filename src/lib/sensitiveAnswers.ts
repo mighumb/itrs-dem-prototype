@@ -49,7 +49,7 @@ export function formatQuestionnaireChatBlock(
 
 /** Redact secrets from questionnaire Q/R blocks before sending chat history to Gemini. */
 export function redactSensitiveChatContent(content: string): string {
-  return content
+  return maskFreeformUserChatContent(content)
     .split(/\n\n+/)
     .map((block) => {
       const lines = block.split('\n')
@@ -66,4 +66,17 @@ export function redactSensitiveChatContent(content: string): string {
       return `${promptLine}\n${prefix} ${maskSensitiveValue(answer, prompt)}`
     })
     .join('\n\n')
+}
+
+/** Mask secrets typed in free-form chat (workspace) before display or API history. */
+export function maskFreeformUserChatContent(content: string): string {
+  let masked = content
+  masked = masked.replace(
+    /(password|mot de passe|mdp|pwd|secret|otp|pin)\s*[:=]\s*\S+/gi,
+    (_, label) => `${label}: ••••••••`,
+  )
+  masked = masked.replace(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g, (email) =>
+    maskSensitiveValue(email, 'email'),
+  )
+  return masked
 }

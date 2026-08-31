@@ -13,6 +13,7 @@ import type {
 import { t, type Locale } from '../i18n/messages'
 import type { ChatMessage } from '../types'
 import { ensureFormEntryInPlan } from './journeyLaunch'
+import { appendDryRunWarning } from './discoveryChat'
 import { redactSensitiveChatContent } from './sensitiveAnswers'
 
 export {
@@ -317,7 +318,8 @@ function finalizeDiscoveryResult(options: {
     !questions &&
     !awaitingConfirm &&
     !declined &&
-    options.mode !== 'relocalize'
+    options.mode !== 'relocalize' &&
+    options.mode !== 'iterate'
   ) {
     proposals = recoverProposalsFromMessage(message, options.fallbackPrompt)
   }
@@ -355,8 +357,14 @@ function finalizeDiscoveryResult(options: {
       ? ''
       : geminiUnavailable(options.preferredLanguage).message
 
+  const withDryRun = appendDryRunWarning(
+    resolvedMessage,
+    normalizeWorkTrace(options.workTrace),
+    options.preferredLanguage,
+  )
+
   return {
-    message: resolvedMessage,
+    message: withDryRun,
     workTrace: normalizeWorkTrace(options.workTrace),
     formTitle: questions || proposals ? formTitle : null,
     questions,

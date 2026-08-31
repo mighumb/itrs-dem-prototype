@@ -30,10 +30,15 @@ import {
 } from '../mock/data'
 import { requestDiscoveryAi } from '../lib/discoveryAi'
 import {
+  appendPlanNotAppliedHint,
+  formatWorkspacePlanIntro,
+  planStepCountDeltaNotice,
   resolveAgentReplyContent,
   shouldApplyIteratePlanToWorkspace,
   shouldBindIterateAiPlan,
 } from '../lib/discoveryChat'
+import { loadWorkspaceChat, saveWorkspaceChat } from '../lib/chatPersist'
+import { maskFreeformUserChatContent } from '../lib/sensitiveAnswers'
 import {
   type RecordedBrowserStep,
 } from '../lib/extensionBridge'
@@ -102,8 +107,6 @@ interface NewJourneyProps {
   onCustomizeSchedule: () => void
   onRequestNewJourney?: (prompt: string) => void
 }
-
-const TYPING_DELAY = 600
 
 function hydrateStages(template: Pick<JourneyTemplate, 'stages'>): JourneyStage[] {
   return template.stages.map((s) => ({
@@ -207,10 +210,12 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
     return buildJourneyFromPrompt(session.prompt, session.siteUrl, locale)
   }, [session, locale])
   const [journeyName, setJourneyName] = useState(journey.name)
-  const [messages, setMessages] = useState<ChatMessage[]>(() =>
-    session.messages.length > 0 ? session.messages : [agentIntroForLocale(locale)],
-  )
-  const [stages, setStages] = useState<JourneyStage[]>([])
+  const [messages, setMessages] = useState<ChatMessage[]>(() => {
+    const persisted = loadWorkspaceChat(session.prompt)
+    if (persisted) return persisted
+    return session.messages.length > 0 ? session.messages : [agentIntroForLocale(locale)]
+  })
+  const [stages, setStages] = useState<JourneyStage[]>(() => hydrateStages(journey))
   /** Flat executable actions — derived for run/monitoring convenience. */
   const steps = useMemo(() => flattenActions(stages), [stages])
   const actionCount = countActions(stages)
@@ -236,8 +241,8 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
   const [agentTyping, setAgentTyping] = useState(false)
   const [workStatus, setWorkStatus] = useState<string | null>(null)
   const [lastRun, setLastRun] = useState<LastRunSnapshot | null>(null)
+  const [runnerUnavailable, setRunnerUnavailable] = useState(false)
   const chatEndRef = useRef<HTMLDivElement>(null)
-  const startedRef = useRef(false)
   const runIdRef = useRef(0)
   const scheduleResolvedRef = useRef(false)
   const runAbortRef = useRef<AbortController | null>(null)
@@ -269,6 +274,8 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
   }, [])
   const fixContinueInFlightRef = useRef(false)
   const announcedPlanSyncRef = useRef(false)
+  const pendingChatRef = useRef<string[]>([])
+  const handleChatSubmitRef = useRef<(text: string) => void>(() => {})
 
   useEffect(() => {
     setJourneyName(journey.name)
@@ -298,14 +305,9 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
       return
     }
     announcedPlanSyncRef.current = true
-    const intro =
-      locale === 'fr'
-        ? patched
-          ? 'J’ai mis à jour le plan du parcours (ouverture du formulaire avant les saisies). Voici les étapes, dans la conversation :'
-          : 'Voici le plan du parcours tel qu’il sera rejoué :'
-        : patched
-          ? 'I updated the journey plan (open the form before filling fields). Here are the steps in the conversation:'
-          : 'Here is the journey plan as it will be replayed:'
+    const intro = patched
+      ? formatWorkspacePlanIntro(locale, 'patched')
+      : formatWorkspacePlanIntro(locale, 'sync')
     setMessages((prev) => [
       ...prev,
       {
@@ -315,6 +317,23 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
       },
     ])
   }, [session.plan, session.siteUrl, session.prompt, session.messages, locale])
+
+  useEffect(() => {
+    if (messages.some((m) => m.id === 'workspace-ready')) return
+    if (session.messages.length > 0) return
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: 'workspace-ready',
+        role: 'agent',
+        content: t('workspaceReadyToRun'),
+      },
+    ])
+  }, [session.messages.length, t])
+
+  useEffect(() => {
+    saveWorkspaceChat(session.prompt, messages)
+  }, [messages, session.prompt])
 
   // Abort in-flight Playwright / chat when leaving the workspace.
   useEffect(() => {
@@ -428,7 +447,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
   useEffect(() => {
     onHeaderChange?.({
       title: isComplete || isRunning ? displayJourneyTitle : t('newJourney'),
-      subtitle: isRunning ? t('running') : isComplete ? undefined : t('starting'),
+      subtitle: isRunning ? t('running') : isComplete ? undefined : t('readyToRunSubtitle'),
     })
   }, [isComplete, isRunning, displayJourneyTitle, onHeaderChange, t])
 
@@ -679,7 +698,8 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
               {
                 id: `agent-recording-ai-${Date.now()}`,
                 role: 'agent',
-                content: ai.message,
+                content: `${ai.message.trim()}\n\n${t('extensionRecordingAgentNote')}`,
+                workTrace: ai.workTrace ?? undefined,
               },
             ])
           }
@@ -912,105 +932,15 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
     [locale],
   )
 
-  const runSimulation = useCallback(async () => {
-    const runId = ++runIdRef.current
-    setIsRunning(true)
-    dockJourneyForRun()
-    hidePanel('monitoring')
-    setEditMode(false)
-    // Preserve stage structure from the template (1 action = 1 stage by default).
-    setStages(hydrateStages(journey))
-    setBrowserFrame(null)
-    setRunningActionLabel(null)
-    beginLastRunCapture()
-
-    // Discovery already carried the conversation — don't re-inject the prompt as a new user turn.
-    const hasDiscoveryHistory = session.messages.length > 0
-    if (!hasDiscoveryHistory) {
-      const userMsg: ChatMessage = {
-        id: 'user-1',
-        role: 'user',
-        content: initialPrompt,
+  const flushPendingChat = useCallback(() => {
+    const queued = pendingChatRef.current.splice(0)
+    if (queued.length === 0) return
+    window.setTimeout(() => {
+      for (const line of queued) {
+        void handleChatSubmitRef.current(line)
       }
-      setMessages((prev) => [...prev, userMsg])
-    }
-
-    await delay(TYPING_DELAY)
-    if (runIdRef.current !== runId) return
-
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: `agent-run-start-${runId}`,
-        role: 'agent',
-        content: runStartMessage(locale),
-      },
-    ])
-
-    await delay(400)
-    if (runIdRef.current !== runId) return
-
-    const journeySteps = templateActions(journey)
-    const live = await runStepsWithPlaywright(runId, journeySteps)
-    if (runIdRef.current !== runId) return
-
-    let failedStep = live.failedStep
-    if (!live.usedLive) {
-      lastRunStepsRef.current = []
-      setStages(hydrateStages(journey))
-      announceRunnerUnavailable(runId, live.runnerError)
-      setIsRunning(false)
-      setRunningActionLabel(null)
-      finishJourneyRunStatus(false)
-      return
-    } else if (failedStep) {
-      const diagnosis = buildRunOutcomeMessage(failedStep, undefined, locale)
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `agent-fail-${runId}-${failedStep!.stepIndex}`,
-          role: 'agent',
-          content: diagnosis.content,
-          actions: diagnosis.actions,
-        },
-      ])
-    } else {
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `agent-live-ok-${runId}`,
-          role: 'agent',
-          content: runLiveOkMessage(locale),
-        },
-      ])
-    }
-
-    if (runIdRef.current !== runId) return
-
-    commitLastRun()
-    setIsRunning(false)
-    setRunningActionLabel(null)
-    finishJourneyRunStatus(!failedStep)
-    setIsComplete(true)
-    setEditMode(false)
-    setFixActionsResolved(false)
-    openPanel('monitoring')
-    setMessages((prev) => applyPostRunMessages(prev, journey, failedStep, { addJourneyReady: true, locale }))
-  }, [
-    initialPrompt,
-    journey,
-    locale,
-    openPanel,
-    hidePanel,
-    dockJourneyForRun,
-    finishJourneyRunStatus,
-    runStepsWithPlaywright,
-    announceRunnerUnavailable,
-    session.messages.length,
-    beginLastRunCapture,
-    commitLastRun,
-    tf,
-  ])
+    }, 120)
+  }, [])
 
   const runContinueAfterFix = useCallback(
     async (startIndex: number, stepsSnapshot: JourneyStep[]) => {
@@ -1063,6 +993,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
       let failedStep = live.failedStep
       if (!live.usedLive) {
         lastRunStepsRef.current = lastRunStepsRef.current.filter((s) => s.index < startIndex)
+        setRunnerUnavailable(true)
         announceRunnerUnavailable(runId, live.runnerError)
         fixContinueInFlightRef.current = false
         isRunningRef.current = false
@@ -1070,8 +1001,13 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
         setRunningActionLabel(null)
         finishJourneyRunStatus(false)
         setFixActionsResolved(false)
+        flushPendingChat()
         return
-      } else if (failedStep) {
+      }
+
+      setRunnerUnavailable(false)
+
+      if (failedStep) {
         const diagnosis = buildRunOutcomeMessage(failedStep, undefined, locale)
         setMessages((prev) => [
           ...prev,
@@ -1101,6 +1037,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
       setFixActionsResolved(!failedStep)
       openPanel('monitoring')
       setMessages((prev) => applyPostRunMessages(prev, journey, failedStep, { locale }))
+      flushPendingChat()
     },
     [
       journey,
@@ -1115,70 +1052,119 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
       beginLastRunCapture,
       commitLastRun,
       recordLastRunStep,
+      flushPendingChat,
     ],
   )
 
-  const runReplay = useCallback(async (overrideSteps?: JourneyAction[]) => {
-    const stepsToRun = overrideSteps ?? steps
-    if (isRunning || stepsToRun.length === 0) return
+  const runReplay = useCallback(
+    async (
+      overrideSteps?: JourneyAction[],
+      options?: { intro?: 'start' | 'replay'; markComplete?: boolean },
+    ) => {
+      const stepsToRun = overrideSteps ?? steps
+      if (isRunning || stepsToRun.length === 0) return
 
-    const runId = ++runIdRef.current
+      const runId = ++runIdRef.current
+      const intro = options?.intro ?? 'replay'
+      const markComplete = options?.markComplete ?? false
 
-    setEditMode(false)
-    hidePanel('monitoring')
-    setIsRunning(true)
-    dockJourneyForRun()
-    setFixActionsResolved(false)
-    setBrowserFrame(null)
-    setRunningActionLabel(null)
-    beginLastRunCapture()
+      setEditMode(false)
+      hidePanel('monitoring')
+      setIsRunning(true)
+      dockJourneyForRun()
+      setFixActionsResolved(false)
+      setBrowserFrame(null)
+      setRunningActionLabel(null)
+      beginLastRunCapture()
 
-    setMessages((prev) => [
-      ...withoutTransientRunMessages(prev),
-      {
-        id: `agent-run-${runId}`,
-        role: 'agent',
-        content: tf('replayingSteps', { count: stepsToRun.length }),
-      },
-    ])
+      setMessages((prev) => [
+        ...withoutTransientRunMessages(prev),
+        {
+          id: `agent-run-${runId}`,
+          role: 'agent',
+          content:
+            intro === 'start'
+              ? runStartMessage(locale)
+              : tf('replayingSteps', { count: stepsToRun.length }),
+        },
+      ])
 
-    const live = await runStepsWithPlaywright(runId, stepsToRun, { replaceSteps: true })
-    if (runIdRef.current !== runId) return
+      const live = await runStepsWithPlaywright(runId, stepsToRun, { replaceSteps: true })
+      if (runIdRef.current !== runId) return
 
-    let failedStep = live.failedStep
-    if (!live.usedLive) {
-      lastRunStepsRef.current = []
-      announceRunnerUnavailable(runId, live.runnerError)
+      let failedStep = live.failedStep
+      if (!live.usedLive) {
+        lastRunStepsRef.current = []
+        setRunnerUnavailable(true)
+        announceRunnerUnavailable(runId, live.runnerError)
+        setIsRunning(false)
+        setRunningActionLabel(null)
+        finishJourneyRunStatus(false)
+        flushPendingChat()
+        return
+      }
+
+      setRunnerUnavailable(false)
+
+      if (runIdRef.current !== runId) return
+
+      if (failedStep) {
+        const diagnosis = buildRunOutcomeMessage(failedStep, undefined, locale)
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `agent-fail-${runId}-${failedStep!.stepIndex}`,
+            role: 'agent',
+            content: diagnosis.content,
+            actions: diagnosis.actions,
+          },
+        ])
+      } else {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `agent-live-ok-${runId}`,
+            role: 'agent',
+            content: runLiveOkMessage(locale),
+          },
+        ])
+      }
+
+      commitLastRun()
       setIsRunning(false)
       setRunningActionLabel(null)
-      finishJourneyRunStatus(false)
-      return
-    }
-
-    if (runIdRef.current !== runId) return
-
-    commitLastRun()
-    setIsRunning(false)
-    setRunningActionLabel(null)
-    finishJourneyRunStatus(!failedStep)
-    setEditMode(false)
-    openPanel('monitoring')
-    setMessages((prev) => applyPostRunMessages(prev, journey, failedStep, { locale }))
-  }, [
-    isRunning,
-    steps,
-    journey,
-    openPanel,
-    hidePanel,
-    dockJourneyForRun,
-    finishJourneyRunStatus,
-    runStepsWithPlaywright,
-    announceRunnerUnavailable,
-    beginLastRunCapture,
-    commitLastRun,
-    tf,
-    locale,
-  ])
+      finishJourneyRunStatus(!failedStep)
+      setEditMode(false)
+      if (markComplete && !failedStep) {
+        setIsComplete(true)
+        setFixActionsResolved(false)
+      }
+      openPanel('monitoring')
+      setMessages((prev) =>
+        applyPostRunMessages(prev, journey, failedStep, {
+          addJourneyReady: markComplete && !failedStep,
+          locale,
+        }),
+      )
+      flushPendingChat()
+    },
+    [
+      isRunning,
+      steps,
+      journey,
+      locale,
+      openPanel,
+      hidePanel,
+      dockJourneyForRun,
+      finishJourneyRunStatus,
+      runStepsWithPlaywright,
+      announceRunnerUnavailable,
+      beginLastRunCapture,
+      commitLastRun,
+      tf,
+      flushPendingChat,
+    ],
+  )
 
   const handleRunStop = useCallback(() => {
     if (isRunning) {
@@ -1187,12 +1173,6 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
       void runReplay()
     }
   }, [isRunning, actionCount, stopRun, runReplay])
-
-  useEffect(() => {
-    if (startedRef.current) return
-    startedRef.current = true
-    void runSimulation()
-  }, [runSimulation])
 
   const handleAgentAction = useCallback(
     (actionId: string) => {
@@ -1303,20 +1283,23 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
       if (!trimmed || agentTyping) return
 
       if (isRunning) {
+        const masked = maskFreeformUserChatContent(trimmed)
+        pendingChatRef.current.push(trimmed)
         setMessages((prev) => [
           ...prev,
-          { id: `user-${Date.now()}`, role: 'user', content: trimmed },
+          { id: `user-${Date.now()}`, role: 'user', content: masked },
           {
             id: `agent-busy-${Date.now()}`,
             role: 'agent',
-            content: t('stillRunningBusy'),
+            content: `${t('stillRunningBusy')}\n\n${t('chatQueuedWhileRunning')}`,
           },
         ])
         setInput('')
         return
       }
 
-      const userMsg: ChatMessage = { id: `user-${Date.now()}`, role: 'user', content: trimmed }
+      const maskedInput = maskFreeformUserChatContent(trimmed)
+      const userMsg: ChatMessage = { id: `user-${Date.now()}`, role: 'user', content: maskedInput }
       setMessages((prev) => [...prev, userMsg])
       setInput('')
 
@@ -1358,7 +1341,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
             },
           ])
           window.setTimeout(() => {
-            if (!isRunningRef.current) void runReplay(cleaned)
+            if (!isRunningRef.current) void runReplay(cleaned, { intro: 'start', markComplete: true })
           }, 50)
           return
         }
@@ -1370,7 +1353,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
             content: runStartMessage(locale),
           },
         ])
-        void runReplay()
+        void runReplay(undefined, { intro: 'start', markComplete: true })
         return
       }
 
@@ -1505,16 +1488,15 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
           planForUi = null
         }
 
-        const defaultIntro =
-          locale === 'fr'
-            ? askPlan
-              ? 'Voici le plan complet, affiché dans la conversation :'
-              : ''
-            : askPlan
-              ? 'Here is the full plan, shown in the conversation:'
-              : ''
+        const defaultIntro = askPlan ? formatWorkspacePlanIntro(locale, 'showPlan') : ''
 
-        let agentContent = resolveAgentReplyContent(ai.message?.trim() || defaultIntro, locale)
+        const priorStepCount = steps.length
+        let agentContent = appendPlanNotAppliedHint(
+          resolveAgentReplyContent(ai.message?.trim() || defaultIntro, locale),
+          trimmed,
+          bindModelPlan,
+          locale,
+        )
         if (planForUi) {
           const patched =
             planForUi.steps.length !== (rawPlan?.steps.length ?? 0) ||
@@ -1531,19 +1513,16 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
               patched &&
               !/supprim|retir|nettoy|removed|deleted|cleaned/i.test(agentContent)
             ) {
-              agentContent =
-                locale === 'fr'
-                  ? 'Bien vu — j’ai retiré les étapes superflues liées au préfixe `/fr/` de l’URL. Voici le plan nettoyé — tu peux Lancer :'
-                  : 'Good catch — I removed the superfluous steps from the `/fr/` URL prefix. Here is the cleaned plan — you can Run:'
+              agentContent = formatWorkspacePlanIntro(locale, 'localeClean')
             } else if (
               patched &&
               !/brochure|formulaire|ouvrir le formulaire|open the form/i.test(agentContent)
             ) {
-              const note =
-                locale === 'fr'
-                  ? 'J’ai ajouté le clic d’ouverture du formulaire avant les saisies — voici le plan à jour :'
-                  : 'I added the form-open click before the fill steps — here is the updated plan:'
-              agentContent = note
+              agentContent = formatWorkspacePlanIntro(locale, 'formPatch')
+            }
+            const deltaNote = planStepCountDeltaNotice(locale, priorStepCount, planForUi.steps.length)
+            if (deltaNote) {
+              agentContent = agentContent.trim() ? `${agentContent.trim()}\n\n${deltaNote}` : deltaNote
             }
             agentContent = messageWithAuthoritativePlan(agentContent, planForUi)
           }
@@ -1576,7 +1555,9 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
           if (launchIntent && !askPlan) {
             const launchSteps = flattenActions(nextStages)
             window.setTimeout(() => {
-              if (!isRunningRef.current) void runReplay(launchSteps)
+              if (!isRunningRef.current) {
+                void runReplay(launchSteps, { intro: 'start', markComplete: true })
+              }
             }, 50)
           }
           return
@@ -1586,7 +1567,9 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
         if (launchIntent && actionCount > 0) {
           setMessages((prev) => [...prev, agentMsg])
           window.setTimeout(() => {
-            if (!isRunningRef.current) void runReplay()
+            if (!isRunningRef.current) {
+              void runReplay(undefined, { intro: 'start', markComplete: true })
+            }
           }, 50)
           return
         }
@@ -1629,12 +1612,19 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
     ],
   )
 
+  useEffect(() => {
+    handleChatSubmitRef.current = (text: string) => {
+      void handleChatSubmit(text)
+    }
+  }, [handleChatSubmit])
+
   const renderMonitoringContent = () => (
     <MonitoringColumn
       embedded
       isUnsaved={!isMonitored}
       journeyName={displayJourneyTitle}
       lastRun={lastRun}
+      runnerUnavailable={runnerUnavailable}
       onClose={panelClose('monitoring')}
       onSave={onSave}
     />
@@ -1907,7 +1897,3 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
 })
 
 export default NewJourney
-
-function delay(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms))
-}
