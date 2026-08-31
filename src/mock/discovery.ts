@@ -15,6 +15,27 @@ export interface JourneyProposal {
   prompt: string
 }
 
+/** Numbered list for chat transcript — mirrors the floating chooser. */
+export function formatJourneyProposalsList(
+  proposals: JourneyProposal[],
+  title?: string | null,
+): string {
+  const lines = proposals.map((proposal, index) => `${index + 1}. ${proposal.title}`)
+  const header = title?.trim()
+  return header ? `${header}\n\n${lines.join('\n')}` : lines.join('\n')
+}
+
+export function formatQuestionnairePrompt(
+  questions: DiscoveryQuestion[],
+  questionIndex: number,
+  title?: string | null,
+): string {
+  const question = questions[questionIndex]
+  if (!question) return title?.trim() ?? ''
+  const header = title?.trim()
+  return header ? `${header}\n\n${question.prompt}` : question.prompt
+}
+
 export interface DiscoveryPlanStep {
   label: string
   action: string
@@ -633,6 +654,8 @@ export function wantsJourneyLaunch(text: string): boolean {
     return true
   }
   if (/^(go|run it|let'?s go|c'?est parti)\s*[.!]?$/i.test(t)) return true
+  if (/^(ok\s+)?go\s*[.!]?$/i.test(t)) return true
+  if (/^(ok|oui|yes|vas[- ]?y|c'?est bon|parfait)\s*[,!]?\s*(go|lance|lancer)?\s*[.!]?$/i.test(t)) return true
   return false
 }
 
