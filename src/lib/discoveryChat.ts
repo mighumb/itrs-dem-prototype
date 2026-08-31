@@ -169,6 +169,12 @@ export function planStepCountDeltaNotice(
   )
 }
 
+export function wantsApplyPlanToPanel(text: string): boolean {
+  return /\b(applique[rz]?|apply|commit|update the (journey )?plan|mets? (à jour )?(le )?plan|mettre à jour (le )?plan)\b/i.test(
+    text.trim(),
+  )
+}
+
 export function formatWorkspacePlanIntro(
   locale: Locale,
   kind: 'patched' | 'sync' | 'localeClean' | 'formPatch' | 'showPlan',

@@ -283,6 +283,7 @@ function finalizeDiscoveryResult(options: {
   /** User utterance for this turn — used to avoid reviving proposals after a decline. */
   userMessage?: string
   answers?: Record<string, string> | null
+  hasSettledPlan?: boolean
   siteUrl?: string | null
 }): DiscoveryAiResult {
   const siteAnalysis = normalizeSiteAnalysis(options.siteAnalysis)
@@ -319,7 +320,8 @@ function finalizeDiscoveryResult(options: {
     !awaitingConfirm &&
     !declined &&
     options.mode !== 'relocalize' &&
-    options.mode !== 'iterate'
+    options.mode !== 'iterate' &&
+    !options.hasSettledPlan
   ) {
     proposals = recoverProposalsFromMessage(message, options.fallbackPrompt)
   }
@@ -468,6 +470,7 @@ export async function requestDiscoveryAi(options: {
   preferredLanguage?: 'en' | 'fr'
   journeyName?: string | null
   currentSteps?: Array<{ id?: string; label: string; action: string }> | null
+  hasSettledPlan?: boolean
   signal?: AbortSignal
   onStatus?: (text: string) => void
 }): Promise<DiscoveryAiResult> {
@@ -481,6 +484,7 @@ export async function requestDiscoveryAi(options: {
     preferredLanguage = 'en',
     journeyName = null,
     currentSteps = null,
+    hasSettledPlan = false,
     signal,
     onStatus,
   } = options
@@ -654,6 +658,7 @@ export async function requestDiscoveryAi(options: {
         userMessage,
         answers: context?.answers ?? null,
         siteUrl: context?.url ?? null,
+        hasSettledPlan,
       })
     }
 
@@ -686,6 +691,7 @@ export async function requestDiscoveryAi(options: {
       userMessage,
       answers: context?.answers ?? null,
       siteUrl: context?.url ?? null,
+      hasSettledPlan,
     })
   } catch (error) {
     if (
