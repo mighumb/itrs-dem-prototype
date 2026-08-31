@@ -1,8 +1,9 @@
-import { AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, Expand, X } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, Download, Expand, X } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useLocale } from '../context/LocaleContext'
 import { computeLastRunKpi, formatDurationMs } from '../lib/runMonitoring'
+import { downloadTextFile } from '../lib/journeyExport'
 import type { LastRunSnapshot, LastRunStepMetric } from '../types'
 
 interface MonitoringColumnProps {
@@ -10,6 +11,8 @@ interface MonitoringColumnProps {
   journeyName: string
   lastRun: LastRunSnapshot | null
   runnerUnavailable?: boolean
+  /** Serialized journey steps JSON — shown after a Playwright run. */
+  journeyExport?: { filename: string; body: string } | null
   onClose: () => void
   onSave: () => void
   embedded?: boolean
@@ -20,6 +23,7 @@ export default function MonitoringColumn({
   journeyName,
   lastRun,
   runnerUnavailable,
+  journeyExport,
   onClose,
   onSave,
   embedded,
@@ -100,9 +104,22 @@ export default function MonitoringColumn({
         </div>
       )}
 
-      <h2 className="mb-3 truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-        {journeyName}
-      </h2>
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <h2 className="min-w-0 flex-1 truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+          {journeyName}
+        </h2>
+        {journeyExport && runSteps.length > 0 && (
+          <button
+            type="button"
+            onClick={() => downloadTextFile(journeyExport.filename, journeyExport.body)}
+            title={t('exportJourneyJson')}
+            className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-zinc-700 transition hover:border-zinc-300 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:border-zinc-500 dark:hover:bg-zinc-800"
+          >
+            <Download size={13} />
+            {t('exportJourneyJson')}
+          </button>
+        )}
+      </div>
 
       <div className="mb-4 grid grid-cols-3 gap-2">
         <KpiCard
