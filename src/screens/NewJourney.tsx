@@ -18,6 +18,12 @@ import {
   type WorkspacePanelId,
 } from '../hooks/usePanelOrder'
 import {
+  journeyExportFilename,
+  runReportExportFilename,
+  serializeJourneyExport,
+  serializeRunReportExport,
+} from '../lib/journeyExport'
+import {
   applyAgentStepFix,
   applyPostRunMessages,
   buildJourneyReadyMessage,
@@ -442,6 +448,24 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
     [journeyName, siteUrlForTitle, locale],
   )
 
+  const journeyExport = useMemo(() => {
+    if (!lastRun || steps.length === 0) return null
+    const title = journeyName || journey.name
+    return {
+      filename: journeyExportFilename(title),
+      body: serializeJourneyExport(title, siteUrlForTitle, steps),
+    }
+  }, [lastRun, steps, journeyName, journey.name, siteUrlForTitle])
+
+  const runReportExport = useMemo(() => {
+    if (!lastRun || lastRun.steps.length === 0) return null
+    const title = journeyName || journey.name
+    return {
+      filename: runReportExportFilename(title),
+      body: serializeRunReportExport(title, siteUrlForTitle, lastRun, locale),
+    }
+  }, [lastRun, journeyName, journey.name, siteUrlForTitle, locale])
+
   useEffect(() => {
     onHeaderChange?.({
       title: isComplete || isRunning ? displayJourneyTitle : t('newJourney'),
@@ -611,14 +635,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
         subtitle: tf('extensionStepCount', { count: nextSteps.length }),
       })
 
-      const stepsJson = nextSteps.map((s, index) => ({
-        n: index + 1,
-        action: s.action,
-        label: s.label,
-        href: s.href ?? null,
-        targetHint: s.targetHint ?? null,
-      }))
-      const jsonBody = JSON.stringify({ title, url: lastUrl, steps: stepsJson }, null, 2)
+      const jsonBody = serializeJourneyExport(title, lastUrl, nextSteps)
       const userCaption =
         locale === 'fr'
           ? `J’ai enregistré ce parcours dans Chrome (Take control) — ${nextSteps.length} étape(s). Fichier JSON joint.`
@@ -631,11 +648,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
         jsonBody,
         '```',
       ].join('\n')
-      const safeName = title
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/gi, '-')
-        .replace(/^-|-$/g, '')
-        .slice(0, 40)
+      const safeName = journeyExportFilename(title).replace(/-steps\.json$/, '')
 
       const userMsg: ChatMessage = {
         id: `user-recording-${Date.now()}`,
@@ -1705,6 +1718,8 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
       journeyName={displayJourneyTitle}
       lastRun={lastRun}
       runnerUnavailable={runnerUnavailable}
+      journeyExport={journeyExport}
+      runReportExport={runReportExport}
       onClose={panelClose('monitoring')}
       onSave={onSave}
     />

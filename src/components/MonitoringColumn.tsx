@@ -1,8 +1,9 @@
-import { AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, Expand, X } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { AlertTriangle, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Download, Expand, X } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useLocale } from '../context/LocaleContext'
 import { computeLastRunKpi, formatDurationMs } from '../lib/runMonitoring'
+import { downloadTextFile } from '../lib/journeyExport'
 import type { LastRunSnapshot, LastRunStepMetric } from '../types'
 
 interface MonitoringColumnProps {
@@ -10,6 +11,10 @@ interface MonitoringColumnProps {
   journeyName: string
   lastRun: LastRunSnapshot | null
   runnerUnavailable?: boolean
+  /** Serialized journey steps JSON — shown after a Playwright run. */
+  journeyExport?: { filename: string; body: string } | null
+  /** Run metrics + screenshots from the latest Playwright run. */
+  runReportExport?: { filename: string; body: string } | null
   onClose: () => void
   onSave: () => void
   embedded?: boolean
@@ -20,6 +25,8 @@ export default function MonitoringColumn({
   journeyName,
   lastRun,
   runnerUnavailable,
+  journeyExport,
+  runReportExport,
   onClose,
   onSave,
   embedded,
@@ -100,9 +107,14 @@ export default function MonitoringColumn({
         </div>
       )}
 
-      <h2 className="mb-3 truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-        {journeyName}
-      </h2>
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <h2 className="min-w-0 flex-1 truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+          {journeyName}
+        </h2>
+        {(journeyExport || runReportExport) && runSteps.length > 0 && (
+          <ExportMenu journeyExport={journeyExport} runReportExport={runReportExport} />
+        )}
+      </div>
 
       <div className="mb-4 grid grid-cols-3 gap-2">
         <KpiCard
@@ -233,6 +245,95 @@ export default function MonitoringColumn({
       </div>
       {shell}
     </section>
+  )
+}
+
+function ExportMenu({
+  journeyExport,
+  runReportExport,
+}: {
+  journeyExport?: { filename: string; body: string } | null
+  runReportExport?: { filename: string; body: string } | null
+}) {
+  const { t } = useLocale()
+  const [open, setOpen] = useState(false)
+  const rootRef = useRef<HTMLDivElement>(null)
+
+  const items = useMemo(
+    () =>
+      [
+        journeyExport
+          ? {
+              key: 'journey',
+              label: t('exportJourneyJson'),
+              onSelect: () => downloadTextFile(journeyExport.filename, journeyExport.body),
+            }
+          : null,
+        runReportExport
+          ? {
+              key: 'report',
+              label: t('exportRunReportJson'),
+              onSelect: () => downloadTextFile(runReportExport.filename, runReportExport.body),
+            }
+          : null,
+      ].filter((item): item is { key: string; label: string; onSelect: () => void } => Boolean(item)),
+    [journeyExport, runReportExport, t],
+  )
+
+  useEffect(() => {
+    if (!open) return
+    const onPointerDown = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false)
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false)
+    }
+    window.addEventListener('pointerdown', onPointerDown)
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('pointerdown', onPointerDown)
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [open])
+
+  if (items.length === 0) return null
+
+  return (
+    <div ref={rootRef} className="relative shrink-0">
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-haspopup="menu"
+        onClick={() => setOpen((value) => !value)}
+        className="flex cursor-pointer items-center gap-1 rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-zinc-700 transition hover:border-zinc-300 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:border-zinc-500 dark:hover:bg-zinc-800"
+      >
+        <Download size={13} />
+        {t('exportMenu')}
+        <ChevronDown size={13} className={`transition ${open ? 'rotate-180' : ''}`} />
+      </button>
+
+      {open && (
+        <div
+          role="menu"
+          className="absolute right-0 top-[calc(100%+0.25rem)] z-20 min-w-[12.5rem] overflow-hidden rounded-lg border border-zinc-200 bg-white py-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+        >
+          {items.map((item) => (
+            <button
+              key={item.key}
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                item.onSelect()
+                setOpen(false)
+              }}
+              className="flex w-full cursor-pointer px-3 py-2 text-left text-[11px] font-medium text-zinc-700 transition hover:bg-zinc-50 dark:text-zinc-200 dark:hover:bg-zinc-800"
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 
