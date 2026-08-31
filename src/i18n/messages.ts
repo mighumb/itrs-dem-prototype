@@ -258,6 +258,8 @@ export const messages = {
       '**Heads-up:** the browser dry-run flagged a fragile step (see Behind the scenes). You can still Run, but expect a possible hiccup.',
     planNotAppliedHint:
       '**Not applied yet** — the Steps panel is unchanged. Say “apply it” or “update the plan” when you want me to commit the change.',
+    planAppliedFromPending:
+      'Applied the pending plan to the Steps panel:',
     planStepsAdded: '**{delta} step(s) added** to the journey.',
     planStepsRemoved: '**{delta} step(s) removed** from the journey.',
     workspaceReadyToRun:
@@ -625,6 +627,8 @@ export const messages = {
       '**Attention :** la répétition navigateur a signalé une étape fragile (voir En coulisses). Tu peux quand même Lancer, mais un accroc est possible.',
     planNotAppliedHint:
       '**Pas encore appliqué** — le panneau Étapes n’a pas changé. Dis « applique » ou « mets le plan à jour » pour valider.',
+    planAppliedFromPending:
+      'Plan en attente appliqué au panneau Étapes :',
     planStepsAdded: '**{delta} étape(s) ajoutée(s)** au parcours.',
     planStepsRemoved: '**{delta} étape(s) retirée(s)** du parcours.',
     workspaceReadyToRun:

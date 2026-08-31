@@ -36,8 +36,8 @@ import {
   resolveAgentReplyContent,
   shouldApplyIteratePlanToWorkspace,
   shouldBindIterateAiPlan,
+  wantsApplyPlanToPanel,
 } from '../lib/discoveryChat'
-import { loadWorkspaceChat, saveWorkspaceChat } from '../lib/chatPersist'
 import { maskFreeformUserChatContent } from '../lib/sensitiveAnswers'
 import {
   type RecordedBrowserStep,
@@ -210,11 +210,9 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
     return buildJourneyFromPrompt(session.prompt, session.siteUrl, locale)
   }, [session, locale])
   const [journeyName, setJourneyName] = useState(journey.name)
-  const [messages, setMessages] = useState<ChatMessage[]>(() => {
-    const persisted = loadWorkspaceChat(session.prompt)
-    if (persisted) return persisted
-    return session.messages.length > 0 ? session.messages : [agentIntroForLocale(locale)]
-  })
+  const [messages, setMessages] = useState<ChatMessage[]>(() =>
+    session.messages.length > 0 ? session.messages : [agentIntroForLocale(locale)],
+  )
   const [stages, setStages] = useState<JourneyStage[]>(() => hydrateStages(journey))
   /** Flat executable actions — derived for run/monitoring convenience. */
   const steps = useMemo(() => flattenActions(stages), [stages])
@@ -275,7 +273,11 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
   const fixContinueInFlightRef = useRef(false)
   const announcedPlanSyncRef = useRef(false)
   const pendingChatRef = useRef<string[]>([])
-  const handleChatSubmitRef = useRef<(text: string) => void>(() => {})
+  const pendingAiPlanRef = useRef<DiscoveryPlan | null>(null)
+  const submitChatRef = useRef<(text: string) => Promise<void>>(async () => {})
+  const chatQueueDrainingRef = useRef(false)
+  const flushPendingChatRef = useRef<() => Promise<void>>(async () => {})
+  const chatSubmittingRef = useRef(false)
 
   useEffect(() => {
     setJourneyName(journey.name)
@@ -330,10 +332,6 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
       },
     ])
   }, [session.messages.length, t])
-
-  useEffect(() => {
-    saveWorkspaceChat(session.prompt, messages)
-  }, [messages, session.prompt])
 
   // Abort in-flight Playwright / chat when leaving the workspace.
   useEffect(() => {
@@ -577,6 +575,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
         content: runStoppedMessage(locale),
       },
     ])
+    void flushPendingChatRef.current()
   }, [finishJourneyRunStatus, locale])
 
   const handleApplyRecording = useCallback(
@@ -692,7 +691,31 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
             onStatus: (status) => setWorkStatus(status),
           })
           if (ai.aborted || abort.signal.aborted) return
-          if (ai.message?.trim()) {
+          if (ai.plan && shouldBindIterateAiPlan(userPayload, ai, lastUrl)) {
+            const planToApply = sanitizeDiscoveryPlan(
+              ensureFormEntryInPlan(ai.plan, {
+                siteUrl: lastUrl,
+                prompt: initialPrompt || title,
+                locale,
+              }),
+            )
+            setStages(planToJourneyStages(planToApply, nextSteps, lastUrl, locale))
+            pendingAiPlanRef.current = null
+            if (ai.message?.trim()) {
+              setMessages((prev) => [
+                ...prev,
+                {
+                  id: `agent-recording-ai-${Date.now()}`,
+                  role: 'agent',
+                  content: messageWithAuthoritativePlan(ai.message.trim(), planToApply),
+                  workTrace: ai.workTrace ?? undefined,
+                },
+              ])
+            }
+          } else if (ai.message?.trim()) {
+            if (ai.plan) {
+              pendingAiPlanRef.current = sanitizeDiscoveryPlan(ai.plan)
+            }
             setMessages((prev) => [
               ...prev,
               {
@@ -703,7 +726,6 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
               },
             ])
           }
-          // Do not replace nextSteps with ai.plan — recorded steps stay authoritative for Run.
         } finally {
           if (chatAbortRef.current === abort) chatAbortRef.current = null
           setAgentTyping(false)
@@ -932,15 +954,22 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
     [locale],
   )
 
-  const flushPendingChat = useCallback(() => {
-    const queued = pendingChatRef.current.splice(0)
-    if (queued.length === 0) return
-    window.setTimeout(() => {
-      for (const line of queued) {
-        void handleChatSubmitRef.current(line)
+  const flushPendingChat = useCallback(async () => {
+    if (chatQueueDrainingRef.current) return
+    chatQueueDrainingRef.current = true
+    try {
+      while (pendingChatRef.current.length > 0) {
+        const line = pendingChatRef.current.shift()
+        if (line) await submitChatRef.current(line)
       }
-    }, 120)
+    } finally {
+      chatQueueDrainingRef.current = false
+    }
   }, [])
+
+  useEffect(() => {
+    flushPendingChatRef.current = flushPendingChat
+  }, [flushPendingChat])
 
   const runContinueAfterFix = useCallback(
     async (startIndex: number, stepsSnapshot: JourneyStep[]) => {
@@ -1001,7 +1030,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
         setRunningActionLabel(null)
         finishJourneyRunStatus(false)
         setFixActionsResolved(false)
-        flushPendingChat()
+        void flushPendingChat()
         return
       }
 
@@ -1037,7 +1066,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
       setFixActionsResolved(!failedStep)
       openPanel('monitoring')
       setMessages((prev) => applyPostRunMessages(prev, journey, failedStep, { locale }))
-      flushPendingChat()
+      void flushPendingChat()
     },
     [
       journey,
@@ -1146,7 +1175,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
           locale,
         }),
       )
-      flushPendingChat()
+      void flushPendingChat()
     },
     [
       isRunning,
@@ -1280,26 +1309,67 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
   const handleChatSubmit = useCallback(
     async (text: string) => {
       const trimmed = text.trim()
-      if (!trimmed || agentTyping) return
+      if (!trimmed || agentTyping || chatSubmittingRef.current) return
 
       if (isRunning) {
         const masked = maskFreeformUserChatContent(trimmed)
         pendingChatRef.current.push(trimmed)
+        const showBusyNotice = pendingChatRef.current.length === 1
+        setMessages((prev) => {
+          const next: ChatMessage[] = [
+            ...prev,
+            { id: `user-${Date.now()}`, role: 'user', content: masked },
+          ]
+          if (showBusyNotice) {
+            next.push({
+              id: `agent-busy-${Date.now()}`,
+              role: 'agent',
+              content: `${t('stillRunningBusy')}\n\n${t('chatQueuedWhileRunning')}`,
+            })
+          }
+          return next
+        })
+        setInput('')
+        return
+      }
+
+      chatSubmittingRef.current = true
+      setAgentTyping(true)
+      setWorkStatus(null)
+
+      try {
+      const maskedInput = maskFreeformUserChatContent(trimmed)
+      const userMsg: ChatMessage = { id: `user-${Date.now()}`, role: 'user', content: maskedInput }
+
+      if (wantsApplyPlanToPanel(trimmed) && pendingAiPlanRef.current) {
+        const seedUrl =
+          session.siteUrl ||
+          extractUrlFromText(initialPrompt) ||
+          steps.map((s) => extractUrlFromText(`${s.label} ${s.action} ${s.target ?? ''}`)).find(Boolean) ||
+          null
+        const planToApply = sanitizeDiscoveryPlan(
+          ensureFormEntryInPlan(pendingAiPlanRef.current, {
+            siteUrl: seedUrl,
+            prompt: `${initialPrompt} ${journey.name}`,
+            locale,
+          }),
+        )
+        pendingAiPlanRef.current = null
+        const nextStages = planToJourneyStages(planToApply, steps, seedUrl, locale)
+        setStages(nextStages)
         setMessages((prev) => [
           ...prev,
-          { id: `user-${Date.now()}`, role: 'user', content: masked },
+          userMsg,
           {
-            id: `agent-busy-${Date.now()}`,
+            id: `agent-apply-pending-${Date.now()}`,
             role: 'agent',
-            content: `${t('stillRunningBusy')}\n\n${t('chatQueuedWhileRunning')}`,
+            content: messageWithAuthoritativePlan(t('planAppliedFromPending'), planToApply),
           },
         ])
         setInput('')
         return
       }
 
-      const maskedInput = maskFreeformUserChatContent(trimmed)
-      const userMsg: ChatMessage = { id: `user-${Date.now()}`, role: 'user', content: maskedInput }
       setMessages((prev) => [...prev, userMsg])
       setInput('')
 
@@ -1357,9 +1427,6 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
         return
       }
 
-      setAgentTyping(true)
-      setWorkStatus(null)
-
       chatAbortRef.current?.abort()
       const abort = new AbortController()
       chatAbortRef.current = abort
@@ -1399,6 +1466,14 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
         const modelReturnedPlan = Boolean(ai.plan && ai.plan.steps.length > 0)
         const bindModelPlan =
           modelReturnedPlan && shouldBindIterateAiPlan(trimmed, ai, seedUrl)
+
+        if (modelReturnedPlan && ai.plan) {
+          if (bindModelPlan) {
+            pendingAiPlanRef.current = null
+          } else {
+            pendingAiPlanRef.current = sanitizeDiscoveryPlan(ai.plan)
+          }
+        }
 
         const rawPlan = bindModelPlan
           ? ai.plan
@@ -1481,11 +1556,11 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
           localLocaleClean,
         })
 
-        // Launch path must never paste the model's numbered list (often reintroduces « fr »).
-        if (launchIntent && planForUi && applyPlanToWorkspace) {
-          planForUi = sanitizeDiscoveryPlan(planForUi)
+        let planForChat: DiscoveryPlan | null = planForUi
+        if (launchIntent && planForChat && applyPlanToWorkspace) {
+          planForChat = sanitizeDiscoveryPlan(planForChat)
         } else if (!applyPlanToWorkspace) {
-          planForUi = null
+          planForChat = askPlan ? planForUi : null
         }
 
         const defaultIntro = askPlan ? formatWorkspacePlanIntro(locale, 'showPlan') : ''
@@ -1497,10 +1572,10 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
           bindModelPlan,
           locale,
         )
-        if (planForUi) {
+        if (planForChat) {
           const patched =
-            planForUi.steps.length !== (rawPlan?.steps.length ?? 0) ||
-            planForUi.steps.some(
+            planForChat.steps.length !== (rawPlan?.steps.length ?? 0) ||
+            planForChat.steps.some(
               (s, i) =>
                 s.label !== rawPlan?.steps[i]?.label ||
                 s.action !== rawPlan?.steps[i]?.action,
@@ -1520,11 +1595,11 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
             ) {
               agentContent = formatWorkspacePlanIntro(locale, 'formPatch')
             }
-            const deltaNote = planStepCountDeltaNotice(locale, priorStepCount, planForUi.steps.length)
+            const deltaNote = planStepCountDeltaNotice(locale, priorStepCount, planForChat.steps.length)
             if (deltaNote) {
               agentContent = agentContent.trim() ? `${agentContent.trim()}\n\n${deltaNote}` : deltaNote
             }
-            agentContent = messageWithAuthoritativePlan(agentContent, planForUi)
+            agentContent = messageWithAuthoritativePlan(agentContent, planForChat)
           }
         }
 
@@ -1535,25 +1610,29 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
           workTrace: ai.workTrace ?? undefined,
         }
 
-        if (planForUi) {
-          const nextStages = planToJourneyStages(planForUi, steps, seedUrl, locale)
-          setStages(nextStages)
-          setFixActionsResolved(false)
-          setScheduleResolved(false)
-          if (planForUi.title) {
-            setJourneyName(planForUi.title)
-            onHeaderChange?.({
-              title: formatJourneyTitle(planForUi.title, seedUrl, locale),
-              subtitle: isRunning ? t('running') : planForUi.summary,
-            })
+        if (planForChat) {
+          if (applyPlanToWorkspace) {
+            const nextStages = planToJourneyStages(planForChat, steps, seedUrl, locale)
+            setStages(nextStages)
+            setFixActionsResolved(false)
+            setScheduleResolved(false)
+            if (planForChat.title) {
+              setJourneyName(planForChat.title)
+              onHeaderChange?.({
+                title: formatJourneyTitle(planForChat.title, seedUrl, locale),
+                subtitle: isRunning ? t('running') : planForChat.summary,
+              })
+            }
           }
           setMessages((prev) => [
             ...prev.filter((m) => m.id !== 'done-2' && m.id !== RUN_OUTCOME_MESSAGE_ID),
             agentMsg,
           ])
           // Launch (+ optional edits): apply steps then run — don't leave the user staring at a re-listed plan.
-          if (launchIntent && !askPlan) {
-            const launchSteps = flattenActions(nextStages)
+          if (launchIntent && !askPlan && applyPlanToWorkspace) {
+            const launchSteps = flattenActions(
+              planToJourneyStages(planForChat, steps, seedUrl, locale),
+            )
             window.setTimeout(() => {
               if (!isRunningRef.current) {
                 void runReplay(launchSteps, { intro: 'start', markComplete: true })
@@ -1590,6 +1669,9 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
         setMessages((prev) => [...prev, agentMsg])
       } finally {
         if (chatAbortRef.current === abort) chatAbortRef.current = null
+      }
+      } finally {
+        chatSubmittingRef.current = false
         setAgentTyping(false)
         setWorkStatus(null)
       }
@@ -1613,9 +1695,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
   )
 
   useEffect(() => {
-    handleChatSubmitRef.current = (text: string) => {
-      void handleChatSubmit(text)
-    }
+    submitChatRef.current = handleChatSubmit
   }, [handleChatSubmit])
 
   const renderMonitoringContent = () => (
