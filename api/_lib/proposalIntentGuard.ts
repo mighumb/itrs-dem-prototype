@@ -4,7 +4,7 @@
  * or “search from homepage” templates.
  */
 
-import { isFullySpecifiedMonitoringAsk } from './discoverySiteIntent'
+import { isFullySpecifiedMonitoringAsk } from './discoverySiteIntent.js'
 
 export type GuardProposal = {
   id: string
