@@ -125,3 +125,65 @@ export function shouldApplyIteratePlanToWorkspace(
   if (options.boundModelPlan) return true
   return false
 }
+
+/** Home planning phase — same intent gate as workspace iterate. */
+export const shouldBindPlanningAiPlan = shouldBindIterateAiPlan
+
+export function appendDryRunWarning(
+  message: string,
+  workTrace: string[] | null | undefined,
+  locale: Locale,
+): string {
+  const trace = (workTrace ?? []).join(' ')
+  if (!/dry-run|dry run|répétition partielle|partial dry-run|fragile/i.test(trace)) {
+    return message
+  }
+  const notice = t(locale, 'dryRunPartialWarning')
+  const trimmed = message.trim()
+  return trimmed ? `${trimmed}\n\n${notice}` : notice
+}
+
+export function appendPlanNotAppliedHint(
+  message: string,
+  userMessage: string,
+  boundModelPlan: boolean,
+  locale: Locale,
+): string {
+  if (boundModelPlan) return message
+  const intent = classifyIterateWorkspacePlanIntent(userMessage)
+  if (!intent.editSteps && !intent.correctPlan) return message
+  const hint = t(locale, 'planNotAppliedHint')
+  const trimmed = message.trim()
+  return trimmed ? `${trimmed}\n\n${hint}` : hint
+}
+
+export function planStepCountDeltaNotice(
+  locale: Locale,
+  before: number,
+  after: number,
+): string | null {
+  if (before === after) return null
+  return t(locale, before < after ? 'planStepsAdded' : 'planStepsRemoved').replace(
+    '{delta}',
+    String(Math.abs(after - before)),
+  )
+}
+
+export function formatWorkspacePlanIntro(
+  locale: Locale,
+  kind: 'patched' | 'sync' | 'localeClean' | 'formPatch' | 'showPlan',
+): string {
+  switch (kind) {
+    case 'patched':
+      return t(locale, 'workspacePlanPatchedIntro')
+    case 'sync':
+      return t(locale, 'workspacePlanSyncIntro')
+    case 'localeClean':
+      return t(locale, 'workspacePlanLocaleCleanIntro')
+    case 'formPatch':
+      return t(locale, 'workspacePlanFormPatchIntro')
+    case 'showPlan':
+      return t(locale, 'workspacePlanShowIntro')
+  }
+}
+

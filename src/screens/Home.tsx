@@ -14,8 +14,9 @@ import {
   summarizeStatedJourneyIntent,
   type DiscoveryAiResult,
 } from '../lib/discoveryAi'
-import { planStepsForIterate } from '../lib/discoveryChat'
-import { formatQuestionnaireChatBlock } from '../lib/sensitiveAnswers'
+import { planStepsForIterate, shouldBindPlanningAiPlan, appendPlanNotAppliedHint } from '../lib/discoveryChat'
+import { loadHomeChat, saveHomeChat } from '../lib/chatPersist'
+import { formatQuestionnaireChatBlock, maskFreeformUserChatContent } from '../lib/sensitiveAnswers'
 import { runStartMessage, type JourneyLaunchSession } from '../lib/journeyLaunch'
 import {
   getHomeExamples,
@@ -57,7 +58,7 @@ export default function Home({
   const { t, locale } = useLocale()
   const [phase, setPhase] = useState<DiscoveryPhase>('idle')
   const [input, setInput] = useState('')
-  const [messages, setMessages] = useState<ChatMessage[]>([])
+  const [messages, setMessages] = useState<ChatMessage[]>(() => loadHomeChat() ?? [])
   const [agentTyping, setAgentTyping] = useState(false)
   const [workStatus, setWorkStatus] = useState<string | null>(null)
   const [ctx, setCtx] = useState<DiscoveryContext | null>(null)
@@ -123,6 +124,11 @@ export default function Home({
   }, [inSession, onDiscoverySessionChange])
 
   useEffect(() => {
+    if (phase === 'idle' && messages.length === 0) return
+    saveHomeChat(messages)
+  }, [messages, phase])
+
+  useEffect(() => {
     const mq = window.matchMedia('(max-width: 767px)')
     const sync = () => setIsMobileComposer(mq.matches)
     sync()
@@ -147,7 +153,14 @@ export default function Home({
 
   const pushMessages = (...next: ChatMessage[]) => {
     setMessages((prev) => {
-      const merged = [...prev, ...next]
+      const merged = [
+        ...prev,
+        ...next.map((m) =>
+          m.role === 'user'
+            ? { ...m, content: maskFreeformUserChatContent(m.content) }
+            : m,
+        ),
+      ]
       messagesRef.current = merged
       return merged
     })
@@ -939,21 +952,24 @@ export default function Home({
       }
 
       const launchIntent = wantsJourneyLaunch(text)
-      const correcting = isLocaleNoiseComplaint(text) || wantsPlanCorrection(text)
+      const localeFix = isLocaleNoiseComplaint(text)
+      const correcting = localeFix || wantsPlanCorrection(text)
       const planSnapshot = cleanCurrent
 
-      // Corrections must keep Lancer visible. Only hide it for true brainstorm pivots.
+      // Brainstorm pivots: keep Lancer visible — do not drop the settled plan until a new one binds.
       if (!launchIntent && !correcting) {
-        setPlan(null)
         setPhase('conversation')
       } else if (planSnapshot) {
-        // Hold the previous plan (and Lancer) while the model revises steps.
         setPlan(planSnapshot)
         setPhase('planning')
       }
 
       await withTyping(async (signal, onStatus) => {
         const useIterate = Boolean(planSnapshot && (correcting || launchIntent))
+        const seedUrl =
+          ctx?.url ??
+          planSnapshot?.prompt.match(/https?:\/\/[^\s<>"']+/i)?.[0]?.replace(/[.,);]+$/g, '') ??
+          null
         const ai = await requestDiscoveryAi({
           mode: useIterate ? 'iterate' : 'chat',
           userMessage: text,
@@ -969,9 +985,11 @@ export default function Home({
         if (ai.aborted) return
         rememberSnapshot(ai)
 
-        // Any structured plan with steps after a planning turn → show Lancer again.
-        // Do not require readyForPlan (models often forget the flag on corrections).
-        if (ai.plan && ai.plan.steps.length > 0) {
+        const bindModelPlan =
+          Boolean(ai.plan && ai.plan.steps.length > 0) &&
+          shouldBindPlanningAiPlan(text, ai, seedUrl)
+
+        if (bindModelPlan && ai.plan) {
           const next = sanitizeDiscoveryPlan(ai.plan)
           if (launchIntent) {
             pushAgentReply(runStartMessage(locale))
@@ -981,10 +999,7 @@ export default function Home({
               prompt: next.prompt,
               messages: history,
               plan: next,
-              siteUrl:
-                ctx?.url ??
-                next.prompt.match(/https?:\/\/[^\s<>"']+/i)?.[0]?.replace(/[.,);]+$/g, '') ??
-                null,
+              siteUrl: seedUrl,
             })
             return
           }
@@ -1031,10 +1046,12 @@ export default function Home({
         // Correction with no new plan object — keep sanitized snapshot + Lancer.
         if (correcting && planSnapshot) {
           const body = messageWithAuthoritativePlan(
-            ai.message?.trim() ||
-              (locale === 'fr'
-                ? 'Bien vu — voici le plan nettoyé. Tu peux Lancer.'
-                : 'Good catch — here is the cleaned plan. You can Run.'),
+            appendPlanNotAppliedHint(
+              ai.message?.trim() || t('workspacePlanLocaleCleanIntro'),
+              text,
+              false,
+              locale,
+            ),
             planSnapshot,
           )
           pushAgentReply(body, { workTrace: ai.workTrace })
@@ -1043,7 +1060,10 @@ export default function Home({
           return
         }
 
-        pushAgentReply(ai.message, { workTrace: ai.workTrace })
+        pushAgentReply(
+          appendPlanNotAppliedHint(ai.message, text, false, locale),
+          { workTrace: ai.workTrace },
+        )
         // Stay in planning with the snapshot if we still have one — never strand a plan without Lancer.
         if (planSnapshot) {
           setPlan(planSnapshot)

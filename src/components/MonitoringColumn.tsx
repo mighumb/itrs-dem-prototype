@@ -9,6 +9,7 @@ interface MonitoringColumnProps {
   isUnsaved?: boolean
   journeyName: string
   lastRun: LastRunSnapshot | null
+  runnerUnavailable?: boolean
   onClose: () => void
   onSave: () => void
   embedded?: boolean
@@ -18,6 +19,7 @@ export default function MonitoringColumn({
   isUnsaved,
   journeyName,
   lastRun,
+  runnerUnavailable,
   onClose,
   onSave,
   embedded,
@@ -82,6 +84,12 @@ export default function MonitoringColumn({
 
   const scrollBody = (
     <div className="@container/monitoring min-h-0 flex-1 overflow-y-auto overscroll-contain p-4">
+      {runnerUnavailable && runSteps.length === 0 && (
+        <div className="mb-4 flex gap-2 rounded-xl border border-amber-200/80 bg-amber-50/90 p-3 dark:border-amber-900/40 dark:bg-amber-950/40">
+          <AlertTriangle size={16} className="mt-0.5 shrink-0 text-amber-700 dark:text-amber-300" />
+          <p className="text-xs text-amber-900 dark:text-amber-100">{t('runnerMonitoringUnavailable')}</p>
+        </div>
+      )}
       {showAlert && (
         <div className="mb-4 flex gap-2 rounded-xl border border-red-200/80 bg-red-50/90 p-3">
           <AlertTriangle size={16} className="mt-0.5 shrink-0 text-red-600" />
