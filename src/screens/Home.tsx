@@ -34,6 +34,8 @@ import {
   isLocaleNoiseComplaint,
   messageWithAuthoritativePlan,
   sanitizeDiscoveryPlan,
+  formatJourneyProposalsList,
+  formatQuestionnairePrompt,
   wantsJourneyLaunch,
   wantsMissingRunButton,
   wantsPlanCorrection,
@@ -317,6 +319,111 @@ export default function Home({
     })
   }
 
+  const shouldLaunchFromText = (text: string) =>
+    isBareJourneyLaunch(text) ||
+    wantsMissingRunButton(text) ||
+    (wantsJourneyLaunch(text) && !isLocaleNoiseComplaint(text))
+
+  const findProposalByText = (text: string): JourneyProposal | null => {
+    const normalized = text.trim().toLowerCase()
+    if (!normalized || proposals.length === 0) return null
+    const exact = proposals.find((p) => p.title.trim().toLowerCase() === normalized)
+    if (exact) return exact
+    const numbered = normalized.match(/^(\d+)[.)]\s*(.*)$/)
+    if (numbered) {
+      const idx = Number.parseInt(numbered[1] ?? '', 10) - 1
+      if (proposals[idx]) return proposals[idx]!
+      const tail = (numbered[2] ?? '').trim().toLowerCase()
+      if (tail) {
+        const partial = proposals.find((p) => p.title.trim().toLowerCase().startsWith(tail))
+        if (partial) return partial
+      }
+    }
+    return (
+      proposals.find(
+        (p) =>
+          normalized.includes(p.title.trim().toLowerCase()) ||
+          p.title.trim().toLowerCase().includes(normalized),
+      ) ?? null
+    )
+  }
+
+  const tryLaunchFromText = (text: string, history: ChatMessage[]) => {
+    if (!shouldLaunchFromText(text)) return false
+    if (launchSettledPlan(history)) return true
+    if (pendingAiPlanRef.current) {
+      const pending = sanitizeDiscoveryPlan(pendingAiPlanRef.current)
+      pendingAiPlanRef.current = null
+      setPlan(pending)
+      setPhase('planning')
+      return launchSettledPlan(history)
+    }
+    return false
+  }
+
+  const launchSettledPlan = (history: ChatMessage[]) => {
+    const currentPlan = planRef.current
+    if (!currentPlan) return false
+    pendingAiPlanRef.current = null
+    setProposals([])
+    setQuestions([])
+    setFormTitle(null)
+    const clean = sanitizeDiscoveryPlan(currentPlan)
+    setPlan(clean)
+    setPhase('planning')
+    pushAgentReply(runStartMessage(locale))
+    onStart({
+      prompt: clean.prompt,
+      messages: history,
+      plan: clean,
+      siteUrl:
+        ctx?.url ??
+        clean.prompt.match(/https?:\/\/[^\s<>"']+/i)?.[0]?.replace(/[.,);]+$/g, '') ??
+        null,
+    })
+    return true
+  }
+
+  const openProposalsStack = (
+    nextProposals: JourneyProposal[],
+    title: string | null,
+    agentMessage: string,
+    workTrace?: string[] | null,
+  ) => {
+    if (planRef.current) return false
+    setProposals(nextProposals)
+    setFormTitle(title)
+    setPhase('proposals')
+    const chooseTitle = title ?? t('chooseJourney')
+    const listBlock = formatJourneyProposalsList(nextProposals, chooseTitle)
+    const trimmed = agentMessage.trim()
+    const body =
+      trimmed && /^\s*1\.\s/m.test(trimmed) ? trimmed : `${trimmed}\n\n${listBlock}`.trim()
+    pushAgentReply(body, { workTrace })
+    return true
+  }
+
+  const openQuestionnaireStack = (
+    nextQuestions: DiscoveryQuestion[],
+    title: string | null,
+    agentMessage: string,
+    workTrace?: string[] | null,
+  ) => {
+    if (planRef.current) return false
+    setQuestions(nextQuestions)
+    setFormTitle(title)
+    setQuestionIndex(0)
+    setPhase('questionnaire')
+    const promptBlock = formatQuestionnairePrompt(nextQuestions, 0, title ?? t('clarifyRequest'))
+    const trimmed = agentMessage.trim()
+    const body =
+      trimmed && nextQuestions[0] && trimmed.includes(nextQuestions[0].prompt)
+        ? trimmed
+        : `${trimmed}\n\n${promptBlock}`.trim()
+    pushAgentReply(body, { workTrace })
+    return true
+  }
+
   const enterPlanning = async (
     planSeed: DiscoveryPlan,
     userLine?: string,
@@ -403,20 +510,13 @@ export default function Home({
       }
 
       if (ai.proposals && ai.proposals.length > 0) {
-        setProposals(ai.proposals)
-        setFormTitle(ai.formTitle)
-        setPhase('proposals')
-        pushAgentReply(ai.message, { workTrace: ai.workTrace })
+        openProposalsStack(ai.proposals, ai.formTitle, ai.message, ai.workTrace)
         return
       }
 
       // Only show floating form when Gemini returned questions — never inject mocks.
       if (ai.questions && ai.questions.length > 0) {
-        setQuestions(ai.questions)
-        setFormTitle(ai.formTitle)
-        setQuestionIndex(0)
-        setPhase('questionnaire')
-        pushAgentReply(ai.message, { workTrace: ai.workTrace })
+        openQuestionnaireStack(ai.questions, ai.formTitle, ai.message, ai.workTrace)
         return
       }
 
@@ -452,10 +552,12 @@ export default function Home({
 
       // Only open the floating form when Gemini returned real proposals — no mock fallback.
       if (ai.proposals && ai.proposals.length > 0) {
-        setProposals(ai.proposals)
-        setFormTitle(ai.formTitle)
-        setPhase('proposals')
-        pushAgentReply(ai.message || t('journeysSuggested'), { workTrace: ai.workTrace })
+        openProposalsStack(
+          ai.proposals,
+          ai.formTitle,
+          ai.message || t('journeysSuggested'),
+          ai.workTrace,
+        )
         return
       }
 
@@ -673,7 +775,7 @@ export default function Home({
     setQuestions([])
     setProposals([])
     setFormTitle(null)
-    setPhase('conversation')
+    setPhase(planRef.current ? 'planning' : 'conversation')
   }
 
   const handleSelectProposal = async (proposal: JourneyProposal) => {
@@ -726,11 +828,7 @@ export default function Home({
       }
 
       if (ai.questions && ai.questions.length > 0) {
-        setQuestions(ai.questions)
-        setFormTitle(ai.formTitle)
-        setQuestionIndex(0)
-        setPhase('questionnaire')
-        pushAgentReply(ai.message, { workTrace: ai.workTrace })
+        openQuestionnaireStack(ai.questions, ai.formTitle, ai.message, ai.workTrace)
         return
       }
       setConfiguring(false)
@@ -750,6 +848,7 @@ export default function Home({
       chatCtx?.url ??
       existingPlan?.prompt.match(/https?:\/\/[^\s<>"']+/i)?.[0]?.replace(/[.,);]+$/g, '') ??
       null
+    if (tryLaunchFromText(text, history)) return
     const pivot = classifyIterateWorkspacePlanIntent(text, seedUrl)
 
     if (!existingPlan || pivot.newSiteOrJourney) {
@@ -805,7 +904,8 @@ export default function Home({
 
       const modelReturnedPlan = Boolean(ai.plan && ai.plan.steps.length > 0)
       const bindModelPlan =
-        modelReturnedPlan && shouldBindPlanningAiPlan(text, ai, seedUrl)
+        modelReturnedPlan &&
+        (shouldBindPlanningAiPlan(text, ai, seedUrl) || ai.readyForPlan)
 
       if (modelReturnedPlan && ai.plan) {
         if (bindModelPlan) {
@@ -815,25 +915,21 @@ export default function Home({
           pushAgentReply(content, { workTrace: ai.workTrace })
           setPlan(next)
           setPhase('planning')
+          if (shouldLaunchFromText(text)) {
+            launchSettledPlan(history)
+          }
           return
         }
         pendingAiPlanRef.current = sanitizeDiscoveryPlan(ai.plan)
       }
 
-      if (ai.proposals && ai.proposals.length > 0 && !existingPlan) {
-        setProposals(ai.proposals)
-        setFormTitle(ai.formTitle)
-        setPhase('proposals')
-        pushAgentReply(ai.message, { workTrace: ai.workTrace })
+      if (ai.proposals && ai.proposals.length > 0 && !planRef.current) {
+        openProposalsStack(ai.proposals, ai.formTitle, ai.message, ai.workTrace)
         return
       }
 
-      if (ai.questions && ai.questions.length > 0 && !existingPlan) {
-        setQuestions(ai.questions)
-        setFormTitle(ai.formTitle)
-        setQuestionIndex(0)
-        setPhase('questionnaire')
-        pushAgentReply(ai.message, { workTrace: ai.workTrace })
+      if (ai.questions && ai.questions.length > 0 && !planRef.current) {
+        openQuestionnaireStack(ai.questions, ai.formTitle, ai.message, ai.workTrace)
         return
       }
 
@@ -855,6 +951,13 @@ export default function Home({
     }
 
     if (phase === 'proposals') {
+      const history = messagesRef.current
+      if (tryLaunchFromText(text, history)) return
+      const matched = findProposalByText(text)
+      if (matched) {
+        await handleSelectProposal(matched)
+        return
+      }
       const userMsg: ChatMessage = { id: uid('user'), role: 'user', content: text }
       pushMessages(userMsg)
       await replyWithAiChat(text, historyPlus(userMsg))
@@ -920,11 +1023,7 @@ export default function Home({
       }
 
       if (ai.questions && ai.questions.length > 0) {
-        setQuestions(ai.questions)
-        setFormTitle(ai.formTitle)
-        setQuestionIndex(0)
-        setPhase('questionnaire')
-        pushAgentReply(ai.message, { workTrace: ai.workTrace })
+        openQuestionnaireStack(ai.questions, ai.formTitle, ai.message, ai.workTrace)
         return
       }
 
@@ -951,6 +1050,12 @@ export default function Home({
     }
 
     if (phase === 'proposals') {
+      if (tryLaunchFromText(text, messagesRef.current)) return
+      const matched = findProposalByText(text)
+      if (matched) {
+        await handleSelectProposal(matched)
+        return
+      }
       const userMsg: ChatMessage = { id: uid('user'), role: 'user', content: text }
       pushMessages(userMsg)
       await replyWithAiChat(text, historyPlus(userMsg))
@@ -960,6 +1065,8 @@ export default function Home({
     const userMsg: ChatMessage = { id: uid('user'), role: 'user', content: text }
     pushMessages(userMsg)
     const history = historyPlus(userMsg)
+
+    if (tryLaunchFromText(text, history)) return
 
     if (wantsApplyPlanToPanel(text) && pendingAiPlanRef.current) {
       const planToApply = sanitizeDiscoveryPlan(pendingAiPlanRef.current)
@@ -1056,19 +1163,12 @@ export default function Home({
         }
 
         if (ai.proposals && ai.proposals.length > 0 && !planSnapshot) {
-          setProposals(ai.proposals)
-          setFormTitle(ai.formTitle)
-          setPhase('proposals')
-          pushAgentReply(ai.message, { workTrace: ai.workTrace })
+          openProposalsStack(ai.proposals, ai.formTitle, ai.message, ai.workTrace)
           return
         }
 
         if (ai.questions && ai.questions.length > 0 && !planSnapshot) {
-          setQuestions(ai.questions)
-          setFormTitle(ai.formTitle)
-          setQuestionIndex(0)
-          setPhase('questionnaire')
-          pushAgentReply(ai.message, { workTrace: ai.workTrace })
+          openQuestionnaireStack(ai.questions, ai.formTitle, ai.message, ai.workTrace)
           return
         }
 
