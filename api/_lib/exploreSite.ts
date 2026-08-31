@@ -189,7 +189,8 @@ function linkScore(label: string, href: string): number {
   if (label.trim().length > 0 && label.trim().length <= 28) score += 2
   if ((href.match(/\//g) ?? []).length <= 3) score += 1
   if (/\.(pdf|jpg|png|gif|svg|zip|mp4)(\?|$)/i.test(href)) score -= 10
-  if (/#|javascript:/i.test(href)) score -= 10
+  if (/javascript:/i.test(href)) score -= 10
+  if (/#/.test(href)) score += 6
   return score
 }
 
@@ -205,19 +206,30 @@ const COLLECT_INVENTORY_SOURCE = `(([maxLinks, maxButtons]) => {
     null
 
   const linkMap = new Map()
+  const pageUrl = new URL(window.location.href)
   const anchors = Array.from(document.querySelectorAll('a[href]'))
   for (const a of anchors) {
     const href = a.href
     if (!href || href.startsWith('javascript:') || href.startsWith('mailto:')) continue
     const label = textOf(a).slice(0, 80)
     if (!label && !href) continue
-    const key = (href.split('#')[0] || href)
+    const url = new URL(href, window.location.href)
+    const samePage =
+      url.origin === pageUrl.origin &&
+      url.pathname === pageUrl.pathname &&
+      url.search === pageUrl.search
+    const key =
+      samePage && url.hash
+        ? url.pathname + url.search + url.hash
+        : (href.split('#')[0] || href)
+    const storedHref = samePage && url.hash ? href : key
     const score =
       (a.closest('nav, header, [role="navigation"]') ? 4 : 0) +
+      (samePage && url.hash ? 5 : 0) +
       (label.length > 0 && label.length <= 32 ? 2 : 0)
     const prev = linkMap.get(key)
     if (!prev || score > prev.score || (score === prev.score && label.length > prev.label.length)) {
-      linkMap.set(key, { label: label || key, href: key, score })
+      linkMap.set(key, { label: label || key, href: storedHref, score })
     }
   }
 

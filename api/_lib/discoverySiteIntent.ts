@@ -333,7 +333,7 @@ export function summarizeStatedJourneyIntent(text: string): string | null {
   }
 
   const hasJourneyVerb =
-    /\b(achat|acheter|commande|commander|panier|livraison|livrer|checkout|purchase|buy|buying|order|orders|cart|delivery|recherche|search|connexion|login|log[\s-]?in|inscription|signup|sign[\s-]?up|parcours|journey|réserver|reserver|book(?:ing)?|payer|pay|payment|tunnel|brochure|télécharger|telecharger|download|formulaire|devis|contact|essai|trial|demo|démo|vérif(?:ier)?|verify|check|remplir|fill|soumettre|submit|accessib|visible|affich)/i.test(
+    /\b(achat|acheter|commande|commander|panier|livraison|livrer|checkout|purchase|buy|buying|order|orders|cart|delivery|recherche|search|connexion|login|log[\s-]?in|inscription|signup|sign[\s-]?up|parcours|journey|monitorer|monitore|surveiller|surveille|réserver|reserver|book(?:ing)?|payer|pay|payment|tunnel|brochure|télécharger|telecharger|download|formulaire|devis|contact|essai|trial|demo|démo|vérif(?:ier)?|verify|check|remplir|fill|soumettre|submit|accessib|visible|affich)/i.test(
       withoutLocators,
     )
   if (!hasJourneyVerb) return null
