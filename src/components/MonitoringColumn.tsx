@@ -13,6 +13,8 @@ interface MonitoringColumnProps {
   runnerUnavailable?: boolean
   /** Serialized journey steps JSON — shown after a Playwright run. */
   journeyExport?: { filename: string; body: string } | null
+  /** Run metrics + screenshots from the latest Playwright run. */
+  runReportExport?: { filename: string; body: string } | null
   onClose: () => void
   onSave: () => void
   embedded?: boolean
@@ -24,6 +26,7 @@ export default function MonitoringColumn({
   lastRun,
   runnerUnavailable,
   journeyExport,
+  runReportExport,
   onClose,
   onSave,
   embedded,
@@ -108,16 +111,31 @@ export default function MonitoringColumn({
         <h2 className="min-w-0 flex-1 truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100">
           {journeyName}
         </h2>
-        {journeyExport && runSteps.length > 0 && (
-          <button
-            type="button"
-            onClick={() => downloadTextFile(journeyExport.filename, journeyExport.body)}
-            title={t('exportJourneyJson')}
-            className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-zinc-700 transition hover:border-zinc-300 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:border-zinc-500 dark:hover:bg-zinc-800"
-          >
-            <Download size={13} />
-            {t('exportJourneyJson')}
-          </button>
+        {(journeyExport || runReportExport) && runSteps.length > 0 && (
+          <div className="flex shrink-0 flex-col items-end gap-1">
+            {journeyExport && (
+              <button
+                type="button"
+                onClick={() => downloadTextFile(journeyExport.filename, journeyExport.body)}
+                title={t('exportJourneyJson')}
+                className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-zinc-700 transition hover:border-zinc-300 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:border-zinc-500 dark:hover:bg-zinc-800"
+              >
+                <Download size={13} />
+                {t('exportJourneyJson')}
+              </button>
+            )}
+            {runReportExport && (
+              <button
+                type="button"
+                onClick={() => downloadTextFile(runReportExport.filename, runReportExport.body)}
+                title={t('exportRunReportJson')}
+                className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-zinc-700 transition hover:border-zinc-300 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:border-zinc-500 dark:hover:bg-zinc-800"
+              >
+                <Download size={13} />
+                {t('exportRunReportJson')}
+              </button>
+            )}
+          </div>
         )}
       </div>
 

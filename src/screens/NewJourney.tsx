@@ -19,7 +19,9 @@ import {
 } from '../hooks/usePanelOrder'
 import {
   journeyExportFilename,
+  runReportExportFilename,
   serializeJourneyExport,
+  serializeRunReportExport,
 } from '../lib/journeyExport'
 import {
   applyAgentStepFix,
@@ -454,6 +456,15 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
       body: serializeJourneyExport(title, siteUrlForTitle, steps),
     }
   }, [lastRun, steps, journeyName, journey.name, siteUrlForTitle])
+
+  const runReportExport = useMemo(() => {
+    if (!lastRun || lastRun.steps.length === 0) return null
+    const title = journeyName || journey.name
+    return {
+      filename: runReportExportFilename(title),
+      body: serializeRunReportExport(title, siteUrlForTitle, lastRun, locale),
+    }
+  }, [lastRun, journeyName, journey.name, siteUrlForTitle, locale])
 
   useEffect(() => {
     onHeaderChange?.({
@@ -1708,6 +1719,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
       lastRun={lastRun}
       runnerUnavailable={runnerUnavailable}
       journeyExport={journeyExport}
+      runReportExport={runReportExport}
       onClose={panelClose('monitoring')}
       onSave={onSave}
     />
