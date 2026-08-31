@@ -13,6 +13,7 @@ import type {
 import { t, type Locale } from '../i18n/messages'
 import type { ChatMessage } from '../types'
 import { ensureFormEntryInPlan } from './journeyLaunch'
+import { redactSensitiveChatContent } from './sensitiveAnswers'
 
 export {
   answersIncludeSiteDecline,
@@ -61,12 +62,14 @@ export interface DiscoveryAiResult {
 
 function historyFromMessages(messages: ChatMessage[]) {
   return messages.map((m) => {
+    const baseContent =
+      m.role === 'user' ? redactSensitiveChatContent(m.content) : m.content
     if (!m.attachment?.text) {
-      return { role: m.role, content: m.content }
+      return { role: m.role, content: baseContent }
     }
     return {
       role: m.role,
-      content: `${m.content}\n\n[Attached file: ${m.attachment.filename}]\n\`\`\`json\n${m.attachment.text}\n\`\`\``,
+      content: `${baseContent}\n\n[Attached file: ${m.attachment.filename}]\n\`\`\`json\n${m.attachment.text}\n\`\`\``,
     }
   })
 }

@@ -112,6 +112,9 @@ export function AgentMessage({
     </p>
   ))
 
+  const workTrace =
+    isAgent && message.workTrace && message.workTrace.length > 0 ? message.workTrace : null
+
   return (
     <div className="animate-fade-in min-w-0 space-y-2 overflow-x-hidden">
       {message.content && (
@@ -124,6 +127,21 @@ export function AgentMessage({
             }`}
           >
             {bubbleContent}
+          </div>
+        </div>
+      )}
+
+      {workTrace && (
+        <div className="flex min-w-0 justify-start">
+          <div className="min-w-0 max-w-[85%] rounded-xl border border-zinc-200/80 bg-zinc-50/80 px-3 py-2 text-xs leading-relaxed text-zinc-500 dark:border-zinc-700/60 dark:bg-zinc-900/50 dark:text-zinc-400">
+            <p className="mb-1 font-medium text-zinc-600 dark:text-zinc-300">{t('workTraceLabel')}</p>
+            <ul className="list-disc space-y-0.5 pl-4">
+              {workTrace.map((line, index) => (
+                <li key={`${index}-${line.slice(0, 24)}`} className="break-words [overflow-wrap:anywhere]">
+                  {line}
+                </li>
+              ))}
+            </ul>
           </div>
         </div>
       )}

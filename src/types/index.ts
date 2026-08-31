@@ -47,6 +47,8 @@ export interface ChatMessage {
   actions?: ChatAction[]
   /** Optional downloadable file chip (e.g. recorded journey JSON). */
   attachment?: ChatAttachment
+  /** Post-turn trace lines from Gemini (explore, grounding, etc.). */
+  workTrace?: string[]
 }
 
 export interface ChatAction {
