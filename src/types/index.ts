@@ -84,7 +84,7 @@ export interface StepMonitoringMetrics {
   previewCaption: string
 }
 
-/** Real metrics from the latest Playwright (or simulated) run — overwrites Monitoring each run. */
+/** Real metrics from the latest Playwright run — overwrites Monitoring each run. */
 export interface LastRunStepMetric {
   stepId: string
   index: number
@@ -98,7 +98,7 @@ export interface LastRunStepMetric {
 }
 
 export interface LastRunSnapshot {
-  mode: 'playwright' | 'simulated'
+  mode: 'playwright'
   finishedAt: number
   steps: LastRunStepMetric[]
 }

@@ -24,7 +24,6 @@ import {
   buildRunOutcomeMessage,
   buildScheduleMessage,
   ensureFullJourneySteps,
-  getBrowserFrameForStep,
   RUN_OUTCOME_MESSAGE_ID,
   withoutTransientRunMessages,
   type RunFailureInfo,
@@ -40,7 +39,7 @@ import {
   ensureFormEntryInPlan,
   extractUrlFromText,
   formatJourneyTitle,
-  runFallbackMessage,
+  runnerUnavailableMessage,
   runLiveOkMessage,
   runStartMessage,
   runStoppedMessage,
@@ -99,7 +98,6 @@ interface NewJourneyProps {
   onRequestNewJourney?: (prompt: string) => void
 }
 
-const STEP_DELAY = 1400
 const TYPING_DELAY = 600
 
 function hydrateStages(template: Pick<JourneyTemplate, 'stages'>): JourneyStage[] {
@@ -242,10 +240,8 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
   const isRunningRef = useRef(false)
   const lastFailedStepRef = useRef<RunFailureInfo | null>(null)
   const lastRunStepsRef = useRef<LastRunStepMetric[]>([])
-  const lastRunModeRef = useRef<'playwright' | 'simulated'>('playwright')
 
-  const beginLastRunCapture = useCallback((mode: 'playwright' | 'simulated', keepUntilIndex?: number) => {
-    lastRunModeRef.current = mode
+  const beginLastRunCapture = useCallback((keepUntilIndex?: number) => {
     if (typeof keepUntilIndex === 'number') {
       lastRunStepsRef.current = lastRunStepsRef.current.filter((s) => s.index < keepUntilIndex)
     } else {
@@ -255,8 +251,9 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
   }, [])
 
   const commitLastRun = useCallback(() => {
+    if (lastRunStepsRef.current.length === 0) return
     setLastRun({
-      mode: lastRunModeRef.current,
+      mode: 'playwright',
       finishedAt: Date.now(),
       steps: [...lastRunStepsRef.current],
     })
@@ -705,10 +702,16 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
       runId: number,
       stepsToRun: Array<Omit<JourneyStep, 'status'> | JourneyStep>,
       options?: { startIndex?: number; replaceSteps?: boolean },
-    ): Promise<{ usedLive: boolean; failedStep: RunFailureInfo | null }> => {
+    ): Promise<{
+      usedLive: boolean
+      failedStep: RunFailureInfo | null
+      runnerError?: string
+    }> => {
       const startIndex = options?.startIndex ?? 0
       const slice = stepsToRun.slice(startIndex)
-      if (slice.length === 0) return { usedLive: false, failedStep: null }
+      if (slice.length === 0) {
+        return { usedLive: false, failedStep: null, runnerError: 'No steps to run' }
+      }
 
       if (options?.replaceSteps) {
         const flat = stepsToRun.map((step, index) => ({
@@ -834,7 +837,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
         }
 
         if (result.mode === 'unavailable') {
-          return { usedLive: false, failedStep: null }
+          return { usedLive: false, failedStep: null, runnerError: result.error }
         }
 
         if (typeof result.failedStepIndex === 'number') {
@@ -880,7 +883,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
 
         return { usedLive: true, failedStep: null }
       } catch {
-        return { usedLive: false, failedStep: null }
+        return { usedLive: false, failedStep: null, runnerError: 'Journey runner request failed' }
       } finally {
         if (runAbortRef.current === controller) {
           runAbortRef.current = null
@@ -890,92 +893,18 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
     [initialPrompt, locale, recordLastRunStep, session.siteUrl],
   )
 
-  const runSimulatedSteps = useCallback(
-    async (
-      runId: number,
-      journeySteps: Array<Omit<JourneyStep, 'status'>>,
-      options?: { announceFallback?: boolean },
-    ): Promise<RunFailureInfo | null> => {
-      lastRunModeRef.current = 'simulated'
-      if (options?.announceFallback) {
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: `agent-fallback-${runId}`,
-            role: 'agent',
-            content: runFallbackMessage(locale),
-          },
-        ])
-      }
-
-      // Simulation fallback never injects fake failures — only Playwright reports real ones.
-      for (let i = 0; i < journeySteps.length; i++) {
-        const template = journeySteps[i]!
-        setStages((prev) => {
-          const flat = flattenActions(prev)
-          if (flat.length === 0) {
-            return actionsToStages(
-              journeySteps.map((s, idx) => ({
-                ...s,
-                status: idx === i ? ('running' as const) : ('pending' as const),
-              })),
-              locale,
-            )
-          }
-          const next = flat.map((s, idx) =>
-            idx === i ? { ...s, status: 'running' as const } : s,
-          )
-          return stagesFromFlat(prev, next, locale)
-        })
-        setRunningActionLabel(template.label)
-        setBrowserFrame((prev) => {
-          const next = journey.browserFrames[i] ?? null
-          if (!next) return prev
-          // Keep prior screenshot frozen when the mock frame has none.
-          if (!next.screenshotDataUrl && prev?.screenshotDataUrl) {
-            return { ...next, screenshotDataUrl: prev.screenshotDataUrl }
-          }
-          return next
-        })
-        const stepStartedAt = Date.now()
-
-        await delay(STEP_DELAY)
-        if (runIdRef.current !== runId) return null
-
-        const frame = journey.browserFrames[i]
-        setRunningActionLabel(null)
-        recordLastRunStep({
-          stepId: template.id,
-          index: i,
-          label: template.label,
-          status: 'done',
-          durationMs: Date.now() - stepStartedAt,
-          url: frame?.url,
-          title: frame?.title,
-          screenshotDataUrl: frame?.screenshotDataUrl,
-        })
-        setStages((prev) => {
-          const flat = flattenActions(prev).map((s, idx) =>
-            idx === i ? { ...s, status: 'done' as const } : s,
-          )
-          return stagesFromFlat(prev, flat, locale)
-        })
-
-        if (i === Math.min(2, journeySteps.length - 1)) {
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: 'agent-progress',
-              role: 'agent',
-              content: tf('stepDone', { n: i + 1, label: template.label }),
-            },
-          ])
-        }
-      }
-
-      return null
+  const announceRunnerUnavailable = useCallback(
+    (runId: number, runnerError?: string) => {
+      setMessages((prev) => [
+        ...withoutTransientRunMessages(prev),
+        {
+          id: `agent-runner-unavailable-${runId}`,
+          role: 'agent',
+          content: runnerUnavailableMessage(locale, runnerError),
+        },
+      ])
     },
-    [journey.browserFrames, locale, recordLastRunStep, tf],
+    [locale],
   )
 
   const runSimulation = useCallback(async () => {
@@ -988,7 +917,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
     setStages(hydrateStages(journey))
     setBrowserFrame(null)
     setRunningActionLabel(null)
-    beginLastRunCapture('playwright')
+    beginLastRunCapture()
 
     // Discovery already carried the conversation — don't re-inject the prompt as a new user turn.
     const hasDiscoveryHistory = session.messages.length > 0
@@ -1022,9 +951,13 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
 
     let failedStep = live.failedStep
     if (!live.usedLive) {
+      lastRunStepsRef.current = []
       setStages(hydrateStages(journey))
-      beginLastRunCapture('simulated')
-      failedStep = await runSimulatedSteps(runId, journeySteps, { announceFallback: true })
+      announceRunnerUnavailable(runId, live.runnerError)
+      setIsRunning(false)
+      setRunningActionLabel(null)
+      finishJourneyRunStatus(false)
+      return
     } else if (failedStep) {
       const diagnosis = buildRunOutcomeMessage(failedStep, undefined, locale)
       setMessages((prev) => [
@@ -1067,7 +1000,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
     dockJourneyForRun,
     finishJourneyRunStatus,
     runStepsWithPlaywright,
-    runSimulatedSteps,
+    announceRunnerUnavailable,
     session.messages.length,
     beginLastRunCapture,
     commitLastRun,
@@ -1097,7 +1030,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
       setBrowserFrame(null)
       setRunningActionLabel(null)
       setFixActionsResolved(true)
-      beginLastRunCapture('playwright', startIndex)
+      beginLastRunCapture(startIndex)
 
       const remaining = stepsSnapshot.length - startIndex
       setMessages((prev) => [
@@ -1124,53 +1057,15 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
 
       let failedStep = live.failedStep
       if (!live.usedLive) {
-        lastRunModeRef.current = 'simulated'
-        // Runner unavailable — fall back to local simulation, still advancing
-        // the panel step-by-step so UI state stays aligned with the timeline.
-        for (let i = startIndex; i < stepsSnapshot.length; i++) {
-          const step = stepsSnapshot[i]!
-          setStages((prev) => {
-            const flat = flattenActions(prev).map((s, idx) =>
-              idx === i ? { ...s, status: 'running' as const } : s,
-            )
-            return stagesFromFlat(prev, flat, locale)
-          })
-          setRunningActionLabel(step.label)
-          setBrowserFrame((prev) => {
-            const next = getBrowserFrameForStep(step, i)
-            if (!next) return prev
-            if (!next.screenshotDataUrl && prev?.screenshotDataUrl) {
-              return { ...next, screenshotDataUrl: prev.screenshotDataUrl }
-            }
-            return next
-          })
-          const stepStartedAt = Date.now()
-          await delay(STEP_DELAY)
-          if (runIdRef.current !== runId) {
-            fixContinueInFlightRef.current = false
-            isRunningRef.current = false
-            return
-          }
-          const frame = getBrowserFrameForStep(step, i)
-          setRunningActionLabel(null)
-          recordLastRunStep({
-            stepId: step.id,
-            index: i,
-            label: step.label,
-            status: 'done',
-            durationMs: Date.now() - stepStartedAt,
-            url: frame?.url,
-            title: frame?.title,
-            screenshotDataUrl: frame?.screenshotDataUrl,
-          })
-          setStages((prev) => {
-            const flat = flattenActions(prev).map((s, idx) =>
-              idx === i ? { ...s, status: 'done' as const } : s,
-            )
-            return stagesFromFlat(prev, flat, locale)
-          })
-        }
-        failedStep = null
+        lastRunStepsRef.current = lastRunStepsRef.current.filter((s) => s.index < startIndex)
+        announceRunnerUnavailable(runId, live.runnerError)
+        fixContinueInFlightRef.current = false
+        isRunningRef.current = false
+        setIsRunning(false)
+        setRunningActionLabel(null)
+        finishJourneyRunStatus(false)
+        setFixActionsResolved(false)
+        return
       } else if (failedStep) {
         const diagnosis = buildRunOutcomeMessage(failedStep, undefined, locale)
         setMessages((prev) => [
@@ -1210,6 +1105,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
       dockJourneyForRun,
       finishJourneyRunStatus,
       runStepsWithPlaywright,
+      announceRunnerUnavailable,
       tf,
       beginLastRunCapture,
       commitLastRun,
@@ -1230,7 +1126,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
     setFixActionsResolved(false)
     setBrowserFrame(null)
     setRunningActionLabel(null)
-    beginLastRunCapture('playwright')
+    beginLastRunCapture()
 
     setMessages((prev) => [
       ...withoutTransientRunMessages(prev),
@@ -1246,9 +1142,12 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
 
     let failedStep = live.failedStep
     if (!live.usedLive) {
-      beginLastRunCapture('simulated')
-      setStages((prev) => resetActionStatuses(prev, 'pending'))
-      failedStep = await runSimulatedSteps(runId, stepsToRun)
+      lastRunStepsRef.current = []
+      announceRunnerUnavailable(runId, live.runnerError)
+      setIsRunning(false)
+      setRunningActionLabel(null)
+      finishJourneyRunStatus(false)
+      return
     }
 
     if (runIdRef.current !== runId) return
@@ -1269,7 +1168,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
     dockJourneyForRun,
     finishJourneyRunStatus,
     runStepsWithPlaywright,
-    runSimulatedSteps,
+    announceRunnerUnavailable,
     beginLastRunCapture,
     commitLastRun,
     tf,

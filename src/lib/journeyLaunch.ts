@@ -459,8 +459,15 @@ export function runLiveOkMessage(locale: 'en' | 'fr'): string {
     : 'Run finished — screenshots above are real page captures.'
 }
 
-export function runFallbackMessage(locale: 'en' | 'fr'): string {
-  return locale === 'fr'
-    ? 'Navigateur indisponible — repli sur des captures simulées pour ce run.'
-    : 'Browser runner unavailable — falling back to simulated frames for this run.'
+export function runnerUnavailableMessage(
+  locale: 'en' | 'fr',
+  detail?: string | null,
+): string {
+  const base =
+    locale === 'fr'
+      ? 'Le navigateur Playwright est indisponible — ce run n’a pas été exécuté. Réessaie dans un instant ; je ne simule pas de captures ni de métriques.'
+      : 'The Playwright browser runner is unavailable — this run did not execute. Try again in a moment; I won’t simulate frames or metrics.'
+  const trimmed = detail?.trim()
+  if (!trimmed || trimmed === 'Aborted') return base
+  return `${base}\n\n${trimmed}`
 }

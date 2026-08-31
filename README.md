@@ -69,7 +69,7 @@ docker run -p 8787:8787 itrs-journey-runner
 
 Point the frontend with `VITE_JOURNEY_RUNNER_URL=https://your-runner.example/api/journey-run`.
 
-If the runner is down, the UI falls back to simulated frames and says so in chat.
+If the runner is down, the workspace shows a clear error — no simulated frames or fake monitoring metrics.
 
 ## Discovery (Gemini)
 
@@ -96,7 +96,6 @@ Workspace runs always come from the Discovery plan (or a minimal URL-derived jou
 
 ## What's still mocked
 
-- Monitoring KPIs (simulation fallback only — no fake step failures)
 - Auth / signup (no API)
 - Cookie/login vault (agent may ask for credentials when a journey needs them; session-only)
 
