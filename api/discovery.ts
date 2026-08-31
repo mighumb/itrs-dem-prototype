@@ -611,7 +611,7 @@ function planStepsToRunnable(
         target: href ?? (index === 0 ? seedUrl ?? undefined : undefined),
       }
     })
-    .filter((s): s is RunnableStep => Boolean(s))
+    .filter((s): s is RunnableStep => s != null)
 }
 
 async function groundAndMaybeDryRunPlan(options: {
