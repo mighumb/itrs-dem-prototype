@@ -25,6 +25,7 @@ export {
   looksLikeSocialChat,
   messageRequestsSiteWork,
   summarizeStatedJourneyIntent,
+  isFullySpecifiedMonitoringAsk,
 } from '../../api/_lib/discoverySiteIntent'
 
 export type DiscoveryAiMode =
@@ -251,8 +252,25 @@ function stripEnumeratedListFromMessage(message: string): string {
     .trim()
 }
 
-function frameMessageForProposals(locale: Locale, existing: string): string {
+function frameMessageForProposals(
+  locale: Locale,
+  existing: string,
+  proposalCount: number,
+): string {
   const cleaned = stripEnumeratedListFromMessage(existing)
+  if (proposalCount === 1) {
+    if (
+      !cleaned ||
+      cleaned.length > 220 ||
+      /\b(trois|deux|2[- ]3|2 ou 3|two|three|several|multiple|plusieurs|quelques)\s+(parcours|journey|options?|chemins?|paths?|façons?|ways?)\b/i.test(
+        cleaned,
+      ) ||
+      /\b(3|trois|three)\s+parcours\b/i.test(cleaned)
+    ) {
+      return t(locale, 'singleJourneyIntro')
+    }
+    return cleaned
+  }
   if (cleaned && cleaned.length <= 280) return cleaned
   return t(locale, 'journeysSuggested')
 }
@@ -333,7 +351,11 @@ function finalizeDiscoveryResult(options: {
       message = ''
     }
   } else if (proposals && proposals.length > 0) {
-    message = frameMessageForProposals(options.preferredLanguage, message)
+    message = frameMessageForProposals(
+      options.preferredLanguage,
+      message,
+      proposals.length,
+    )
   }
 
   let formTitle = normalizeFormTitle(options.formTitle)

@@ -343,6 +343,43 @@ export function summarizeStatedJourneyIntent(text: string): string | null {
 }
 
 /**
+ * User named site + subject + concrete page/section — no journey-type chooser needed.
+ * e.g. « surveiller la page Wikipédia de Mbappé, palmarès en sélection nationale ».
+ */
+export function isFullySpecifiedMonitoringAsk(text: string): boolean {
+  const t = text.trim()
+  if (!t || t.length < 24) return false
+  if (
+    looksLikeSocialChat(t) ||
+    looksLikeSiteConfirmation(t) ||
+    looksLikeSiteDecline(t) ||
+    /\b(quel|quelle|which|recommand|suggest|propose|idée)\b/i.test(t)
+  ) {
+    return false
+  }
+  if (!hasMonitorVerbWithTarget(t) && !/\b(surveiller|monitor(?:ing)?)\b/i.test(t)) {
+    return false
+  }
+
+  const hasNamedSubject =
+    /\b[A-ZÀ-Ü][\wÀ-ü'’.-]*(?:\s+(?:de|du|des|d['’]|en)\s+)?[A-ZÀ-Ü][\wÀ-ü'’.-]+(?:\s+[A-ZÀ-Üa-zà-ü'’.-]+){0,3}\b/.test(
+      t,
+    ) || /[«"']([^«"']{4,})[»"']/.test(t)
+
+  const hasConcreteTarget =
+    /\b(palmarès|palmares|sélection\s+nationale|statistiques|stats|section|rubrique|onglet|fiche|contenu|page\s+de|article|brochure|formulaire|panier|checkout|téléchargement|download)\b/i.test(
+      t,
+    )
+
+  const hasSite =
+    hasExplicitSiteLocator(t) ||
+    /\b(wikipédia|wikipedia|wiki)\b/i.test(t) ||
+    hasMonitorVerbWithTarget(t)
+
+  return hasNamedSubject && hasConcreteTarget && hasSite
+}
+
+/**
  * Extract the deep destination URL/path from user text (where to monitor).
  * Does NOT invent a journey outcome from the path slug.
  */

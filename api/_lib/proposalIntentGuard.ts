@@ -4,6 +4,8 @@
  * or “search from homepage” templates.
  */
 
+import { isFullySpecifiedMonitoringAsk } from './discoverySiteIntent'
+
 export type GuardProposal = {
   id: string
   title: string
@@ -217,7 +219,11 @@ export function ensureProposalsHonorStatedIntent(
   }
 
   if (normalized.length === 0) {
-    return synthesizeProposalsFromIntent(intent, destination, fr)
+    const synthesized = synthesizeProposalsFromIntent(intent, destination, fr)
+    if (isFullySpecifiedMonitoringAsk(intent)) {
+      return [synthesized[0]!]
+    }
+    return synthesized
   }
 
   const withoutWeak = normalized.filter((p) => !isWeakHomepageProposal(p))
@@ -226,9 +232,17 @@ export function ensureProposalsHonorStatedIntent(
   const honored = pool.filter((p) => proposalHonorsStatedIntent(p, intent))
   if (honored.length > 0) {
     const rest = pool.filter((p) => p !== honored[0] && !isWeakHomepageProposal(p))
-    return [honored[0]!, ...rest].slice(0, 3)
+    const merged = [honored[0]!, ...rest].slice(0, 3)
+    if (isFullySpecifiedMonitoringAsk(intent)) {
+      return [merged[0]!]
+    }
+    return merged
   }
 
   // Model missed the outcome — replace with synthesized paths for the stated ask.
-  return synthesizeProposalsFromIntent(intent, destination, fr)
+  const synthesized = synthesizeProposalsFromIntent(intent, destination, fr)
+  if (isFullySpecifiedMonitoringAsk(intent)) {
+    return [synthesized[0]!]
+  }
+  return synthesized
 }
