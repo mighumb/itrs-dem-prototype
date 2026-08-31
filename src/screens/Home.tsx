@@ -19,6 +19,7 @@ import {
   classifyIterateWorkspacePlanIntent,
   planStepsForIterate,
   shouldBindPlanningAiPlan,
+  wantsApplyPlanToPanel,
 } from '../lib/discoveryChat'
 import { formatQuestionnaireChatBlock, maskFreeformUserChatContent } from '../lib/sensitiveAnswers'
 import { runStartMessage, type JourneyLaunchSession } from '../lib/journeyLaunch'
@@ -90,6 +91,7 @@ export default function Home({
   messagesRef.current = messages
   const planRef = useRef<DiscoveryPlan | null>(null)
   planRef.current = plan
+  const pendingAiPlanRef = useRef<DiscoveryPlan | null>(null)
 
   const rememberSnapshot = (ai: DiscoveryAiResult) => {
     const awaitingConfirm = ai.siteAnalysis?.reason === 'awaiting_user_confirmation'
@@ -801,17 +803,21 @@ export default function Home({
       if (ai.aborted) return
       rememberSnapshot(ai)
 
+      const modelReturnedPlan = Boolean(ai.plan && ai.plan.steps.length > 0)
       const bindModelPlan =
-        Boolean(ai.plan && ai.plan.steps.length > 0) &&
-        (shouldBindPlanningAiPlan(text, ai, seedUrl) || (!existingPlan && ai.readyForPlan))
+        modelReturnedPlan && shouldBindPlanningAiPlan(text, ai, seedUrl)
 
-      if (bindModelPlan && ai.plan) {
-        const next = sanitizeDiscoveryPlan(ai.plan)
-        const content = messageWithAuthoritativePlan(ai.message, next)
-        pushAgentReply(content, { workTrace: ai.workTrace })
-        setPlan(next)
-        setPhase('planning')
-        return
+      if (modelReturnedPlan && ai.plan) {
+        if (bindModelPlan) {
+          pendingAiPlanRef.current = null
+          const next = sanitizeDiscoveryPlan(ai.plan)
+          const content = messageWithAuthoritativePlan(ai.message, next)
+          pushAgentReply(content, { workTrace: ai.workTrace })
+          setPlan(next)
+          setPhase('planning')
+          return
+        }
+        pendingAiPlanRef.current = sanitizeDiscoveryPlan(ai.plan)
       }
 
       if (ai.proposals && ai.proposals.length > 0 && !existingPlan) {
@@ -822,7 +828,7 @@ export default function Home({
         return
       }
 
-      if (ai.questions && ai.questions.length > 0) {
+      if (ai.questions && ai.questions.length > 0 && !existingPlan) {
         setQuestions(ai.questions)
         setFormTitle(ai.formTitle)
         setQuestionIndex(0)
@@ -832,7 +838,7 @@ export default function Home({
       }
 
       pushAgentReply(
-        appendPlanNotAppliedHint(ai.message, text, false, locale),
+        appendPlanNotAppliedHint(ai.message, text, bindModelPlan, locale),
         { workTrace: ai.workTrace },
       )
       if (existingPlan && !pivot.newSiteOrJourney) {
@@ -955,6 +961,15 @@ export default function Home({
     pushMessages(userMsg)
     const history = historyPlus(userMsg)
 
+    if (wantsApplyPlanToPanel(text) && pendingAiPlanRef.current) {
+      const planToApply = sanitizeDiscoveryPlan(pendingAiPlanRef.current)
+      pendingAiPlanRef.current = null
+      pushAgentReply(messageWithAuthoritativePlan(t('planAppliedFromPending'), planToApply))
+      setPlan(planToApply)
+      setPhase('planning')
+      return
+    }
+
     if (phase === 'planning') {
       const cleanCurrent = plan ? sanitizeDiscoveryPlan(plan) : null
       // Launch / missing Lancer → run with the settled (sanitized) plan. Never re-dump dirty steps.
@@ -984,8 +999,8 @@ export default function Home({
       const correcting = localeFix || wantsPlanCorrection(text)
       const planSnapshot = cleanCurrent
 
-      // Brainstorm pivots: keep Lancer visible — do not drop the settled plan until a new one binds.
-      if (!launchIntent && !correcting) {
+      // With a settled plan, stay in planning and iterate — never reopen proposals/forms on brainstorm.
+      if (!planSnapshot && !launchIntent && !correcting) {
         setPhase('conversation')
       } else if (planSnapshot) {
         setPlan(planSnapshot)
@@ -993,7 +1008,7 @@ export default function Home({
       }
 
       await withTyping(async (signal, onStatus) => {
-        const useIterate = Boolean(planSnapshot && (correcting || launchIntent))
+        const useIterate = Boolean(planSnapshot)
         const seedUrl =
           ctx?.url ??
           planSnapshot?.prompt.match(/https?:\/\/[^\s<>"']+/i)?.[0]?.replace(/[.,);]+$/g, '') ??
@@ -1007,6 +1022,7 @@ export default function Home({
           preferredLanguage: locale,
           journeyName: planSnapshot?.title ?? null,
           currentSteps: planSnapshot ? planStepsForIterate(planSnapshot) : null,
+          hasSettledPlan: Boolean(planSnapshot),
           signal,
           onStatus,
         })
@@ -1018,6 +1034,7 @@ export default function Home({
           shouldBindPlanningAiPlan(text, ai, seedUrl)
 
         if (bindModelPlan && ai.plan) {
+          pendingAiPlanRef.current = null
           const next = sanitizeDiscoveryPlan(ai.plan)
           if (launchIntent) {
             pushAgentReply(runStartMessage(locale))
@@ -1038,7 +1055,7 @@ export default function Home({
           return
         }
 
-        if (ai.proposals && ai.proposals.length > 0) {
+        if (ai.proposals && ai.proposals.length > 0 && !planSnapshot) {
           setProposals(ai.proposals)
           setFormTitle(ai.formTitle)
           setPhase('proposals')
@@ -1046,13 +1063,17 @@ export default function Home({
           return
         }
 
-        if (ai.questions && ai.questions.length > 0) {
+        if (ai.questions && ai.questions.length > 0 && !planSnapshot) {
           setQuestions(ai.questions)
           setFormTitle(ai.formTitle)
           setQuestionIndex(0)
           setPhase('questionnaire')
           pushAgentReply(ai.message, { workTrace: ai.workTrace })
           return
+        }
+
+        if (ai.plan && ai.plan.steps.length > 0 && !bindModelPlan) {
+          pendingAiPlanRef.current = sanitizeDiscoveryPlan(ai.plan)
         }
 
         if ((launchIntent || wantsMissingRunButton(text)) && planSnapshot) {

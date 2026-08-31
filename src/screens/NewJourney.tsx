@@ -276,6 +276,8 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
   const pendingAiPlanRef = useRef<DiscoveryPlan | null>(null)
   const submitChatRef = useRef<(text: string) => Promise<void>>(async () => {})
   const chatQueueDrainingRef = useRef(false)
+  const flushPendingChatRef = useRef<() => Promise<void>>(async () => {})
+  const chatSubmittingRef = useRef(false)
 
   useEffect(() => {
     setJourneyName(journey.name)
@@ -573,6 +575,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
         content: runStoppedMessage(locale),
       },
     ])
+    void flushPendingChatRef.current()
   }, [finishJourneyRunStatus, locale])
 
   const handleApplyRecording = useCallback(
@@ -964,6 +967,10 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
     }
   }, [])
 
+  useEffect(() => {
+    flushPendingChatRef.current = flushPendingChat
+  }, [flushPendingChat])
+
   const runContinueAfterFix = useCallback(
     async (startIndex: number, stepsSnapshot: JourneyStep[]) => {
       const abortContinue = () => {
@@ -1302,24 +1309,35 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
   const handleChatSubmit = useCallback(
     async (text: string) => {
       const trimmed = text.trim()
-      if (!trimmed || agentTyping) return
+      if (!trimmed || agentTyping || chatSubmittingRef.current) return
 
       if (isRunning) {
         const masked = maskFreeformUserChatContent(trimmed)
         pendingChatRef.current.push(trimmed)
-        setMessages((prev) => [
-          ...prev,
-          { id: `user-${Date.now()}`, role: 'user', content: masked },
-          {
-            id: `agent-busy-${Date.now()}`,
-            role: 'agent',
-            content: `${t('stillRunningBusy')}\n\n${t('chatQueuedWhileRunning')}`,
-          },
-        ])
+        const showBusyNotice = pendingChatRef.current.length === 1
+        setMessages((prev) => {
+          const next: ChatMessage[] = [
+            ...prev,
+            { id: `user-${Date.now()}`, role: 'user', content: masked },
+          ]
+          if (showBusyNotice) {
+            next.push({
+              id: `agent-busy-${Date.now()}`,
+              role: 'agent',
+              content: `${t('stillRunningBusy')}\n\n${t('chatQueuedWhileRunning')}`,
+            })
+          }
+          return next
+        })
         setInput('')
         return
       }
 
+      chatSubmittingRef.current = true
+      setAgentTyping(true)
+      setWorkStatus(null)
+
+      try {
       const maskedInput = maskFreeformUserChatContent(trimmed)
       const userMsg: ChatMessage = { id: `user-${Date.now()}`, role: 'user', content: maskedInput }
 
@@ -1408,9 +1426,6 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
         void runReplay(undefined, { intro: 'start', markComplete: true })
         return
       }
-
-      setAgentTyping(true)
-      setWorkStatus(null)
 
       chatAbortRef.current?.abort()
       const abort = new AbortController()
@@ -1541,11 +1556,11 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
           localLocaleClean,
         })
 
-        // Launch path must never paste the model's numbered list (often reintroduces « fr »).
-        if (launchIntent && planForUi && applyPlanToWorkspace) {
-          planForUi = sanitizeDiscoveryPlan(planForUi)
+        let planForChat: DiscoveryPlan | null = planForUi
+        if (launchIntent && planForChat && applyPlanToWorkspace) {
+          planForChat = sanitizeDiscoveryPlan(planForChat)
         } else if (!applyPlanToWorkspace) {
-          planForUi = null
+          planForChat = askPlan ? planForUi : null
         }
 
         const defaultIntro = askPlan ? formatWorkspacePlanIntro(locale, 'showPlan') : ''
@@ -1557,10 +1572,10 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
           bindModelPlan,
           locale,
         )
-        if (planForUi) {
+        if (planForChat) {
           const patched =
-            planForUi.steps.length !== (rawPlan?.steps.length ?? 0) ||
-            planForUi.steps.some(
+            planForChat.steps.length !== (rawPlan?.steps.length ?? 0) ||
+            planForChat.steps.some(
               (s, i) =>
                 s.label !== rawPlan?.steps[i]?.label ||
                 s.action !== rawPlan?.steps[i]?.action,
@@ -1580,11 +1595,11 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
             ) {
               agentContent = formatWorkspacePlanIntro(locale, 'formPatch')
             }
-            const deltaNote = planStepCountDeltaNotice(locale, priorStepCount, planForUi.steps.length)
+            const deltaNote = planStepCountDeltaNotice(locale, priorStepCount, planForChat.steps.length)
             if (deltaNote) {
               agentContent = agentContent.trim() ? `${agentContent.trim()}\n\n${deltaNote}` : deltaNote
             }
-            agentContent = messageWithAuthoritativePlan(agentContent, planForUi)
+            agentContent = messageWithAuthoritativePlan(agentContent, planForChat)
           }
         }
 
@@ -1595,25 +1610,29 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
           workTrace: ai.workTrace ?? undefined,
         }
 
-        if (planForUi) {
-          const nextStages = planToJourneyStages(planForUi, steps, seedUrl, locale)
-          setStages(nextStages)
-          setFixActionsResolved(false)
-          setScheduleResolved(false)
-          if (planForUi.title) {
-            setJourneyName(planForUi.title)
-            onHeaderChange?.({
-              title: formatJourneyTitle(planForUi.title, seedUrl, locale),
-              subtitle: isRunning ? t('running') : planForUi.summary,
-            })
+        if (planForChat) {
+          if (applyPlanToWorkspace) {
+            const nextStages = planToJourneyStages(planForChat, steps, seedUrl, locale)
+            setStages(nextStages)
+            setFixActionsResolved(false)
+            setScheduleResolved(false)
+            if (planForChat.title) {
+              setJourneyName(planForChat.title)
+              onHeaderChange?.({
+                title: formatJourneyTitle(planForChat.title, seedUrl, locale),
+                subtitle: isRunning ? t('running') : planForChat.summary,
+              })
+            }
           }
           setMessages((prev) => [
             ...prev.filter((m) => m.id !== 'done-2' && m.id !== RUN_OUTCOME_MESSAGE_ID),
             agentMsg,
           ])
           // Launch (+ optional edits): apply steps then run — don't leave the user staring at a re-listed plan.
-          if (launchIntent && !askPlan) {
-            const launchSteps = flattenActions(nextStages)
+          if (launchIntent && !askPlan && applyPlanToWorkspace) {
+            const launchSteps = flattenActions(
+              planToJourneyStages(planForChat, steps, seedUrl, locale),
+            )
             window.setTimeout(() => {
               if (!isRunningRef.current) {
                 void runReplay(launchSteps, { intro: 'start', markComplete: true })
@@ -1650,6 +1669,9 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
         setMessages((prev) => [...prev, agentMsg])
       } finally {
         if (chatAbortRef.current === abort) chatAbortRef.current = null
+      }
+      } finally {
+        chatSubmittingRef.current = false
         setAgentTyping(false)
         setWorkStatus(null)
       }

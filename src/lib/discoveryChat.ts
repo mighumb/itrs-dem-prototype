@@ -121,7 +121,12 @@ export function shouldApplyIteratePlanToWorkspace(
 ): boolean {
   if (!resolvedPlan) return false
   const intent = classifyIterateWorkspacePlanIntent(userMessage, options.seedUrl)
-  if (intent.showPlan || intent.correctPlan || options.localLocaleClean) return true
+  if (options.localLocaleClean) return true
+  if (intent.correctPlan || intent.editSteps || intent.newSiteOrJourney || intent.launchWithEdits) {
+    return true
+  }
+  // Re-display only — show in chat, do not mutate the Steps panel.
+  if (intent.showPlan) return false
   if (options.boundModelPlan) return true
   return false
 }
