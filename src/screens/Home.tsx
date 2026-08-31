@@ -14,6 +14,8 @@ import {
   summarizeStatedJourneyIntent,
   type DiscoveryAiResult,
 } from '../lib/discoveryAi'
+import { planStepsForIterate } from '../lib/discoveryChat'
+import { formatQuestionnaireChatBlock } from '../lib/sensitiveAnswers'
 import { runStartMessage, type JourneyLaunchSession } from '../lib/journeyLaunch'
 import {
   getHomeExamples,
@@ -217,11 +219,13 @@ export default function Home({
     const session = sessionRef.current
     // Don't consume the locale change while the agent is busy — retry when idle.
     if (session.agentTyping) return
-    prevLocaleRef.current = locale
 
     const needsProposals = session.phase === 'proposals' && session.proposals.length > 0
     const needsQuestions = session.phase === 'questionnaire' && session.questions.length > 0
-    if (!needsProposals && !needsQuestions) return
+    if (!needsProposals && !needsQuestions) {
+      prevLocaleRef.current = locale
+      return
+    }
 
     // Floating form content is model-generated — translate it when UI language changes.
     // Dedicated relocalize mode: no site crawl, no journey re-search, same ids.
@@ -246,7 +250,9 @@ export default function Home({
       })
       if (ai.aborted) return
 
+      let updated = false
       if (needsProposals && ai.proposals && ai.proposals.length > 0) {
+        updated = true
         setProposals(ai.proposals)
         setFormTitle(
           ai.formTitle ||
@@ -254,7 +260,7 @@ export default function Home({
         )
       }
       if (needsQuestions && ai.questions && ai.questions.length > 0) {
-        // Preserve answers keyed by id when ids stay stable.
+        updated = true
         setQuestions(ai.questions)
         setFormTitle(
           ai.formTitle ||
@@ -265,18 +271,33 @@ export default function Home({
                 : t('clarifyRequest')),
         )
       }
+
+      if (updated) {
+        prevLocaleRef.current = locale
+        return
+      }
+
+      pushAgentReply(t('formRelocalizeFailed'))
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps -- locale + idle retry after typing
   }, [locale, agentTyping])
 
   const historyPlus = (...extra: ChatMessage[]) => [...messagesRef.current, ...extra]
 
-  const pushAgentReply = (content: string) => {
-    if (!content.trim()) return
+  const pushAgentReply = (
+    content: string,
+    options?: { workTrace?: string[] | null },
+  ) => {
+    const body = content.trim() || t('agentEmptyReply')
+    const trace = options?.workTrace
+      ?.map((line) => line.trim())
+      .filter(Boolean)
+      .slice(0, 6)
     pushMessages({
       id: uid('agent'),
       role: 'agent',
-      content,
+      content: body,
+      workTrace: trace && trace.length > 0 ? trace : undefined,
     })
   }
 
@@ -315,14 +336,14 @@ export default function Home({
       // Nominal path: only show Run when Gemini produced a plan — never a local template.
       if (ai.plan) {
         const content = messageWithAuthoritativePlan(ai.message, ai.plan)
-        pushAgentReply(content)
+        pushAgentReply(content, { workTrace: ai.workTrace })
         setPlan(ai.plan)
         setPhase('planning')
         return
       }
 
       setPhase('conversation')
-      pushAgentReply(ai.message)
+      pushAgentReply(ai.message, { workTrace: ai.workTrace })
     })
   }
 
@@ -359,7 +380,7 @@ export default function Home({
       // Complete plan → show steps + Run (precise free-typed seeds).
       if (ai.plan && (ai.readyForPlan || ai.plan.steps.length > 0)) {
         const content = messageWithAuthoritativePlan(ai.message, ai.plan)
-        pushAgentReply(content)
+        pushAgentReply(content, { workTrace: ai.workTrace })
         setPlan(ai.plan)
         setPhase('planning')
         return
@@ -369,7 +390,7 @@ export default function Home({
         setProposals(ai.proposals)
         setFormTitle(ai.formTitle)
         setPhase('proposals')
-        pushAgentReply(ai.message)
+        pushAgentReply(ai.message, { workTrace: ai.workTrace })
         return
       }
 
@@ -379,12 +400,12 @@ export default function Home({
         setFormTitle(ai.formTitle)
         setQuestionIndex(0)
         setPhase('questionnaire')
-        pushAgentReply(ai.message)
+        pushAgentReply(ai.message, { workTrace: ai.workTrace })
         return
       }
 
       setPhase('conversation')
-      pushAgentReply(ai.message)
+      pushAgentReply(ai.message, { workTrace: ai.workTrace })
     })
   }
 
@@ -407,7 +428,7 @@ export default function Home({
       // Model sometimes returns a ready plan instead of chooser options — honor it.
       if (ai.plan && (ai.readyForPlan || ai.plan.steps.length > 0)) {
         const content = messageWithAuthoritativePlan(ai.message, ai.plan)
-        pushAgentReply(content)
+        pushAgentReply(content, { workTrace: ai.workTrace })
         setPlan(ai.plan)
         setPhase('planning')
         return
@@ -418,12 +439,12 @@ export default function Home({
         setProposals(ai.proposals)
         setFormTitle(ai.formTitle)
         setPhase('proposals')
-        pushAgentReply(ai.message || t('journeysSuggested'))
+        pushAgentReply(ai.message || t('journeysSuggested'), { workTrace: ai.workTrace })
         return
       }
 
       setPhase('conversation')
-      pushAgentReply(ai.message)
+      pushAgentReply(ai.message, { workTrace: ai.workTrace })
     })
   }
 
@@ -471,8 +492,13 @@ export default function Home({
     }
 
     // Only post answers to the chat once the whole form is complete.
-    const blocks = answered.map(
-      (q) => `${t('answerQ')} : ${q.prompt}\n${t('answerR')} : ${nextCtx.answers[q.id]}`,
+    const blocks = answered.map((q) =>
+      formatQuestionnaireChatBlock(
+        q.prompt,
+        String(nextCtx.answers[q.id] ?? ''),
+        locale,
+        q.id,
+      ),
     )
     const answerText = answered
       .map((q) => String(nextCtx.answers[q.id] ?? '').trim())
@@ -502,7 +528,7 @@ export default function Home({
       }
       setSiteConfirmPending(false)
       setCtx(cleared)
-      await replyWithAiChat(answerText || 'Non', history, cleared)
+      await replyWithAiChat(answerText || t('answerNo'), history, cleared)
       return
     }
     if (siteConfirmPending) {
@@ -511,8 +537,8 @@ export default function Home({
       // Affirm → chat with URL so the server explores; keep original journey ask visible.
       const affirm =
         nextCtx.seed.trim().length > 0
-          ? `${answerText || 'Oui'}\n\nBesoin initial: ${nextCtx.seed}`
-          : answerText || 'Oui'
+          ? `${answerText || t('answerYes')}\n\n${t('initialNeedLabel')} ${nextCtx.seed}`
+          : answerText || t('answerYes')
       await replyWithAiChat(affirm, history, nextCtx)
       return
     }
@@ -677,7 +703,7 @@ export default function Home({
       if (ai.plan && (ai.readyForPlan || ai.plan.steps.length > 0)) {
         setConfiguring(false)
         const content = messageWithAuthoritativePlan(ai.message, ai.plan)
-        pushAgentReply(content)
+        pushAgentReply(content, { workTrace: ai.workTrace })
         setPlan(ai.plan)
         setPhase('planning')
         return
@@ -688,12 +714,12 @@ export default function Home({
         setFormTitle(ai.formTitle)
         setQuestionIndex(0)
         setPhase('questionnaire')
-        pushAgentReply(ai.message)
+        pushAgentReply(ai.message, { workTrace: ai.workTrace })
         return
       }
       setConfiguring(false)
       setPhase('conversation')
-      pushAgentReply(ai.message)
+      pushAgentReply(ai.message, { workTrace: ai.workTrace })
     })
   }
 
@@ -748,7 +774,7 @@ export default function Home({
 
       if (ai.readyForPlan && ai.plan) {
         const content = messageWithAuthoritativePlan(ai.message, ai.plan)
-        pushAgentReply(content)
+        pushAgentReply(content, { workTrace: ai.workTrace })
         setPlan(ai.plan)
         setPhase('planning')
         return
@@ -758,7 +784,7 @@ export default function Home({
         setProposals(ai.proposals)
         setFormTitle(ai.formTitle)
         setPhase('proposals')
-        pushAgentReply(ai.message)
+        pushAgentReply(ai.message, { workTrace: ai.workTrace })
         return
       }
 
@@ -767,11 +793,11 @@ export default function Home({
         setFormTitle(ai.formTitle)
         setQuestionIndex(0)
         setPhase('questionnaire')
-        pushAgentReply(ai.message)
+        pushAgentReply(ai.message, { workTrace: ai.workTrace })
         return
       }
 
-      pushAgentReply(ai.message)
+      pushAgentReply(ai.message, { workTrace: ai.workTrace })
     })
   }
 
@@ -840,7 +866,7 @@ export default function Home({
       if (ai.plan && (ai.readyForPlan || ai.plan.steps.length > 0)) {
         setConfiguring(false)
         const content = messageWithAuthoritativePlan(ai.message, ai.plan)
-        pushAgentReply(content)
+        pushAgentReply(content, { workTrace: ai.workTrace })
         setPlan(ai.plan)
         setPhase('planning')
         return
@@ -851,13 +877,13 @@ export default function Home({
         setFormTitle(ai.formTitle)
         setQuestionIndex(0)
         setPhase('questionnaire')
-        pushAgentReply(ai.message)
+        pushAgentReply(ai.message, { workTrace: ai.workTrace })
         return
       }
 
       setConfiguring(false)
       setPhase('conversation')
-      pushAgentReply(ai.message)
+      pushAgentReply(ai.message, { workTrace: ai.workTrace })
     })
   }
 
@@ -927,13 +953,16 @@ export default function Home({
       }
 
       await withTyping(async (signal, onStatus) => {
+        const useIterate = Boolean(planSnapshot && (correcting || launchIntent))
         const ai = await requestDiscoveryAi({
-          mode: 'chat',
+          mode: useIterate ? 'iterate' : 'chat',
           userMessage: text,
           messages: history,
           phase: 'planning',
           context: ctx,
           preferredLanguage: locale,
+          journeyName: planSnapshot?.title ?? null,
+          currentSteps: planSnapshot ? planStepsForIterate(planSnapshot) : null,
           signal,
           onStatus,
         })
@@ -960,7 +989,7 @@ export default function Home({
             return
           }
           const body = messageWithAuthoritativePlan(ai.message, next)
-          pushAgentReply(body)
+          pushAgentReply(body, { workTrace: ai.workTrace })
           setPlan(next)
           setPhase('planning')
           return
@@ -970,7 +999,7 @@ export default function Home({
           setProposals(ai.proposals)
           setFormTitle(ai.formTitle)
           setPhase('proposals')
-          pushAgentReply(ai.message)
+          pushAgentReply(ai.message, { workTrace: ai.workTrace })
           return
         }
 
@@ -979,7 +1008,7 @@ export default function Home({
           setFormTitle(ai.formTitle)
           setQuestionIndex(0)
           setPhase('questionnaire')
-          pushAgentReply(ai.message)
+          pushAgentReply(ai.message, { workTrace: ai.workTrace })
           return
         }
 
@@ -1008,13 +1037,13 @@ export default function Home({
                 : 'Good catch — here is the cleaned plan. You can Run.'),
             planSnapshot,
           )
-          pushAgentReply(body)
+          pushAgentReply(body, { workTrace: ai.workTrace })
           setPlan(planSnapshot)
           setPhase('planning')
           return
         }
 
-        pushAgentReply(ai.message)
+        pushAgentReply(ai.message, { workTrace: ai.workTrace })
         // Stay in planning with the snapshot if we still have one — never strand a plan without Lancer.
         if (planSnapshot) {
           setPlan(planSnapshot)

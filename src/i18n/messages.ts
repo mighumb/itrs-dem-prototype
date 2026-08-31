@@ -57,6 +57,14 @@ export const messages = {
     fullName: 'Full name',
     agentThinking: 'Thinking…',
     agentTranslating: 'Translating the form…',
+    agentEmptyReply:
+      "I didn't get a clear reply — try rephrasing, or name a site or journey to monitor.",
+    formRelocalizeFailed:
+      "Couldn't translate the floating form — it's still in the previous language. You can keep answering or switch back.",
+    answerYes: 'Yes',
+    answerNo: 'No',
+    initialNeedLabel: 'Initial request:',
+    workTraceLabel: 'Behind the scenes',
 
     // Workspace chrome
     panelAgent: 'Agent',
@@ -392,6 +400,14 @@ export const messages = {
     fullName: 'Nom complet',
     agentThinking: 'Réflexion en cours…',
     agentTranslating: 'Traduction du formulaire…',
+    agentEmptyReply:
+      "Je n'ai pas de réponse claire — reformule, ou indique un site / un parcours à monitorer.",
+    formRelocalizeFailed:
+      "Impossible de traduire le formulaire — il reste dans la langue précédente. Tu peux continuer ou revenir à l'autre langue.",
+    answerYes: 'Oui',
+    answerNo: 'Non',
+    initialNeedLabel: 'Besoin initial :',
+    workTraceLabel: 'En coulisses',
 
     panelAgent: 'Agent',
     panelJourney: 'Parcours utilisateur',
