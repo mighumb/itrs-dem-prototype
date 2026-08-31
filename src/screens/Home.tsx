@@ -38,6 +38,7 @@ import {
   formatQuestionnairePrompt,
   wantsJourneyLaunch,
   wantsMissingRunButton,
+  wantsPlanApproval,
   wantsPlanCorrection,
   type DiscoveryContext,
   type DiscoveryPhase,
@@ -73,6 +74,8 @@ export default function Home({
   const [questionIndex, setQuestionIndex] = useState(0)
   const [proposals, setProposals] = useState<JourneyProposal[]>([])
   const [plan, setPlan] = useState<DiscoveryPlan | null>(null)
+  /** User confirmed the plan — Run/Lancer appears only after this. */
+  const [planConfirmed, setPlanConfirmed] = useState(false)
   const [configuring, setConfiguring] = useState(false)
   /** Floating-form chrome title — driven by the AI ask, not a fixed default. */
   const [formTitle, setFormTitle] = useState<string | null>(null)
@@ -93,6 +96,8 @@ export default function Home({
   messagesRef.current = messages
   const planRef = useRef<DiscoveryPlan | null>(null)
   planRef.current = plan
+  const planConfirmedRef = useRef(false)
+  planConfirmedRef.current = planConfirmed
   const pendingAiPlanRef = useRef<DiscoveryPlan | null>(null)
 
   const rememberSnapshot = (ai: DiscoveryAiResult) => {
@@ -127,7 +132,7 @@ export default function Home({
   // Floating form is for user choice only — never keep it over the chat while Gemini works.
   const showStack =
     !agentTyping && (phase === 'questionnaire' || phase === 'proposals')
-  const showRun = Boolean(plan)
+  const showRun = Boolean(plan && planConfirmed)
 
   useEffect(() => {
     onDiscoverySessionChange?.(inSession)
@@ -319,6 +324,37 @@ export default function Home({
     })
   }
 
+  const presentPlan = (
+    intro: string,
+    nextPlan: DiscoveryPlan,
+    options?: { workTrace?: string[] | null },
+  ) => {
+    const clean = sanitizeDiscoveryPlan(nextPlan)
+    const withPlan = messageWithAuthoritativePlan(intro, clean)
+    const body = `${withPlan}\n\n${t('planConfirmQuestion')}`.trim()
+    pushAgentReply(body, options)
+    pendingAiPlanRef.current = null
+    setPlan(clean)
+    setPlanConfirmed(false)
+    setPhase('planning')
+  }
+
+  const approvePlanForRun = () => {
+    setPlanConfirmed(true)
+    pushAgentReply(t('planConfirmApproved'))
+  }
+
+  const wantsPlanAdjustments = (text: string, seedUrl?: string | null) => {
+    const intent = classifyIterateWorkspacePlanIntent(text, seedUrl)
+    return (
+      intent.correctPlan ||
+      intent.editSteps ||
+      intent.newSiteOrJourney ||
+      intent.localeNoiseFix ||
+      wantsPlanCorrection(text)
+    )
+  }
+
   const shouldLaunchFromText = (text: string) =>
     isBareJourneyLaunch(text) ||
     wantsMissingRunButton(text) ||
@@ -349,6 +385,10 @@ export default function Home({
   }
 
   const tryLaunchFromText = (text: string, history: ChatMessage[]) => {
+    if (wantsMissingRunButton(text) && planRef.current && !planConfirmedRef.current) {
+      approvePlanForRun()
+      return true
+    }
     if (!shouldLaunchFromText(text)) return false
     if (launchSettledPlan(history)) return true
     if (pendingAiPlanRef.current) {
@@ -370,6 +410,7 @@ export default function Home({
     setFormTitle(null)
     const clean = sanitizeDiscoveryPlan(currentPlan)
     setPlan(clean)
+    setPlanConfirmed(true)
     setPhase('planning')
     pushAgentReply(runStartMessage(locale))
     onStart({
@@ -439,6 +480,7 @@ export default function Home({
     if (contextOverride) setCtx(contextOverride)
     // Keep Run/Lancer hidden until Gemini returns a complete plan.
     setPlan(null)
+    setPlanConfirmed(false)
     setPhase('conversation')
     await withTyping(async (signal, onStatus) => {
       const history = userMsg ? historyPlus(userMsg) : messagesRef.current
@@ -458,10 +500,7 @@ export default function Home({
 
       // Nominal path: only show Run when Gemini produced a plan — never a local template.
       if (ai.plan) {
-        const content = messageWithAuthoritativePlan(ai.message, ai.plan)
-        pushAgentReply(content, { workTrace: ai.workTrace })
-        setPlan(ai.plan)
-        setPhase('planning')
+        presentPlan(ai.message, ai.plan, { workTrace: ai.workTrace })
         return
       }
 
@@ -476,6 +515,7 @@ export default function Home({
     setCtx(nextCtx)
     setProposals([])
     setPlan(null)
+    setPlanConfirmed(false)
     setQuestionIndex(0)
     setQuestions([])
     setFormTitle(null)
@@ -502,10 +542,7 @@ export default function Home({
 
       // Complete plan → show steps + Run (precise free-typed seeds).
       if (ai.plan && (ai.readyForPlan || ai.plan.steps.length > 0)) {
-        const content = messageWithAuthoritativePlan(ai.message, ai.plan)
-        pushAgentReply(content, { workTrace: ai.workTrace })
-        setPlan(ai.plan)
-        setPhase('planning')
+        presentPlan(ai.message, ai.plan, { workTrace: ai.workTrace })
         return
       }
 
@@ -543,10 +580,7 @@ export default function Home({
 
       // Model sometimes returns a ready plan instead of chooser options — honor it.
       if (ai.plan && (ai.readyForPlan || ai.plan.steps.length > 0)) {
-        const content = messageWithAuthoritativePlan(ai.message, ai.plan)
-        pushAgentReply(content, { workTrace: ai.workTrace })
-        setPlan(ai.plan)
-        setPhase('planning')
+        presentPlan(ai.message, ai.plan, { workTrace: ai.workTrace })
         return
       }
 
@@ -788,6 +822,7 @@ export default function Home({
     setCtx(nextCtx)
     setProposals([])
     setPlan(null)
+    setPlanConfirmed(false)
     setFormTitle(null)
     setConfiguring(true)
     setQuestionIndex(0)
@@ -820,10 +855,7 @@ export default function Home({
 
       if (ai.plan && (ai.readyForPlan || ai.plan.steps.length > 0)) {
         setConfiguring(false)
-        const content = messageWithAuthoritativePlan(ai.message, ai.plan)
-        pushAgentReply(content, { workTrace: ai.workTrace })
-        setPlan(ai.plan)
-        setPhase('planning')
+        presentPlan(ai.message, ai.plan, { workTrace: ai.workTrace })
         return
       }
 
@@ -854,6 +886,7 @@ export default function Home({
     if (!existingPlan || pivot.newSiteOrJourney) {
       if (pivot.newSiteOrJourney) {
         setPlan(null)
+        setPlanConfirmed(false)
       }
       setProposals([])
       setQuestions([])
@@ -909,15 +942,17 @@ export default function Home({
 
       if (modelReturnedPlan && ai.plan) {
         if (bindModelPlan) {
-          pendingAiPlanRef.current = null
-          const next = sanitizeDiscoveryPlan(ai.plan)
-          const content = messageWithAuthoritativePlan(ai.message, next)
-          pushAgentReply(content, { workTrace: ai.workTrace })
-          setPlan(next)
-          setPhase('planning')
           if (shouldLaunchFromText(text)) {
+            const next = sanitizeDiscoveryPlan(ai.plan)
+            setPlan(next)
+            setPlanConfirmed(true)
+            pushAgentReply(messageWithAuthoritativePlan(ai.message, next), {
+              workTrace: ai.workTrace,
+            })
             launchSettledPlan(history)
+            return
           }
+          presentPlan(ai.message, ai.plan, { workTrace: ai.workTrace })
           return
         }
         pendingAiPlanRef.current = sanitizeDiscoveryPlan(ai.plan)
@@ -985,6 +1020,7 @@ export default function Home({
     setCtx(nextCtx)
     setProposals([])
     setPlan(null)
+    setPlanConfirmed(false)
     setConfiguring(true)
     setQuestionIndex(0)
     setQuestions([])
@@ -1015,10 +1051,7 @@ export default function Home({
 
       if (ai.plan && (ai.readyForPlan || ai.plan.steps.length > 0)) {
         setConfiguring(false)
-        const content = messageWithAuthoritativePlan(ai.message, ai.plan)
-        pushAgentReply(content, { workTrace: ai.workTrace })
-        setPlan(ai.plan)
-        setPhase('planning')
+        presentPlan(ai.message, ai.plan, { workTrace: ai.workTrace })
         return
       }
 
@@ -1071,14 +1104,37 @@ export default function Home({
     if (wantsApplyPlanToPanel(text) && pendingAiPlanRef.current) {
       const planToApply = sanitizeDiscoveryPlan(pendingAiPlanRef.current)
       pendingAiPlanRef.current = null
-      pushAgentReply(messageWithAuthoritativePlan(t('planAppliedFromPending'), planToApply))
-      setPlan(planToApply)
-      setPhase('planning')
+      presentPlan(t('planAppliedFromPending'), planToApply)
       return
     }
 
     if (phase === 'planning') {
       const cleanCurrent = plan ? sanitizeDiscoveryPlan(plan) : null
+      const seedUrl =
+        ctx?.url ??
+        cleanCurrent?.prompt.match(/https?:\/\/[^\s<>"']+/i)?.[0]?.replace(/[.,);]+$/g, '') ??
+        null
+
+      if (
+        cleanCurrent &&
+        !planConfirmedRef.current &&
+        wantsMissingRunButton(text)
+      ) {
+        approvePlanForRun()
+        return
+      }
+
+      if (
+        cleanCurrent &&
+        !planConfirmedRef.current &&
+        wantsPlanApproval(text) &&
+        !wantsPlanAdjustments(text, seedUrl) &&
+        !shouldLaunchFromText(text)
+      ) {
+        approvePlanForRun()
+        return
+      }
+
       // Launch / missing Lancer → run with the settled (sanitized) plan. Never re-dump dirty steps.
       if (
         cleanCurrent &&
@@ -1086,6 +1142,7 @@ export default function Home({
           wantsMissingRunButton(text) ||
           (wantsJourneyLaunch(text) && !isLocaleNoiseComplaint(text)))
       ) {
+        setPlanConfirmed(true)
         pushAgentReply(runStartMessage(locale))
         setPlan(cleanCurrent)
         setPhase('planning')
@@ -1093,18 +1150,22 @@ export default function Home({
           prompt: cleanCurrent.prompt,
           messages: history,
           plan: cleanCurrent,
-          siteUrl:
-            ctx?.url ??
-            cleanCurrent.prompt.match(/https?:\/\/[^\s<>"']+/i)?.[0]?.replace(/[.,);]+$/g, '') ??
-            null,
+          siteUrl: seedUrl,
         })
         return
       }
 
       const launchIntent = wantsJourneyLaunch(text)
       const localeFix = isLocaleNoiseComplaint(text)
-      const correcting = localeFix || wantsPlanCorrection(text)
+      const correcting =
+        localeFix ||
+        wantsPlanCorrection(text) ||
+        wantsPlanAdjustments(text, seedUrl)
       const planSnapshot = cleanCurrent
+
+      if (correcting && planSnapshot) {
+        setPlanConfirmed(false)
+      }
 
       // With a settled plan, stay in planning and iterate — never reopen proposals/forms on brainstorm.
       if (!planSnapshot && !launchIntent && !correcting) {
@@ -1138,27 +1199,23 @@ export default function Home({
 
         const bindModelPlan =
           Boolean(ai.plan && ai.plan.steps.length > 0) &&
-          shouldBindPlanningAiPlan(text, ai, seedUrl)
+          (shouldBindPlanningAiPlan(text, ai, seedUrl) || ai.readyForPlan)
 
         if (bindModelPlan && ai.plan) {
-          pendingAiPlanRef.current = null
-          const next = sanitizeDiscoveryPlan(ai.plan)
           if (launchIntent) {
+            setPlanConfirmed(true)
             pushAgentReply(runStartMessage(locale))
-            setPlan(next)
+            setPlan(sanitizeDiscoveryPlan(ai.plan))
             setPhase('planning')
             onStart({
-              prompt: next.prompt,
+              prompt: ai.plan.prompt,
               messages: history,
-              plan: next,
+              plan: sanitizeDiscoveryPlan(ai.plan),
               siteUrl: seedUrl,
             })
             return
           }
-          const body = messageWithAuthoritativePlan(ai.message, next)
-          pushAgentReply(body, { workTrace: ai.workTrace })
-          setPlan(next)
-          setPhase('planning')
+          presentPlan(ai.message, ai.plan, { workTrace: ai.workTrace })
           return
         }
 
@@ -1177,6 +1234,7 @@ export default function Home({
         }
 
         if ((launchIntent || wantsMissingRunButton(text)) && planSnapshot) {
+          setPlanConfirmed(true)
           pushAgentReply(runStartMessage(locale))
           setPlan(planSnapshot)
           setPhase('planning')
@@ -1242,8 +1300,10 @@ export default function Home({
       : phase === 'questionnaire' || phase === 'proposals'
         ? t('placeholderReply')
         : phase === 'planning'
-          ? t('placeholderPlanning')
-          : t('placeholderBrainstorm')
+        ? plan && !planConfirmed
+          ? t('placeholderPlanReview')
+          : t('placeholderPlanning')
+        : t('placeholderBrainstorm')
 
   const insertNewlineAtCursor = (el: HTMLTextAreaElement) => {
     const start = el.selectionStart ?? el.value.length
