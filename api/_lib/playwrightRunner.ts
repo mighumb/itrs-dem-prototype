@@ -171,7 +171,7 @@ function sameOrigin(a: string, b: string): boolean {
   }
 }
 
-/** Path + search, trailing slash insensitive. */
+/** Path + search, trailing slash insensitive. Hash is handled separately. */
 export function urlPathKey(url: string): string {
   try {
     const u = new URL(url)
@@ -179,6 +179,62 @@ export function urlPathKey(url: string): string {
     return `${path}${u.search}`
   } catch {
     return url
+  }
+}
+
+export function urlHash(url: string): string {
+  try {
+    return new URL(url).hash
+  } catch {
+    return ''
+  }
+}
+
+/** Same origin + path (+ search). When destination has a hash, fragment must match too. */
+export function urlsMatchDestination(current: string, destination: string): boolean {
+  try {
+    const cur = new URL(current)
+    const dest = new URL(destination)
+    if (cur.origin !== dest.origin) return false
+    if (urlPathKey(current) !== urlPathKey(destination)) return false
+    const destHash = dest.hash
+    if (!destHash) return true
+    return cur.hash === destHash
+  } catch {
+    return false
+  }
+}
+
+function resolveHrefAgainstPage(pageUrl: string, href: string): string {
+  try {
+    return new URL(href, pageUrl).href
+  } catch {
+    return href
+  }
+}
+
+async function scrollToUrlHash(page: Page, url: string): Promise<void> {
+  try {
+    const hash = new URL(url).hash
+    if (!hash || hash.length <= 1) return
+    const id = decodeURIComponent(hash.slice(1))
+    const target = page.locator(`#${cssEscape(id)}`).first()
+    await target.scrollIntoViewIfNeeded({ timeout: 6000 }).catch(() => undefined)
+    await page.waitForTimeout(250)
+  } catch {
+    // best effort
+  }
+}
+
+function cssEscape(value: string): string {
+  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+}
+
+function isWikipediaHost(url: string): boolean {
+  try {
+    return /(^|\.)wikipedia\.org$/i.test(new URL(url).hostname)
+  } catch {
+    return false
   }
 }
 
@@ -361,21 +417,23 @@ export async function enforceUserDestination(
   const current = page.url()
   if (!current || current === 'about:blank') return false
   if (!sameOrigin(current, destinationUrl)) return false
-  if (urlPathKey(current) === urlPathKey(destinationUrl)) return false
+  if (urlsMatchDestination(current, destinationUrl)) return false
 
   const country = marketCountryFor(runnerLocale, destinationUrl)
   await applyMarketCookies(page.context(), destinationUrl, country)
   await page.goto(destinationUrl, { waitUntil: 'domcontentloaded', timeout: 35000 })
   await page.waitForTimeout(500)
   await dismissNoise(page)
+  await scrollToUrlHash(page, destinationUrl)
   // Client-side geo scripts can still bounce once — hold the contract.
-  if (urlPathKey(page.url()) !== urlPathKey(destinationUrl)) {
+  if (!urlsMatchDestination(page.url(), destinationUrl)) {
     await applyMarketCookies(page.context(), destinationUrl, country)
     await page.goto(destinationUrl, { waitUntil: 'domcontentloaded', timeout: 35000 })
     await page.waitForTimeout(400)
     await dismissNoise(page)
+    await scrollToUrlHash(page, destinationUrl)
   }
-  return urlPathKey(page.url()) === urlPathKey(destinationUrl)
+  return urlsMatchDestination(page.url(), destinationUrl)
 }
 
 const HIGHLIGHT_ID = '__dem_action_highlight__'
@@ -595,12 +653,15 @@ export async function dismissNoise(page: Page) {
 
 async function findSearchLocator(page: Page): Promise<Locator | null> {
   const selectors = [
+    '#searchInput',
+    'input[name="search"]',
     'input[type="search"]',
     'input[name="q"]',
     'input[name="query"]',
     'input[placeholder*="Search" i]',
     'input[placeholder*="Recherch" i]',
     'input[aria-label*="Search" i]',
+    'input[aria-label*="Recherch" i]',
   ]
   for (const sel of selectors) {
     try {
@@ -619,6 +680,71 @@ async function fillLikelySearch(page: Page, query: string): Promise<Locator> {
   await loc.click({ timeout: 1000 })
   await loc.fill(query, { timeout: 2000 })
   return loc
+}
+
+async function isSearchFieldLocator(loc: Locator): Promise<boolean> {
+  return loc
+    .evaluate((el) => {
+      if (!(el instanceof HTMLInputElement)) return false
+      const id = el.id || ''
+      const name = el.name || ''
+      const type = el.type || ''
+      return (
+        type === 'search' ||
+        id === 'searchInput' ||
+        name === 'search' ||
+        name === 'q' ||
+        name === 'query'
+      )
+    })
+    .catch(() => false)
+}
+
+async function submitWikipediaSearch(page: Page, query: string): Promise<void> {
+  const needle = query.trim().slice(0, 60)
+  const menuSelectors = [
+    '.cdx-menu-item',
+    '.cdx-typeahead-search__menu .cdx-menu-item',
+    '.mw-searchSuggest-link',
+    '.suggestion-title',
+  ]
+  for (const sel of menuSelectors) {
+    try {
+      const item = page.locator(sel).filter({ hasText: needle }).first()
+      if (await item.isVisible({ timeout: 2500 })) {
+        await item.click({ timeout: 4000 })
+        await page.waitForLoadState('domcontentloaded', { timeout: 15000 }).catch(() => undefined)
+        return
+      }
+    } catch {
+      // try next selector
+    }
+  }
+  await page.keyboard.press('Enter')
+  await page.waitForLoadState('domcontentloaded', { timeout: 15000 }).catch(() => undefined)
+}
+
+async function submitSearchAfterType(
+  page: Page,
+  step: RunnableStep,
+  loc: Locator,
+  query: string,
+): Promise<void> {
+  const isSearchField = await isSearchFieldLocator(loc)
+  const shouldSubmitWithEnter =
+    /^search$/i.test(step.action.trim()) ||
+    /^(search|recherch)/i.test(step.label.trim()) ||
+    isSearchField
+
+  if (!shouldSubmitWithEnter) return
+
+  if (isWikipediaHost(page.url())) {
+    await submitWikipediaSearch(page, query)
+    return
+  }
+
+  await page.keyboard.press('Enter')
+  await page.waitForLoadState('domcontentloaded', { timeout: 15000 }).catch(() => undefined)
 }
 
 /** Prefer quoted payload in labels: "…", '…', « … », “ … ”. */
@@ -959,14 +1085,26 @@ async function resolveClickLocator(page: Page, step: RunnableStep): Promise<Loca
   const href = step.href || (step.target && /^https?:\/\//i.test(step.target) ? step.target : null)
   if (href) {
     try {
+      const absoluteHref = href.startsWith('#')
+        ? resolveHrefAgainstPage(page.url(), href)
+        : href
       let pathOnly = ''
+      let hashOnly = ''
       try {
-        pathOnly = new URL(href).pathname
+        const parsed = new URL(absoluteHref)
+        pathOnly = parsed.pathname
+        hashOnly = parsed.hash
       } catch {
         pathOnly = ''
+        hashOnly = ''
       }
-      const selectors = [`a[href="${href}"]`]
+      const selectors = [`a[href="${href}"]`, `a[href="${absoluteHref}"]`]
       if (pathOnly) selectors.push(`a[href="${pathOnly}"]`)
+      if (hashOnly) {
+        selectors.push(`a[href="${hashOnly}"]`)
+        const id = decodeURIComponent(hashOnly.slice(1))
+        selectors.push(`[id="${cssEscape(id)}"]`)
+      }
       const byHref = page.locator(selectors.join(', ')).first()
       if (await byHref.isVisible({ timeout: 900 })) return byHref
     } catch {
@@ -1111,6 +1249,7 @@ async function executeStepWithCapture(
     // CMPs (Didomi…) often inject after first paint — wait then dismiss once.
     await page.waitForTimeout(700)
     await dismissNoise(page)
+    await scrollToUrlHash(page, dest)
     // If this Navigate targeted the user destination (or we already should be there), hold the contract.
     if (destinationUrl && (urlPathKey(dest) === urlPathKey(destinationUrl) || isDeepUrl(dest))) {
       await enforceUserDestination(page, destinationUrl, runnerLocale)
@@ -1161,15 +1300,7 @@ async function executeStepWithCapture(
       )
     }
     const frame = await captureHighlighted(page, loc)
-    // Submit via Enter only for Search-style steps. Plain Type (e.g. FR « Taper … »)
-    // leaves submit to a following Click (« Rechercher ») so we don't skip that button.
-    const shouldSubmitWithEnter =
-      /^search$/i.test(step.action.trim()) ||
-      /^(search|recherch)/i.test(step.label.trim())
-    if (shouldSubmitWithEnter) {
-      await page.keyboard.press('Enter')
-      await page.waitForLoadState('domcontentloaded', { timeout: 15000 }).catch(() => undefined)
-    }
+    await submitSearchAfterType(page, step, loc, value)
     return frame
   }
 
@@ -1233,6 +1364,10 @@ async function executeStepWithCapture(
       // Capture with blue box BEFORE the click (element may disappear after navigation).
       let frame = await captureHighlighted(page, loc)
       await performClick(page, loc)
+      const clickedHref = step.href || null
+      if (clickedHref?.includes('#') || urlHash(page.url())) {
+        await scrollToUrlHash(page, clickedHref?.startsWith('#') ? resolveHrefAgainstPage(page.url(), clickedHref) : page.url())
+      }
       // Brochure/contact form-entry only — never snap auth gateway clicks back to /login.
       const isLoginGatewayClick =
         /connexion|login|sign[- ]?in|se\s+connecter|je\s+me\s+connecte/i.test(step.label)
@@ -1251,10 +1386,12 @@ async function executeStepWithCapture(
     // Fallback: direct navigation when only an href is known (no visible target).
     const href = step.href || (step.target && /^https?:\/\//i.test(step.target) ? step.target : null)
     if (href) {
-      const market = marketCountryFor(runnerLocale, destinationUrl || href)
-      await applyMarketCookies(page.context(), href, market)
-      await page.goto(href, { waitUntil: 'domcontentloaded', timeout: 25000 })
+      const navigateHref = href.startsWith('#') ? resolveHrefAgainstPage(page.url(), href) : href
+      const market = marketCountryFor(runnerLocale, destinationUrl || navigateHref)
+      await applyMarketCookies(page.context(), navigateHref, market)
+      await page.goto(navigateHref, { waitUntil: 'domcontentloaded', timeout: 25000 })
       await dismissNoise(page)
+      await scrollToUrlHash(page, navigateHref)
       if (destinationUrl) {
         await enforceUserDestination(page, destinationUrl, runnerLocale)
       }
