@@ -86,6 +86,8 @@ Set on Vercel → Project → Settings → Environment Variables (Production + P
 
 On each Discovery request: all keys use Flash 2.5 (no Pro / no 3.6). If a free key hits a FreeTier hard quota, Discovery **jumps straight to the next key** (paid last resort) instead of retrying every Flash model. After a free-tier hit, warm instances prefer `GOOGLE_API_IP_LABEL` first for a short cooldown. Logs include a non-secret key roster (`GEMINI_API_KEY/free, GOOGLE_API_IP_LABEL/paid`) so missing paid env is obvious.
 
+**Ops:** `GET /api/health` returns the same non-secret roster (`label` + `tier` only), request order, and whether paid failover is configured — no API key values.
+
 ## Homepage sample journeys
 
 Idle Home shows four company cards (Salesforce, AXA, Amazon, Airbnb): logo + company name + short journey title. Click runs the real Gemini Discovery pipeline in `configure` mode (journey type already chosen). The agent asks for user params (email, search query, city, etc.) only when steps need them — never invents secrets. Sample seeds favor Navigate/Click/Type with at most one final Verify.
