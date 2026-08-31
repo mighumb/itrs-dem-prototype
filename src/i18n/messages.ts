@@ -371,6 +371,8 @@ export const messages = {
 
     // Discovery / home agent chrome
     journeysSuggested: 'Here are the journeys I suggest — pick one in the form below.',
+    singleJourneyIntro:
+      "Got it — I'll build the journey for exactly what you described.",
     prepareJourney: 'Prepare journey',
     assistantUnavailable:
       'The assistant is unavailable right now. Try again in a moment — I won’t invent an offline journey.',
@@ -747,6 +749,8 @@ export const messages = {
     actionVerify: 'Vérifier',
 
     journeysSuggested: 'Voici les parcours que je propose — choisissez-en un dans le formulaire ci-dessous.',
+    singleJourneyIntro:
+      'Compris — je prépare le parcours correspondant à ta demande.',
     prepareJourney: 'Préparer le parcours',
     assistantUnavailable:
       'L’assistant est indisponible pour le moment. Réessaie dans un instant — je ne peux pas inventer un parcours hors ligne.',

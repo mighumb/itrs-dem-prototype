@@ -12,6 +12,7 @@ import {
   looksLikeSiteDecline,
   requestDiscoveryAi,
   summarizeStatedJourneyIntent,
+  isFullySpecifiedMonitoringAsk,
   type DiscoveryAiResult,
 } from '../lib/discoveryAi'
 import {
@@ -547,6 +548,10 @@ export default function Home({
       }
 
       if (ai.proposals && ai.proposals.length > 0) {
+        if (isFullySpecifiedMonitoringAsk(seed)) {
+          await handleSelectProposal(ai.proposals[0]!)
+          return
+        }
         openProposalsStack(ai.proposals, ai.formTitle, ai.message, ai.workTrace)
         return
       }
