@@ -20,6 +20,11 @@ export const messages = {
     placeholderIdle: 'Give a name or paste a URL…',
     placeholderReply: 'Or reply directly…',
     placeholderPlanning: 'Ask to change a step, or refine the plan…',
+    placeholderPlanReview: 'Say if the plan works, or what to adjust…',
+    planConfirmQuestion:
+      '**Does this plan work for you, or would you like adjustments?**',
+    planConfirmApproved:
+      'Great — press **Run** when you are ready to replay the journey in the browser.',
     placeholderBrainstorm: 'Continue brainstorming…',
     composerNewlineHint: 'Tab + Enter for a new line',
     placeholderWorkspace: 'Ask or refine the journey…',
@@ -392,6 +397,11 @@ export const messages = {
     placeholderIdle: 'Donnez un nom ou collez une URL…',
     placeholderReply: 'Ou répondez directement…',
     placeholderPlanning: 'Demandez à modifier une étape, ou affinez le plan…',
+    placeholderPlanReview: 'Dites si le plan vous convient, ou ce qu’il faut ajuster…',
+    planConfirmQuestion:
+      '**Ce plan vous convient, ou souhaitez-vous des ajustements ?**',
+    planConfirmApproved:
+      'Parfait — appuyez sur **Lancer** quand vous êtes prêt à rejouer le parcours dans le navigateur.',
     placeholderBrainstorm: 'Continuez le brainstorm…',
     composerNewlineHint: 'Tab + Entrée pour un retour à la ligne',
     placeholderWorkspace: 'Demandez ou affinez le parcours…',

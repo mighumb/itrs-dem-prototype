@@ -627,6 +627,38 @@ export function wantsPlanCorrection(text: string): boolean {
   )
 }
 
+/** User accepts the current plan (show Run/Lancer — not necessarily launch yet). */
+export function wantsPlanApproval(text: string): boolean {
+  const t = text.toLowerCase().trim()
+  if (!t) return false
+  if (wantsPlanCorrection(text)) return false
+  if (/^(non|no)\b/i.test(t)) return false
+  if (
+    /\b(change|modifi|ajout|supprim|corrige|retire|enl[eè]ve|wrong|pas bon|il manque|manque|ajoute|before|avant)\b/i.test(
+      t,
+    )
+  ) {
+    return false
+  }
+  if (wantsJourneyLaunch(text)) return true
+  if (wantsPlanInChat(text)) return false
+  if (
+    /\b(ça me va|ca me va|me convient|convient|validé|valide|approved|looks good|good for me|no changes|pas de changement|rien à (changer|modifier)|nothing to change|on est bon|we'?re good)\b/i.test(
+      t,
+    )
+  ) {
+    return true
+  }
+  if (
+    /^(oui|yes|ok|parfait|nickel|très bien|tres bien|c'?est bon|ça marche|ca marche|d'accord|daccord)\s*[.!]?$/i.test(
+      t,
+    )
+  ) {
+    return true
+  }
+  return false
+}
+
 /**
  * User wants to run / launch the current journey (not re-list the plan).
  * Client should call Run/Lancer — do not treat as iterate→plan dump.
