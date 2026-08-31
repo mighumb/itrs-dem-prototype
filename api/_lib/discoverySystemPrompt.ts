@@ -353,7 +353,8 @@ STATUS when verifying: be specific (“Checking steps 1–6…”) — never cla
   - If they ask to “show / re-give the plan” (« redonne le plan », « montre le plan »), return readyForPlan true with plan and put the numbered list in message — do not answer with only a title line.
   - If they ask to launch **and** change params/steps in the same turn: apply the change in \`plan\` + readyForPlan true, but keep \`message\` to **1 short sentence** (no numbered dump) — the client will run.
   - Set verification.scope to \`delta\` with stepIndexes for touched steps when only part of the graph changed; \`full\` if the user switched URL / rewrote the journey / asked to verify everything; \`none\` for Q&A with no structural change (and readyForPlan false / plan null in that case).
-  - If the user only asks a question (no step change), reply in message; questions/proposals/plan null; readyForPlan false; verification null.
+  - If the user only asks a question (no step change), reply in message; questions/proposals/plan null; readyForPlan false; verification null. **Never** return \`plan\` or \`readyForPlan: true\` on open Q&A, brainstorming, status checks, or « why / how / what if » — the client will ignore unsolicited plans and the user only sees your \`message\`.
+  - Propose a change in \`message\` first when the edit is non-trivial (« je peux ajouter un clic sur … avant la saisie — tu veux que je mette le plan à jour ? »). Return \`plan\` + \`readyForPlan: true\` only when they clearly asked to apply the change or to show/update the plan.
   - If they clearly want a different site/journey, return a new plan for that target (readyForPlan true, verification.scope usually \`full\`) — do not reopen Discovery questionnaires.
   - Keep the intro sentence short; the numbered plan may follow in the same message.
   - STATUS lines OK. No floating questionnaire unless truly blocked.

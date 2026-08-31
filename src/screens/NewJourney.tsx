@@ -30,6 +30,11 @@ import {
 } from '../mock/data'
 import { requestDiscoveryAi } from '../lib/discoveryAi'
 import {
+  resolveAgentReplyContent,
+  shouldApplyIteratePlanToWorkspace,
+  shouldBindIterateAiPlan,
+} from '../lib/discoveryChat'
+import {
   type RecordedBrowserStep,
 } from '../lib/extensionBridge'
 import {
@@ -1408,19 +1413,22 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
         if (ai.aborted || abort.signal.aborted) return
 
         const askPlan = wantsPlanInChat(trimmed) || wantsPlanCorrection(trimmed)
-        const rawPlan =
-          ai.plan && (ai.readyForPlan || ai.plan.steps.length > 0)
-            ? ai.plan
-            : askPlan
-              ? planFromJourneySteps(steps, {
-                  title: journeyName || journey.name,
-                  summary:
-                    locale === 'fr'
-                      ? 'Plan du parcours (étapes actuelles).'
-                      : 'Journey plan (current steps).',
-                  prompt: initialPrompt || journey.name,
-                })
-              : null
+        const modelReturnedPlan = Boolean(ai.plan && ai.plan.steps.length > 0)
+        const bindModelPlan =
+          modelReturnedPlan && shouldBindIterateAiPlan(trimmed, ai, seedUrl)
+
+        const rawPlan = bindModelPlan
+          ? ai.plan
+          : askPlan
+            ? planFromJourneySteps(steps, {
+                title: journeyName || journey.name,
+                summary:
+                  locale === 'fr'
+                    ? 'Plan du parcours (étapes actuelles).'
+                    : 'Journey plan (current steps).',
+                prompt: initialPrompt || journey.name,
+              })
+            : null
 
         const correctedPlan = rawPlan
           ? sanitizeDiscoveryPlan(
@@ -1434,6 +1442,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
 
         // User called out locale-noise steps (« Rechercher fr ») — never re-display them.
         const localeNoiseComplaint = isLocaleNoiseComplaint(trimmed)
+        let localLocaleClean = false
 
         let planForUi = correctedPlan
         if (localeNoiseComplaint) {
@@ -1458,6 +1467,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
               },
             ),
           )
+          const priorPlan = planForUi
           planForUi =
             correctedPlan &&
             stripLocaleSearchNoiseSteps(correctedPlan.steps).length ===
@@ -1470,23 +1480,41 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
           ) {
             planForUi = cleanedLive
           }
+          localLocaleClean = Boolean(
+            planForUi &&
+              (!priorPlan ||
+                planForUi.steps.length !== priorPlan.steps.length ||
+                planForUi.steps.some(
+                  (s, i) =>
+                    s.label !== priorPlan.steps[i]?.label ||
+                    s.action !== priorPlan.steps[i]?.action,
+                )),
+          )
         }
 
+        const applyPlanToWorkspace = shouldApplyIteratePlanToWorkspace(trimmed, planForUi, {
+          seedUrl,
+          boundModelPlan: bindModelPlan,
+          localLocaleClean,
+        })
+
         // Launch path must never paste the model's numbered list (often reintroduces « fr »).
-        if (launchIntent && planForUi) {
+        if (launchIntent && planForUi && applyPlanToWorkspace) {
           planForUi = sanitizeDiscoveryPlan(planForUi)
+        } else if (!applyPlanToWorkspace) {
+          planForUi = null
         }
 
         const defaultIntro =
           locale === 'fr'
             ? askPlan
               ? 'Voici le plan complet, affiché dans la conversation :'
-              : 'OK.'
+              : ''
             : askPlan
               ? 'Here is the full plan, shown in the conversation:'
-              : 'OK.'
+              : ''
 
-        let agentContent = ai.message?.trim() || defaultIntro
+        let agentContent = resolveAgentReplyContent(ai.message?.trim() || defaultIntro, locale)
         if (planForUi) {
           const patched =
             planForUi.steps.length !== (rawPlan?.steps.length ?? 0) ||
@@ -1525,6 +1553,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
           id: `agent-gemini-${Date.now()}`,
           role: 'agent',
           content: agentContent,
+          workTrace: ai.workTrace ?? undefined,
         }
 
         if (planForUi) {
