@@ -19,6 +19,8 @@ import {
 } from '../hooks/usePanelOrder'
 import {
   journeyExportFilename,
+  journeyExportToRecordedSteps,
+  parseJourneyExportDocument,
   runReportExportFilename,
   serializeJourneyExport,
   serializeRunReportExport,
@@ -602,13 +604,13 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
     void flushPendingChatRef.current()
   }, [finishJourneyRunStatus, locale])
 
-  const handleApplyRecording = useCallback(
-    (recorded: RecordedBrowserStep[]) => {
+  const applyRecordingToWorkspace = useCallback(
+    (recorded: RecordedBrowserStep[], titleOverride?: string | null) => {
       const nextStages = recordedStepsToJourneyStages(recorded, locale)
       const nextSteps = flattenActions(nextStages)
-      if (nextSteps.length === 0) return
+      if (nextSteps.length === 0) return null
 
-      const title = recordingTitle(recorded, journeyName)
+      const title = titleOverride?.trim() || recordingTitle(recorded, journeyName)
       const last = [...recorded].reverse().find((s) => s.url || s.href)
       const lastUrl = last?.href || last?.url || recordingSiteUrl(recorded) || null
 
@@ -635,19 +637,22 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
         subtitle: tf('extensionStepCount', { count: nextSteps.length }),
       })
 
+      return { nextSteps, title, lastUrl, count: nextSteps.length }
+    },
+    [journeyName, onHeaderChange, openPanel, tf, locale],
+  )
+
+  const handleApplyRecording = useCallback(
+    (recorded: RecordedBrowserStep[]) => {
+      const applied = applyRecordingToWorkspace(recorded)
+      if (!applied) return
+
+      const { nextSteps, title, lastUrl, count } = applied
       const jsonBody = serializeJourneyExport(title, lastUrl, nextSteps)
       const userCaption =
         locale === 'fr'
-          ? `J’ai enregistré ce parcours dans Chrome (Take control) — ${nextSteps.length} étape(s). Fichier JSON joint.`
-          : `I recorded this journey in Chrome (Take control) — ${nextSteps.length} step(s). JSON file attached.`
-      const userPayload = [
-        locale === 'fr'
-          ? 'J’ai enregistré ce parcours dans Chrome (Take control). Voici le JSON des étapes — garde-les pour le Run :'
-          : 'I recorded this journey in Chrome (Take control). Here is the steps JSON — keep them for Run:',
-        '```json',
-        jsonBody,
-        '```',
-      ].join('\n')
+          ? `J’ai enregistré ce parcours dans Chrome (Take control) — ${count} étape(s). Fichier JSON joint.`
+          : `I recorded this journey in Chrome (Take control) — ${count} step(s). JSON file attached.`
       const safeName = journeyExportFilename(title).replace(/-steps\.json$/, '')
 
       const userMsg: ChatMessage = {
@@ -667,94 +672,11 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
         {
           id: `agent-recording-${Date.now()}`,
           role: 'agent',
-          content: tf('extensionImported', { count: nextSteps.length }),
+          content: `${tf('extensionImported', { count })}\n\n${tf('extensionReadyToRun', { count })}`,
         },
       ])
-
-      // Hand the recording to the Discovery agent (iterate) while keeping imported steps as source of truth.
-      chatAbortRef.current?.abort()
-      const abort = new AbortController()
-      chatAbortRef.current = abort
-      setAgentTyping(true)
-      setWorkStatus(null)
-      void (async () => {
-        try {
-          const history = [...messages, userMsg]
-          const ai = await requestDiscoveryAi({
-            mode: 'iterate',
-            userMessage: userPayload,
-            messages: history,
-            phase: 'workspace',
-            preferredLanguage: locale,
-            journeyName: title,
-            currentSteps: nextSteps.map((s) => ({
-              id: s.id,
-              label: s.label,
-              action: s.action,
-            })),
-            context: {
-              seed: initialPrompt || title,
-              url: lastUrl,
-              answers: {},
-              selectedProposalId: null,
-              selectedProposal: null,
-              pageSnapshot: null,
-            },
-            signal: abort.signal,
-            onStatus: (status) => setWorkStatus(status),
-          })
-          if (ai.aborted || abort.signal.aborted) return
-          if (ai.plan && shouldBindIterateAiPlan(userPayload, ai, lastUrl)) {
-            const planToApply = sanitizeDiscoveryPlan(
-              ensureFormEntryInPlan(ai.plan, {
-                siteUrl: lastUrl,
-                prompt: initialPrompt || title,
-                locale,
-              }),
-            )
-            setStages(planToJourneyStages(planToApply, nextSteps, lastUrl, locale))
-            pendingAiPlanRef.current = null
-            if (ai.message?.trim()) {
-              setMessages((prev) => [
-                ...prev,
-                {
-                  id: `agent-recording-ai-${Date.now()}`,
-                  role: 'agent',
-                  content: messageWithAuthoritativePlan(ai.message.trim(), planToApply),
-                  workTrace: ai.workTrace ?? undefined,
-                },
-              ])
-            }
-          } else if (ai.message?.trim()) {
-            if (ai.plan) {
-              pendingAiPlanRef.current = sanitizeDiscoveryPlan(ai.plan)
-            }
-            setMessages((prev) => [
-              ...prev,
-              {
-                id: `agent-recording-ai-${Date.now()}`,
-                role: 'agent',
-                content: `${ai.message.trim()}\n\n${t('extensionRecordingAgentNote')}`,
-                workTrace: ai.workTrace ?? undefined,
-              },
-            ])
-          }
-        } finally {
-          if (chatAbortRef.current === abort) chatAbortRef.current = null
-          setAgentTyping(false)
-          setWorkStatus(null)
-        }
-      })()
     },
-    [
-      journeyName,
-      onHeaderChange,
-      openPanel,
-      tf,
-      locale,
-      messages,
-      initialPrompt,
-    ],
+    [applyRecordingToWorkspace, tf, locale],
   )
 
   const runStepsWithPlaywright = useCallback(
@@ -1368,6 +1290,45 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
 
       try {
       const maskedInput = maskFreeformUserChatContent(trimmed)
+
+      const exportDoc = parseJourneyExportDocument(trimmed)
+      if (exportDoc) {
+        const recorded = journeyExportToRecordedSteps(exportDoc)
+        const applied = applyRecordingToWorkspace(recorded, exportDoc.title)
+        if (applied) {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `user-json-${Date.now()}`,
+              role: 'user',
+              content: maskedInput,
+            },
+            {
+              id: `agent-json-${Date.now()}`,
+              role: 'agent',
+              content: tf('extensionJsonApplied', { count: applied.count }),
+            },
+          ])
+          setInput('')
+          return
+        }
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `user-json-${Date.now()}`,
+            role: 'user',
+            content: maskedInput,
+          },
+          {
+            id: `agent-json-${Date.now()}`,
+            role: 'agent',
+            content: t('extensionJsonInvalid'),
+          },
+        ])
+        setInput('')
+        return
+      }
+
       const userMsg: ChatMessage = { id: `user-${Date.now()}`, role: 'user', content: maskedInput }
 
       if (wantsApplyPlanToPanel(trimmed) && pendingAiPlanRef.current) {
@@ -1719,7 +1680,9 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
       onHeaderChange,
       onRequestNewJourney,
       runReplay,
+      applyRecordingToWorkspace,
       t,
+      tf,
     ],
   )
 

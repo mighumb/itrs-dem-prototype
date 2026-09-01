@@ -259,9 +259,9 @@
     sendStep({
       id: `type-${Date.now()}`,
       action: 'Type',
-      label: `Type in ${labelFor(el)}`,
+      label: `Type "${value.slice(0, 60)}" in ${labelFor(el)}`,
       url: location.href,
-      targetHint: labelFor(el),
+      targetHint: value.slice(0, 120),
       selector: shortSelector(el),
       at: Date.now(),
     })

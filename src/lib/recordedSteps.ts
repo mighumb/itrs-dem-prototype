@@ -13,6 +13,8 @@ export function recordedStepsToJourneySteps(recorded: RecordedBrowserStep[]): Jo
     if (action === 'Navigate') {
       const href = step.href || step.url
       if (!href || href === lastNav) continue
+      // History noise from SPA/back — rarely useful for replay.
+      if (/\((?:popstate|pushState|replaceState)\)/i.test(step.label ?? '')) continue
       lastNav = href
       out.push({
         id: step.id || `rec-nav-${out.length + 1}`,
