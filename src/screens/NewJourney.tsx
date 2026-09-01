@@ -97,6 +97,7 @@ import {
   sanitizeDiscoveryPlan,
   wantsJourneyLaunch,
   wantsMissingRunButton,
+  wantsPlanApproval,
   wantsPlanCorrection,
   wantsPlanInChat,
 } from '../mock/discovery'
@@ -1362,6 +1363,24 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
 
       setMessages((prev) => [...prev, userMsg])
       setInput('')
+
+      if (
+        actionCount > 0 &&
+        wantsPlanApproval(trimmed) &&
+        !wantsPlanCorrection(trimmed) &&
+        !wantsPlanInChat(trimmed) &&
+        !wantsJourneyLaunch(trimmed)
+      ) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `agent-approve-${Date.now()}`,
+            role: 'agent',
+            content: t('planConfirmApproved'),
+          },
+        ])
+        return
+      }
 
       // Launch / missing Lancer → run cleaned live steps. Never round-trip to the model
       // (it re-injects Type/Click « fr » into the chat).

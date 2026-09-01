@@ -21,6 +21,7 @@ import {
   looksLikeAmbiguousBrandName,
   looksLikeSiteConfirmation,
   looksLikeSiteDecline,
+  isSettledPlanApprovalTurn,
   messageRequestsSiteWork,
   summarizeStatedJourneyIntent,
 } from './_lib/discoverySiteIntent.js'
@@ -96,6 +97,16 @@ function shouldAttachSiteEvidence(body: DiscoveryAiRequest): boolean {
   if (/\brelocalize_ui\b/.test(body.userMessage)) return false
   // Declining a confirm candidate must never keep the URL or open proposals.
   if (isSiteCandidateDeclined(body)) return false
+  // Plan already shown — bare approval must not re-crawl or dry-run.
+  if (
+    isSettledPlanApprovalTurn({
+      mode: body.mode,
+      userMessage: body.userMessage,
+      currentSteps: body.context?.currentSteps ?? null,
+    })
+  ) {
+    return false
+  }
   if (['propose', 'configure', 'plan', 'iterate'].includes(body.mode)) return true
   if (body.mode === 'bootstrap' || body.mode === 'chat') {
     if (messageRequestsSiteWork(body.userMessage)) return true
@@ -657,6 +668,23 @@ async function groundAndMaybeDryRunPlan(options: {
   // Never dry-run (or keep a plan) while URL is still unknown or unconfirmed.
   if (confirmFirst || clarifyUrl) {
     return { ...parsed, plan: null, readyForPlan: false, proposals: null }
+  }
+
+  // User only approved the settled plan — no browser rehearsal on this turn.
+  if (
+    isSettledPlanApprovalTurn({
+      mode: body.mode,
+      userMessage: body.userMessage,
+      currentSteps: body.context?.currentSteps ?? null,
+    })
+  ) {
+    const trace = Array.isArray(parsed.workTrace) ? [...parsed.workTrace] : []
+    trace.push(
+      lang === 'fr'
+        ? 'Plan validé — pas de nouvelle exploration ni répétition'
+        : 'Plan approved — skipping re-explore and dry-run',
+    )
+    return { ...parsed, workTrace: trace.slice(0, 8) }
   }
 
   if (!parsed.plan || typeof parsed.plan !== 'object' || !parsed.readyForPlan) {

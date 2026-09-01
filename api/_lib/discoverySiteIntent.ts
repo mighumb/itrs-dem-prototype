@@ -71,6 +71,67 @@ export function looksLikeSiteConfirmation(text: string): boolean {
 }
 
 /**
+ * User accepts the current plan without edits — not launch, not correction.
+ * Matches bare affirmations and common combos (« oui c'est bon », « ok parfait »).
+ */
+export function looksLikePlanApprovalOnly(text: string): boolean {
+  const t = text.trim()
+  if (!t || t.length > 160) return false
+  if (/^(non|no)\b/i.test(t)) return false
+  if (
+    /\b(change|modifi|ajout|supprim|corrige|retire|enl[eè]ve|wrong|pas bon|il manque|manque|ajoute|before|avant)\b/i.test(
+      t,
+    )
+  ) {
+    return false
+  }
+  if (
+    /\b(lance|lancer|exécute|execute|run|start|démarre|demarre|relance|relancer)\b/i.test(t)
+  ) {
+    return false
+  }
+  if (
+    /^(oui|yes|ok|parfait|nickel|très bien|tres bien|c'?est bon|ça marche|ca marche|d'accord|daccord)\s*[.!]?$/i.test(
+      t,
+    )
+  ) {
+    return true
+  }
+  if (
+    /^(oui|yes|ok|okay)[,!\s]+(c'?est\s+(?:bon|bien|parfait|ça|ca)|ça\s+marche|ca\s+marche|parfait|nickel)\s*[.!]?$/i.test(
+      t,
+    )
+  ) {
+    return true
+  }
+  if (
+    /^(c'?est\s+(?:bon|bien|parfait)|ça\s+me\s+va|ca\s+me\s+va)\s*[.!]?$/i.test(t)
+  ) {
+    return true
+  }
+  if (
+    /\b(ça me va|ca me va|me convient|convient|validé|valide|approved|looks good|good for me|no changes|pas de changement|rien à (changer|modifier)|nothing to change|on est bon|we'?re good)\b/i.test(
+      t,
+    )
+  ) {
+    return true
+  }
+  return false
+}
+
+/** Settled plan + approval only — skip re-explore / dry-run on iterate. */
+export function isSettledPlanApprovalTurn(input: {
+  mode: string
+  userMessage: string
+  currentSteps?: Array<{ label?: string; action?: string }> | null
+}): boolean {
+  if (input.mode !== 'iterate') return false
+  const steps = input.currentSteps
+  if (!Array.isArray(steps) || steps.length === 0) return false
+  return looksLikePlanApprovalOnly(input.userMessage)
+}
+
+/**
  * User declining a site candidate (soft form or free text).
  * Used after brand_resolve confirmation — must not open journey proposals.
  */
