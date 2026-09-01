@@ -1208,6 +1208,19 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
     ],
   )
 
+  const autoRunConsumedRef = useRef(false)
+
+  useEffect(() => {
+    if (!session.autoRun || autoRunConsumedRef.current) return
+    autoRunConsumedRef.current = true
+    const timer = window.setTimeout(() => {
+      if (!isRunningRef.current) {
+        void runReplay(undefined, { intro: 'start', markComplete: true })
+      }
+    }, 80)
+    return () => window.clearTimeout(timer)
+  }, [session.autoRun, runReplay])
+
   const handleRunStop = useCallback(() => {
     if (isRunning) {
       stopRun()

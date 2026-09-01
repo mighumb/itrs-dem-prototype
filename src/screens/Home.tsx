@@ -23,7 +23,7 @@ import {
   wantsApplyPlanToPanel,
 } from '../lib/discoveryChat'
 import { formatQuestionnaireChatBlock, maskFreeformUserChatContent } from '../lib/sensitiveAnswers'
-import { runStartMessage, type JourneyLaunchSession } from '../lib/journeyLaunch'
+import { type JourneyLaunchSession } from '../lib/journeyLaunch'
 import {
   getHomeExamples,
   HOME_SAMPLE_LOGO_OPTICAL_BALANCE,
@@ -413,7 +413,6 @@ export default function Home({
     setPlan(clean)
     setPlanConfirmed(true)
     setPhase('planning')
-    pushAgentReply(runStartMessage(locale))
     onStart({
       prompt: clean.prompt,
       messages: history,
@@ -422,6 +421,7 @@ export default function Home({
         ctx?.url ??
         clean.prompt.match(/https?:\/\/[^\s<>"']+/i)?.[0]?.replace(/[.,);]+$/g, '') ??
         null,
+      autoRun: true,
     })
     return true
   }
@@ -1148,7 +1148,6 @@ export default function Home({
           (wantsJourneyLaunch(text) && !isLocaleNoiseComplaint(text)))
       ) {
         setPlanConfirmed(true)
-        pushAgentReply(runStartMessage(locale))
         setPlan(cleanCurrent)
         setPhase('planning')
         onStart({
@@ -1156,6 +1155,7 @@ export default function Home({
           messages: history,
           plan: cleanCurrent,
           siteUrl: seedUrl,
+          autoRun: true,
         })
         return
       }
@@ -1209,7 +1209,6 @@ export default function Home({
         if (bindModelPlan && ai.plan) {
           if (launchIntent) {
             setPlanConfirmed(true)
-            pushAgentReply(runStartMessage(locale))
             setPlan(sanitizeDiscoveryPlan(ai.plan))
             setPhase('planning')
             onStart({
@@ -1217,6 +1216,7 @@ export default function Home({
               messages: history,
               plan: sanitizeDiscoveryPlan(ai.plan),
               siteUrl: seedUrl,
+              autoRun: true,
             })
             return
           }
@@ -1240,7 +1240,6 @@ export default function Home({
 
         if ((launchIntent || wantsMissingRunButton(text)) && planSnapshot) {
           setPlanConfirmed(true)
-          pushAgentReply(runStartMessage(locale))
           setPlan(planSnapshot)
           setPhase('planning')
           onStart({
@@ -1251,6 +1250,7 @@ export default function Home({
               ctx?.url ??
               planSnapshot.prompt.match(/https?:\/\/[^\s<>"']+/i)?.[0]?.replace(/[.,);]+$/g, '') ??
               null,
+            autoRun: true,
           })
           return
         }
@@ -1296,6 +1296,7 @@ export default function Home({
       messages,
       plan,
       siteUrl: ctx?.url ?? plan.prompt.match(/https?:\/\/[^\s<>"']+/i)?.[0]?.replace(/[.,);]+$/g, '') ?? null,
+      autoRun: true,
     })
   }
 

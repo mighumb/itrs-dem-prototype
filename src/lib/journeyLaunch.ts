@@ -19,6 +19,8 @@ export type JourneyLaunchSession = {
   plan: DiscoveryPlan | null
   /** Resolved / inspected site URL from Discovery when known */
   siteUrl: string | null
+  /** When true, workspace auto-starts Playwright on mount (Home Lancer / explicit launch). */
+  autoRun?: boolean
 }
 
 export function extractUrlFromText(text: string | null | undefined): string | null {
