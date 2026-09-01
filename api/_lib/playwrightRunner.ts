@@ -239,14 +239,6 @@ function cssEscape(value: string): string {
   return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
 }
 
-function isWikipediaHost(url: string): boolean {
-  try {
-    return /(^|\.)wikipedia\.org$/i.test(new URL(url).hostname)
-  } catch {
-    return false
-  }
-}
-
 export type MarketCountry = 'FR' | 'US'
 
 /**
@@ -730,43 +722,58 @@ async function isSearchFieldLocator(loc: Locator): Promise<boolean> {
     .catch(() => false)
 }
 
-async function submitWikipediaSearch(page: Page, query: string): Promise<void> {
+/** After typing in a search box: wait for suggestions, click a match, else Enter. */
+async function submitTypeaheadAfterFill(page: Page, query: string): Promise<void> {
   const needle = query.trim().slice(0, 60)
   const firstToken = needle.split(/\s+/)[0] ?? needle
-  // Typeahead needs a beat after fill before suggestions are clickable.
+  const tokenRe = new RegExp(firstToken.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i')
   await page.waitForTimeout(350)
 
   const suggestionStrategies: Array<() => Promise<boolean>> = [
+    // ARIA combobox / autocomplete (Codex, MUI, many design systems).
     async () => {
-      const link = page
-        .locator(
-          '.cdx-typeahead-search__menu a[href*="/wiki/"], .cdx-menu a[href*="/wiki/"], .mw-searchSuggest-link',
-        )
-        .filter({ hasText: new RegExp(firstToken.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') })
-        .first()
-      if (!(await link.isVisible({ timeout: 3000 }).catch(() => false))) return false
-      await link.click({ timeout: 4000 })
+      const option = page.getByRole('option', { name: tokenRe }).first()
+      if (!(await option.isVisible({ timeout: 2000 }).catch(() => false))) return false
+      await option.click({ timeout: 4000 })
       return true
     },
     async () => {
+      const listbox = page.getByRole('listbox').first()
+      if (!(await listbox.isVisible({ timeout: 1500 }).catch(() => false))) return false
+      const item = listbox.getByRole('option', { name: tokenRe }).first()
+      if (!(await item.isVisible({ timeout: 1500 }).catch(() => false))) return false
+      await item.click({ timeout: 4000 })
+      return true
+    },
+    // Visible menu rows (generic + MediaWiki Codex class names).
+    async () => {
       for (const sel of [
+        '[role="option"]',
+        '[role="listbox"] li',
         '.cdx-menu-item',
         '.cdx-typeahead-search__menu .cdx-menu-item',
-        '.mw-searchSuggest-link',
-        '.suggestion-title',
+        '.autocomplete-suggestion',
+        '.search-suggestion',
+        '.ui-menu-item',
       ]) {
-        const item = page.locator(sel).filter({ hasText: firstToken }).first()
-        if (await item.isVisible({ timeout: 1500 }).catch(() => false)) {
+        const item = page.locator(sel).filter({ hasText: tokenRe }).first()
+        if (await item.isVisible({ timeout: 1200 }).catch(() => false)) {
           await item.click({ timeout: 4000 })
           return true
         }
       }
       return false
     },
+    // First suggestion link in an open search menu (Wikipedia and similar).
     async () => {
-      const option = page.getByRole('option', { name: new RegExp(firstToken, 'i') }).first()
-      if (!(await option.isVisible({ timeout: 1500 }).catch(() => false))) return false
-      await option.click({ timeout: 4000 })
+      const link = page
+        .locator(
+          '[role="listbox"] a[href], .cdx-typeahead-search__menu a[href], .cdx-menu a[href], .search-suggest a[href]',
+        )
+        .filter({ hasText: tokenRe })
+        .first()
+      if (!(await link.isVisible({ timeout: 1500 }).catch(() => false))) return false
+      await link.click({ timeout: 4000 })
       return true
     },
   ]
@@ -801,13 +808,7 @@ async function submitSearchAfterType(
 
   if (!shouldSubmit) return
 
-  if (isWikipediaHost(page.url())) {
-    await submitWikipediaSearch(page, query)
-    return
-  }
-
-  await page.keyboard.press('Enter')
-  await page.waitForLoadState('domcontentloaded', { timeout: 15000 }).catch(() => undefined)
+  await submitTypeaheadAfterFill(page, query)
 }
 
 /** Prefer quoted payload in labels: "…", '…', « … », “ … ”. */
