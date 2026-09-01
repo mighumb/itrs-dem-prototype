@@ -362,9 +362,12 @@ export function isFullySpecifiedMonitoringAsk(text: string): boolean {
   }
 
   const hasNamedSubject =
-    /\b[A-ZÀ-Ü][\wÀ-ü'’.-]*(?:\s+(?:de|du|des|d['’]|en)\s+)?[A-ZÀ-Ü][\wÀ-ü'’.-]+(?:\s+[A-ZÀ-Üa-zà-ü'’.-]+){0,3}\b/.test(
+    // « de Kylian Mbappé » — do not use trailing \b after accented names (é breaks \b in JS).
+    /\b(?:de|du|des|d['’]|sur)\s+[\p{L}][\p{L}'’.-]*(?:\s+[\p{L}][\p{L}'’.-]*){1,3}/iu.test(
       t,
-    ) || /[«"']([^«"']{4,})[»"']/.test(t)
+    ) ||
+    /\b[A-ZÀ-Ü][\p{L}'’.-]+(?:\s+[A-ZÀ-Ü][\p{L}'’.-]+)+/u.test(t) ||
+    /[«"']([^«"']{4,})[»"']/.test(t)
 
   const hasConcreteTarget =
     /\b(palmarès|palmares|sélection\s+nationale|statistiques|stats|section|rubrique|onglet|fiche|contenu|page\s+de|article|brochure|formulaire|panier|checkout|téléchargement|download)\b/i.test(
