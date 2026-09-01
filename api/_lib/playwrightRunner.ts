@@ -715,12 +715,16 @@ async function isSearchFieldLocator(loc: Locator): Promise<boolean> {
       const id = el.id || ''
       const name = el.name || ''
       const type = el.type || ''
+      const role = el.getAttribute('role') || ''
+      const placeholder = el.placeholder || ''
       return (
+        role === 'searchbox' ||
         type === 'search' ||
         id === 'searchInput' ||
         name === 'search' ||
         name === 'q' ||
-        name === 'query'
+        name === 'query' ||
+        /recherch|search/i.test(placeholder)
       )
     })
     .catch(() => false)
@@ -728,24 +732,56 @@ async function isSearchFieldLocator(loc: Locator): Promise<boolean> {
 
 async function submitWikipediaSearch(page: Page, query: string): Promise<void> {
   const needle = query.trim().slice(0, 60)
-  const menuSelectors = [
-    '.cdx-menu-item',
-    '.cdx-typeahead-search__menu .cdx-menu-item',
-    '.mw-searchSuggest-link',
-    '.suggestion-title',
+  const firstToken = needle.split(/\s+/)[0] ?? needle
+  // Typeahead needs a beat after fill before suggestions are clickable.
+  await page.waitForTimeout(350)
+
+  const suggestionStrategies: Array<() => Promise<boolean>> = [
+    async () => {
+      const link = page
+        .locator(
+          '.cdx-typeahead-search__menu a[href*="/wiki/"], .cdx-menu a[href*="/wiki/"], .mw-searchSuggest-link',
+        )
+        .filter({ hasText: new RegExp(firstToken.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') })
+        .first()
+      if (!(await link.isVisible({ timeout: 3000 }).catch(() => false))) return false
+      await link.click({ timeout: 4000 })
+      return true
+    },
+    async () => {
+      for (const sel of [
+        '.cdx-menu-item',
+        '.cdx-typeahead-search__menu .cdx-menu-item',
+        '.mw-searchSuggest-link',
+        '.suggestion-title',
+      ]) {
+        const item = page.locator(sel).filter({ hasText: firstToken }).first()
+        if (await item.isVisible({ timeout: 1500 }).catch(() => false)) {
+          await item.click({ timeout: 4000 })
+          return true
+        }
+      }
+      return false
+    },
+    async () => {
+      const option = page.getByRole('option', { name: new RegExp(firstToken, 'i') }).first()
+      if (!(await option.isVisible({ timeout: 1500 }).catch(() => false))) return false
+      await option.click({ timeout: 4000 })
+      return true
+    },
   ]
-  for (const sel of menuSelectors) {
+
+  for (const tryClick of suggestionStrategies) {
     try {
-      const item = page.locator(sel).filter({ hasText: needle }).first()
-      if (await item.isVisible({ timeout: 2500 })) {
-        await item.click({ timeout: 4000 })
+      if (await tryClick()) {
         await page.waitForLoadState('domcontentloaded', { timeout: 15000 }).catch(() => undefined)
         return
       }
     } catch {
-      // try next selector
+      // try next strategy
     }
   }
+
   await page.keyboard.press('Enter')
   await page.waitForLoadState('domcontentloaded', { timeout: 15000 }).catch(() => undefined)
 }
@@ -757,12 +793,13 @@ async function submitSearchAfterType(
   query: string,
 ): Promise<void> {
   const isSearchField = await isSearchFieldLocator(loc)
-  const shouldSubmitWithEnter =
+  const shouldSubmit =
+    isSearchTypeStep(step) ||
     /^search$/i.test(step.action.trim()) ||
     /^(search|recherch)/i.test(step.label.trim()) ||
     isSearchField
 
-  if (!shouldSubmitWithEnter) return
+  if (!shouldSubmit) return
 
   if (isWikipediaHost(page.url())) {
     await submitWikipediaSearch(page, query)
@@ -1346,6 +1383,11 @@ async function executeStepWithCapture(
       throw new Error(
         `Could not find the form field for: ${step.label}. Refusing to type into an unrelated input.`,
       )
+    }
+    const searchSubmit = isSearchTypeStep(step) || (await isSearchFieldLocator(loc))
+    if (searchSubmit) {
+      await submitSearchAfterType(page, step, loc, value)
+      return captureFrame(page)
     }
     const frame = await captureHighlighted(page, loc)
     await submitSearchAfterType(page, step, loc, value)
