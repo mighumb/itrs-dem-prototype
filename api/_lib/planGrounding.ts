@@ -4,6 +4,7 @@
  */
 
 import type { SiteExploreResult } from './exploreSite.js'
+import { canonicalSiteUrlFromText } from './discoverySiteIntent.js'
 import {
   homepageOf,
   isDeepUrl,
@@ -113,6 +114,12 @@ export function enrichPlanStepsFromExplore(
       } else if (explore.pages[0]?.url) {
         const pageUrl = explore.pages[0].url
         next.href = isDeepUrl(pageUrl) ? homepageOf(pageUrl) : pageUrl
+      } else {
+        const fromLabel = canonicalSiteUrlFromText(
+          step.label,
+          preferFrLabels(steps) ? 'fr' : 'en',
+        )
+        if (fromLabel) next.href = fromLabel
       }
     }
 

@@ -425,6 +425,25 @@ export function isFullySpecifiedMonitoringAsk(text: string): boolean {
 }
 
 /**
+ * Well-known public sites named without a URL — avoids slow/failing brand resolve
+ * (e.g. « wikipédia » → fr.wikipedia.org).
+ */
+export function canonicalSiteUrlFromText(
+  text: string,
+  preferredLanguage?: 'en' | 'fr' | null,
+): string | null {
+  const t = text.trim()
+  if (!t) return null
+  const fr = preferredLanguage !== 'en'
+
+  if (/\b(wikipédia|wikipedia)\b/i.test(t)) {
+    return fr ? 'https://fr.wikipedia.org' : 'https://en.wikipedia.org'
+  }
+
+  return null
+}
+
+/**
  * Extract the deep destination URL/path from user text (where to monitor).
  * Does NOT invent a journey outcome from the path slug.
  */
