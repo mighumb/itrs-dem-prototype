@@ -663,14 +663,19 @@ export async function dismissNoise(page: Page) {
 async function findSearchLocator(page: Page): Promise<Locator | null> {
   const selectors = [
     '#searchInput',
+    '#mw-searchInput',
     'input[name="search"]',
     'input[type="search"]',
+    'input.cdx-text-input__input',
+    '.cdx-search-input__input',
+    '.cdx-text-input__input',
     'input[name="q"]',
     'input[name="query"]',
     'input[placeholder*="Search" i]',
     'input[placeholder*="Recherch" i]',
     'input[aria-label*="Search" i]',
     'input[aria-label*="Recherch" i]',
+    'input[title*="Recherch" i]',
   ]
   for (const sel of selectors) {
     try {
@@ -786,11 +791,18 @@ function looksLikeFieldName(hint: string): boolean {
   )
 }
 
-function isSearchTypeStep(step: RunnableStep): boolean {
+export function isSearchTypeStep(step: RunnableStep): boolean {
   if (/^search$/i.test(step.action.trim())) return true
   const blob = `${step.action} ${step.label}`
   if (/lancer\s+la\s+recherch|submit\s+(the\s+)?search/i.test(blob)) return false
-  return /^(search|recherch)/i.test(step.label.trim()) || /\b(search\s+for|rechercher?\s+)/i.test(blob)
+  if (/^(search|recherch)/i.test(step.label.trim())) return true
+  if (/\b(search\s+for|rechercher?\s+)/i.test(blob)) return true
+  // FR plans often say “Saisir « X » dans le champ de recherche” — still a search Type.
+  if (/\bchamp\s+(?:de\s+|d['’])?recherche\b/i.test(blob)) return true
+  if (/\b(?:barre|zone)\s+de\s+recherche\b/i.test(blob)) return true
+  if (/\bsearch\s+field\b/i.test(blob)) return true
+  if (/\bsais(?:ir|ie)\s+["'«].+["'»].*\brecherche\b/i.test(blob)) return true
+  return false
 }
 
 function isEmailFieldStep(step: RunnableStep): boolean {
@@ -827,11 +839,21 @@ function fieldHintsFromStep(step: RunnableStep): string[] {
 
   const label = step.label
   const dansChamp = label.match(
-    /\b(?:dans|into|in|sur)\s+(?:le\s+|la\s+|l['’])?(?:champ\s+|field\s+)?["«]?([^"»]+?)["»]?\s*$/i,
+    /\b(?:dans|into|in|sur)\s+(?:le\s+|la\s+|l['’])?(?:(?:champ|field)\s+(?:de\s+|d['’])?)?["«]?([^"»]+?)["»]?\s*$/i,
   )
   if (dansChamp?.[1]) push(dansChamp[1])
 
   const fieldPatterns: Array<{ re: RegExp; names: string[] }> = [
+    {
+      re: /champ\s+(?:de\s+|d['’])?recherche|barre\s+de\s+recherche|search\s+field|search\s+box/i,
+      names: [
+        'Rechercher',
+        'Search',
+        'Rechercher sur Wikipédia',
+        'Search Wikipedia',
+        'search',
+      ],
+    },
     {
       re: /pr[eé]nom|first\s*name|given/i,
       names: ['Prénom', 'Prenom', 'First name', 'firstname', 'first_name', 'galileo_first_name', 'given-name'],
