@@ -687,7 +687,9 @@ export function wantsJourneyLaunch(text: string): boolean {
   }
   if (/^(go|run it|let'?s go|c'?est parti)\s*[.!]?$/i.test(t)) return true
   if (/^(ok\s+)?go\s*[.!]?$/i.test(t)) return true
-  if (/^(ok|oui|yes|vas[- ]?y|c'?est bon|parfait)\s*[,!]?\s*(go|lance|lancer)?\s*[.!]?$/i.test(t)) return true
+  // Bare « c'est bon » / « parfait » = plan approval only — not launch (see wantsPlanApproval).
+  if (/^(ok|oui|yes|vas[- ]?y)\s*[,!]?\s*(go|lance|lancer)\s*[.!]?$/i.test(t)) return true
+  if (/^(c'?est bon|parfait|nickel)\s*[,!]?\s*(go|lance|lancer)\s*[.!]?$/i.test(t)) return true
   return false
 }
 

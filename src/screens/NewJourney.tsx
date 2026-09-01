@@ -1208,13 +1208,29 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
     ],
   )
 
+  const autoRunConsumedRef = useRef(false)
+
+  useEffect(() => {
+    if (!session.autoRun || autoRunConsumedRef.current) return
+    autoRunConsumedRef.current = true
+    const timer = window.setTimeout(() => {
+      if (!isRunningRef.current) {
+        void runReplay(undefined, { intro: 'start', markComplete: true })
+      }
+    }, 80)
+    return () => window.clearTimeout(timer)
+  }, [session.autoRun, runReplay])
+
   const handleRunStop = useCallback(() => {
     if (isRunning) {
       stopRun()
     } else if (actionCount > 0) {
-      void runReplay()
+      void runReplay(undefined, {
+        intro: isComplete ? 'replay' : 'start',
+        markComplete: !isComplete,
+      })
     }
-  }, [isRunning, actionCount, stopRun, runReplay])
+  }, [isRunning, actionCount, isComplete, stopRun, runReplay])
 
   const handleAgentAction = useCallback(
     (actionId: string) => {
@@ -1846,10 +1862,10 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
                     onClick={handleRunStop}
                     disabled={!isRunning && actionCount === 0}
                     title={isRunning ? t('stopRun') : t('runJourneyInBrowser')}
-                    className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-40 ${
+                    className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-40 ${
                       isRunning
-                        ? 'border-red-300 bg-red-600 text-white hover:bg-red-700 dark:border-red-500'
-                        : 'border-zinc-200 text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800'
+                        ? 'border border-red-300 bg-red-600 text-white hover:bg-red-700 dark:border-red-500'
+                        : 'border border-[#0071e3] bg-[#0071e3] text-white shadow-sm hover:bg-[#0077ed]'
                     }`}
                   >
                     {isRunning ? (
@@ -1859,7 +1875,7 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
                       </>
                     ) : (
                       <>
-                        <Play size={12} />
+                        <Play size={12} fill="currentColor" />
                         {t('run')}
                       </>
                     )}
