@@ -661,21 +661,33 @@ export async function dismissNoise(page: Page) {
 }
 
 async function findSearchLocator(page: Page): Promise<Locator | null> {
+  // Generic ARIA / accessible name — not site-specific CSS.
+  const byRole = await tryVisibleLocator(page, () => page.getByRole('searchbox').first(), 900)
+  if (byRole) return byRole
+
+  const byPlaceholder = await tryVisibleLocator(
+    page,
+    () => page.getByPlaceholder(/recherch|search/i).first(),
+    700,
+  )
+  if (byPlaceholder) return byPlaceholder
+
+  const byLabel = await tryVisibleLocator(
+    page,
+    () => page.getByLabel(/recherch|search/i).first(),
+    700,
+  )
+  if (byLabel) return byLabel
+
   const selectors = [
-    '#searchInput',
-    '#mw-searchInput',
     'input[name="search"]',
     'input[type="search"]',
-    'input.cdx-text-input__input',
-    '.cdx-search-input__input',
-    '.cdx-text-input__input',
     'input[name="q"]',
     'input[name="query"]',
     'input[placeholder*="Search" i]',
     'input[placeholder*="Recherch" i]',
     'input[aria-label*="Search" i]',
     'input[aria-label*="Recherch" i]',
-    'input[title*="Recherch" i]',
   ]
   for (const sel of selectors) {
     try {
@@ -846,13 +858,7 @@ function fieldHintsFromStep(step: RunnableStep): string[] {
   const fieldPatterns: Array<{ re: RegExp; names: string[] }> = [
     {
       re: /champ\s+(?:de\s+|d['’])?recherche|barre\s+de\s+recherche|search\s+field|search\s+box/i,
-      names: [
-        'Rechercher',
-        'Search',
-        'Rechercher sur Wikipédia',
-        'Search Wikipedia',
-        'search',
-      ],
+      names: ['Rechercher', 'Search', 'search'],
     },
     {
       re: /pr[eé]nom|first\s*name|given/i,
