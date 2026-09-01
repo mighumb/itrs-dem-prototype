@@ -342,44 +342,86 @@ export function summarizeStatedJourneyIntent(text: string): string | null {
   return t.length > 280 ? `${t.slice(0, 277)}…` : t
 }
 
-/**
- * User named site + subject + concrete page/section — no journey-type chooser needed.
- * e.g. « surveiller la page Wikipédia de Mbappé, palmarès en sélection nationale ».
- */
-export function isFullySpecifiedMonitoringAsk(text: string): boolean {
+/** User explicitly wants journey ideas — keep the chooser. */
+export function isAskingForJourneyIdeas(text: string): boolean {
   const t = text.trim()
-  if (!t || t.length < 24) return false
+  if (!t) return false
+  return /\b(quel(?:le)?s?\s+(?:parcours|idées|options?|chemins?)|which\s+(?:journey|path|route|option)s?|recommand|suggest(?:ion)?s?|propos(?:e|al)|des\s+idées|some\s+ideas|what\s+(?:journeys?|paths?|options?))\b/i.test(
+    t,
+  )
+}
+
+/**
+ * Concrete destination or outcome detail beyond a bare brand / homepage.
+ * « surveiller Amazon » → false ; « palmarès en sélection nationale » → true.
+ */
+export function hasConcreteJourneyDetail(text: string): boolean {
+  const t = text.trim()
+  if (!t) return false
+
+  if (intentFromDeepLocator(t)) return true
+  if (/[«"']([^«"']{4,})[»"']/.test(t)) return true
+
+  // Named entity — no trailing \b after accented names (é breaks \b in JS).
+  if (
+    /\b(?:de|du|des|d['’]|sur\s+la\s+page\s+de|page\s+(?:de|du))\s+[\p{L}][\p{L}'’.-]*(?:\s+[\p{L}][\p{L}'’.-]*){0,3}/iu.test(
+      t,
+    )
+  ) {
+    return true
+  }
+  if (/\b[A-ZÀ-Ü][\p{L}'’.-]+(?:\s+[A-ZÀ-Ü][\p{L}'’.-]+)+/u.test(t)) return true
+
+  if (
+    /\b(?:son|sa|ses|leur|leurs|its|their|my|mon|ma|mes|ton|ta|tes)\s+[\p{L}][\p{L}\d-]{3,}/iu.test(
+      t,
+    )
+  ) {
+    return true
+  }
+
+  if (
+    /\b(?:section|rubrique|onglet|fiche|article|palmarès|palmares|statistiques|stats|brochure|formulaire|panier|checkout|téléchargement|download|livraison|commande|connexion|login|inscription|signup|devis|contact|essai|trial|d[eé]mo|r[eé]serv|book(?:ing)?|jusqu['’]?à)\b/i.test(
+      t,
+    )
+  ) {
+    return true
+  }
+
+  if (/\b(?:page|contenu|fiche|article)\s+(?:de|du|des|sur)\s+/i.test(t)) return true
+  if (/\b(?:wikipédia|wikipedia|wiki)\b/i.test(t) && /\b(?:de|du|des|d['’])\s+/i.test(t)) {
+    return true
+  }
+
+  return false
+}
+
+/**
+ * Skip « Choisir un parcours » when the user already gave enough to build one journey:
+ * stated outcome + concrete detail — not when they only named a brand (« surveiller Amazon »).
+ */
+export function shouldSkipJourneyChooser(text: string): boolean {
+  const t = text.trim()
+  if (!t || t.length < 16) return false
   if (
     looksLikeSocialChat(t) ||
     looksLikeSiteConfirmation(t) ||
     looksLikeSiteDecline(t) ||
-    /\b(quel|quelle|which|recommand|suggest|propose|idée)\b/i.test(t)
+    isAskingForJourneyIdeas(t)
   ) {
     return false
   }
-  if (!hasMonitorVerbWithTarget(t) && !/\b(surveiller|monitor(?:ing)?)\b/i.test(t)) {
-    return false
-  }
 
-  const hasNamedSubject =
-    // « de Kylian Mbappé » — do not use trailing \b after accented names (é breaks \b in JS).
-    /\b(?:de|du|des|d['’]|sur)\s+[\p{L}][\p{L}'’.-]*(?:\s+[\p{L}][\p{L}'’.-]*){1,3}/iu.test(
-      t,
-    ) ||
-    /\b[A-ZÀ-Ü][\p{L}'’.-]+(?:\s+[A-ZÀ-Ü][\p{L}'’.-]+)+/u.test(t) ||
-    /[«"']([^«"']{4,})[»"']/.test(t)
+  const stated = summarizeStatedJourneyIntent(t)
+  if (!stated) return false
+  if (!hasConcreteJourneyDetail(t)) return false
 
-  const hasConcreteTarget =
-    /\b(palmarès|palmares|sélection\s+nationale|statistiques|stats|section|rubrique|onglet|fiche|contenu|page\s+de|article|brochure|formulaire|panier|checkout|téléchargement|download)\b/i.test(
-      t,
-    )
+  return true
+}
 
-  const hasSite =
-    hasExplicitSiteLocator(t) ||
-    /\b(wikipédia|wikipedia|wiki)\b/i.test(t) ||
-    hasMonitorVerbWithTarget(t)
-
-  return hasNamedSubject && hasConcreteTarget && hasSite
+/** @deprecated Prefer shouldSkipJourneyChooser — kept for call-site compatibility. */
+export function isFullySpecifiedMonitoringAsk(text: string): boolean {
+  return shouldSkipJourneyChooser(text)
 }
 
 /**

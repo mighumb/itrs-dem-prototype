@@ -12,9 +12,10 @@ import {
   looksLikeSiteDecline,
   requestDiscoveryAi,
   summarizeStatedJourneyIntent,
-  isFullySpecifiedMonitoringAsk,
+  shouldSkipJourneyChooser,
   type DiscoveryAiResult,
 } from '../lib/discoveryAi'
+import { proposalHonorsStatedIntent } from '../../api/_lib/proposalIntentGuard'
 import {
   appendPlanNotAppliedHint,
   classifyIterateWorkspacePlanIntent,
@@ -548,7 +549,13 @@ export default function Home({
       }
 
       if (ai.proposals && ai.proposals.length > 0) {
-        if (isFullySpecifiedMonitoringAsk(seed)) {
+        const stated = summarizeStatedJourneyIntent(seed)
+        const autoSelect =
+          shouldSkipJourneyChooser(seed) ||
+          (stated &&
+            ai.proposals.length === 1 &&
+            proposalHonorsStatedIntent(ai.proposals[0]!, stated))
+        if (autoSelect) {
           await handleSelectProposal(ai.proposals[0]!)
           return
         }
