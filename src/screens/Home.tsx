@@ -556,7 +556,7 @@ export default function Home({
             ai.proposals.length === 1 &&
             proposalHonorsStatedIntent(ai.proposals[0]!, stated))
         if (autoSelect) {
-          await handleSelectProposal(ai.proposals[0]!)
+          await handleSelectProposal(ai.proposals[0]!, { autoSelect: true, userMessage: seed })
           return
         }
         openProposalsStack(ai.proposals, ai.formTitle, ai.message, ai.workTrace)
@@ -824,7 +824,10 @@ export default function Home({
     setPhase(planRef.current ? 'planning' : 'conversation')
   }
 
-  const handleSelectProposal = async (proposal: JourneyProposal) => {
+  const handleSelectProposal = async (
+    proposal: JourneyProposal,
+    options?: { autoSelect?: boolean; userMessage?: string },
+  ) => {
     const nextCtx: DiscoveryContext = {
       ...(ctx ?? createDiscoveryContext(proposal.prompt)),
       selectedProposalId: proposal.id,
@@ -840,18 +843,27 @@ export default function Home({
     setQuestionIndex(0)
     setPhase('conversation')
 
-    const userMsg: ChatMessage = {
-      id: uid('user'),
-      role: 'user',
-      content: proposal.title,
+    const configureMessage =
+      options?.userMessage?.trim() ||
+      (options?.autoSelect ? nextCtx.seed : '') ||
+      proposal.prompt ||
+      proposal.title
+
+    let userMsg: ChatMessage | null = null
+    if (!options?.autoSelect) {
+      userMsg = {
+        id: uid('user'),
+        role: 'user',
+        content: proposal.title,
+      }
+      pushMessages(userMsg)
     }
-    pushMessages(userMsg)
 
     await withTyping(async (signal, onStatus) => {
       const ai = await requestDiscoveryAi({
         mode: 'configure',
-        userMessage: proposal.title,
-        messages: historyPlus(userMsg),
+        userMessage: configureMessage,
+        messages: userMsg ? historyPlus(userMsg) : messagesRef.current,
         phase: 'proposals',
         context: nextCtx,
         selectedProposal: proposal,
