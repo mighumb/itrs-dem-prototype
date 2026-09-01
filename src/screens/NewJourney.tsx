@@ -1148,12 +1148,17 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
     if (isRunning) {
       stopRun()
     } else if (actionCount > 0) {
+      const launchLabel = t('run')
+      setMessages((prev) => [
+        ...prev,
+        { id: `user-launch-${Date.now()}`, role: 'user', content: launchLabel },
+      ])
       void runReplay(undefined, {
         intro: isComplete ? 'replay' : 'start',
         markComplete: !isComplete,
       })
     }
-  }, [isRunning, actionCount, isComplete, stopRun, runReplay])
+  }, [isRunning, actionCount, isComplete, stopRun, runReplay, t])
 
   const handleAgentAction = useCallback(
     (actionId: string) => {
