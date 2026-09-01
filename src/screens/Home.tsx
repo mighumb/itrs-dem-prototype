@@ -930,6 +930,18 @@ export default function Home({
       existingPlan?.prompt.match(/https?:\/\/[^\s<>"']+/i)?.[0]?.replace(/[.,);]+$/g, '') ??
       null
     if (tryLaunchFromText(text, history)) return
+
+    if (
+      existingPlan &&
+      !planConfirmedRef.current &&
+      wantsPlanApproval(text) &&
+      !wantsPlanAdjustments(text, seedUrl) &&
+      !shouldLaunchFromText(text)
+    ) {
+      approvePlanForRun()
+      return
+    }
+
     const pivot = classifyIterateWorkspacePlanIntent(text, seedUrl)
 
     if (!existingPlan || pivot.newSiteOrJourney) {
