@@ -4,7 +4,7 @@
  * or “search from homepage” templates.
  */
 
-import { isFullySpecifiedMonitoringAsk } from './discoverySiteIntent.js'
+import { shouldSkipJourneyChooser } from './discoverySiteIntent.js'
 
 export type GuardProposal = {
   id: string
@@ -220,7 +220,7 @@ export function ensureProposalsHonorStatedIntent(
 
   if (normalized.length === 0) {
     const synthesized = synthesizeProposalsFromIntent(intent, destination, fr)
-    if (isFullySpecifiedMonitoringAsk(intent)) {
+    if (shouldSkipJourneyChooser(intent)) {
       return [synthesized[0]!]
     }
     return synthesized
@@ -233,7 +233,7 @@ export function ensureProposalsHonorStatedIntent(
   if (honored.length > 0) {
     const rest = pool.filter((p) => p !== honored[0] && !isWeakHomepageProposal(p))
     const merged = [honored[0]!, ...rest].slice(0, 3)
-    if (isFullySpecifiedMonitoringAsk(intent)) {
+    if (shouldSkipJourneyChooser(intent)) {
       return [merged[0]!]
     }
     return merged
@@ -241,7 +241,7 @@ export function ensureProposalsHonorStatedIntent(
 
   // Model missed the outcome — replace with synthesized paths for the stated ask.
   const synthesized = synthesizeProposalsFromIntent(intent, destination, fr)
-  if (isFullySpecifiedMonitoringAsk(intent)) {
+  if (shouldSkipJourneyChooser(intent)) {
     return [synthesized[0]!]
   }
   return synthesized
