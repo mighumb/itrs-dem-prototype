@@ -3,6 +3,7 @@
  */
 import assert from 'node:assert/strict'
 import {
+  canonicalSiteUrlFromText,
   hasConcreteJourneyDetail,
   shouldSkipJourneyChooser,
   summarizeStatedJourneyIntent,
@@ -47,3 +48,14 @@ for (const { label, text, skip } of cases) {
 }
 
 console.log(`OK — ${cases.length} shouldSkipJourneyChooser cases passed`)
+
+assert.equal(
+  canonicalSiteUrlFromText('surveiller wikipedia de Mbappé', 'fr'),
+  'https://fr.wikipedia.org',
+)
+assert.equal(
+  canonicalSiteUrlFromText('monitor wikipedia page', 'en'),
+  'https://en.wikipedia.org',
+)
+assert.equal(canonicalSiteUrlFromText('surveiller Amazon', 'fr'), null)
+console.log('OK — canonicalSiteUrlFromText cases passed')

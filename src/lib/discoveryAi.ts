@@ -307,12 +307,14 @@ function finalizeDiscoveryResult(options: {
 }): DiscoveryAiResult {
   const siteAnalysis = normalizeSiteAnalysis(options.siteAnalysis)
   const awaitingConfirm = siteAnalysis?.reason === 'awaiting_user_confirmation'
+  const awaitingSiteUrl = siteAnalysis?.reason === 'awaiting_site_url'
+  const siteUrlGate = awaitingConfirm || awaitingSiteUrl
   const declined =
     looksLikeSiteDecline(options.userMessage ?? '') ||
     answersIncludeSiteDecline(options.answers)
   const questions = declined ? null : normalizeQuestions(options.questions)
   let proposals =
-    awaitingConfirm || declined ? null : normalizeProposals(options.proposals)
+    siteUrlGate || declined ? null : normalizeProposals(options.proposals)
   let message = options.message.trim()
 
   let plan = normalizePlan(options.plan, options.fallbackPrompt)
@@ -336,7 +338,7 @@ function finalizeDiscoveryResult(options: {
     !hasAuthoritativePlan &&
     !proposals &&
     !questions &&
-    !awaitingConfirm &&
+    !siteUrlGate &&
     !declined &&
     options.mode !== 'relocalize' &&
     options.mode !== 'iterate' &&
@@ -363,6 +365,8 @@ function finalizeDiscoveryResult(options: {
   if (questions || proposals) {
     if (awaitingConfirm) {
       formTitle = t(options.preferredLanguage, 'confirmSite')
+    } else if (awaitingSiteUrl) {
+      formTitle = t(options.preferredLanguage, 'specifySite')
     } else if (!formTitle) {
       if (proposals) {
         formTitle = t(options.preferredLanguage, 'chooseJourney')

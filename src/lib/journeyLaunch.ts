@@ -10,6 +10,7 @@ import type {
 } from '../types'
 import { actionsToStages } from './journeyStages'
 import { ensureOutcomeVerify } from '../../api/_lib/planOutcomeVerify'
+import { canonicalSiteUrlFromText } from '../../api/_lib/discoverySiteIntent'
 import { stripLocaleSearchNoiseSteps } from '../../api/_lib/urlPathHelpers'
 
 /** Full Discovery → workspace handoff (not just a prompt string). */
@@ -318,7 +319,12 @@ export function buildJourneyFromDiscovery(options: {
     siteUrl ??
     extractUrlFromText(options.plan.prompt) ??
     extractUrlFromText(prompt) ??
-    extractUrlFromText(options.plan.steps.map((s) => s.label).join(' '))
+    extractUrlFromText(options.plan.steps.map((s) => s.label).join(' ')) ??
+    canonicalSiteUrlFromText(prompt, locale) ??
+    canonicalSiteUrlFromText(
+      options.plan.steps.map((s) => s.label).join(' '),
+      locale,
+    )
   const plan = ensureFormEntryInPlan(options.plan, {
     siteUrl: seedUrl,
     prompt,

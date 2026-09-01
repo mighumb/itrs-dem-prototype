@@ -24,7 +24,7 @@ import {
   wantsApplyPlanToPanel,
 } from '../lib/discoveryChat'
 import { formatQuestionnaireChatBlock, maskFreeformUserChatContent } from '../lib/sensitiveAnswers'
-import { type JourneyLaunchSession } from '../lib/journeyLaunch'
+import { type JourneyLaunchSession, extractUrlFromText } from '../lib/journeyLaunch'
 import {
   getHomeExamples,
   HOME_SAMPLE_LOGO_OPTICAL_BALANCE,
@@ -104,7 +104,9 @@ export default function Home({
 
   const rememberSnapshot = (ai: DiscoveryAiResult) => {
     const awaitingConfirm = ai.siteAnalysis?.reason === 'awaiting_user_confirmation'
-    if (awaitingConfirm) {
+    const awaitingSiteUrl = ai.siteAnalysis?.reason === 'awaiting_site_url'
+    const siteUrlGate = awaitingConfirm || awaitingSiteUrl
+    if (siteUrlGate) {
       setSiteConfirmPending(true)
     } else if (ai.siteAnalysis?.url || ai.pageSnapshot) {
       // Affirmed + explored (or explicit site turn) — confirm gate is done.
@@ -112,14 +114,14 @@ export default function Home({
     }
 
     // Keep candidate URL even before crawl (awaiting confirmation after brand/acronym resolve).
-    if (!ai.pageSnapshot && !ai.siteAnalysis?.url) return
+    if (!ai.pageSnapshot && !ai.siteAnalysis?.url && !awaitingSiteUrl) return
     setCtx((prev) => {
       const url = ai.siteAnalysis?.url ?? prev?.url ?? null
       const base = prev ?? createDiscoveryContext(url ?? ai.siteAnalysis?.title ?? 'site')
       return {
         ...base,
         url,
-        pageSnapshot: awaitingConfirm
+        pageSnapshot: siteUrlGate
           ? null
           : ai.pageSnapshot ?? base.pageSnapshot ?? null,
         seed:
@@ -679,6 +681,29 @@ export default function Home({
       pushMessages(userMsg)
     }
     const history = historyPlus(...extra)
+
+    const siteUrlAnswer = answered.find((q) => q.id === 'site-url')
+    if (siteUrlAnswer) {
+      const urlText = String(nextCtx.answers['site-url'] ?? '').trim()
+      const url =
+        extractUrlFromText(urlText) ??
+        (/^(?:www\.)?[a-z0-9][a-z0-9-]*\.[a-z]{2,}/i.test(urlText)
+          ? `https://${urlText.replace(/^https?:\/\//i, '')}`
+          : urlText)
+      const cleared: DiscoveryContext = {
+        ...nextCtx,
+        url,
+        pageSnapshot: null,
+        answers: {},
+      }
+      setSiteConfirmPending(false)
+      setCtx(cleared)
+      const msg = cleared.seed.trim()
+        ? `${urlText}\n\n${t('initialNeedLabel')} ${cleared.seed}`
+        : urlText
+      await replyWithAiChat(msg, history, cleared)
+      return
+    }
 
     // Site-confirm form: decline / affirm are chat turns — never force propose mode.
     // (Forcing propose after "Non" was opening journeys on a rejected candidate.)

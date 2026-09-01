@@ -1,4 +1,5 @@
 import type { Browser, BrowserContext, Frame, Locator, Page, Route } from 'playwright-core'
+import { canonicalSiteUrlFromText } from './discoverySiteIntent.js'
 
 export type RunnerLocale = 'en' | 'fr'
 
@@ -117,7 +118,15 @@ function guessSeedUrl(
   }
   const fromPrompt = extractUrl(prompt ?? null)
   if (fromPrompt) return isDeepUrl(fromPrompt) ? homepageOf(fromPrompt) : fromPrompt
+  const blob = [prompt, ...steps.map((s) => s.label)].filter(Boolean).join(' ')
+  const canonical = canonicalSiteUrlFromText(blob, runnerLocaleFromSteps(steps, prompt))
+  if (canonical) return canonical
   return null
+}
+
+function runnerLocaleFromSteps(steps: RunnableStep[], prompt?: string): 'en' | 'fr' {
+  const blob = `${prompt ?? ''} ${steps.map((s) => s.label).join(' ')}`
+  return /[àâäéèêëïîôùûüç]|wikipédia|français/i.test(blob) ? 'fr' : 'en'
 }
 
 /**

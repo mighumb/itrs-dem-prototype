@@ -15,6 +15,7 @@ import {
 import { DISCOVERY_SYSTEM_PROMPT } from './_lib/discoverySystemPrompt.js'
 import {
   answersIncludeSiteDecline,
+  canonicalSiteUrlFromText,
   hasExplicitSiteLocator,
   intentFromDeepLocator,
   looksLikeAmbiguousBrandName,
@@ -116,6 +117,26 @@ function shouldConfirmBeforeExplore(
   return true
 }
 
+/**
+ * User wants site work but we have no URL after resolve (brand resolve failed, etc.).
+ * Ask for URL / precise domain — never ship a Navigate plan to about:blank.
+ */
+function needsSiteUrlClarification(
+  body: DiscoveryAiRequest,
+  target: ResolvedSiteTarget | null,
+): boolean {
+  if (body.mode !== 'bootstrap' && body.mode !== 'chat') return false
+  if (!messageRequestsSiteWork(body.userMessage)) return false
+  if (looksLikeSiteDecline(body.userMessage)) return false
+  if (looksLikeSiteConfirmation(body.userMessage) && body.context?.url) return false
+  if (target?.url) return false
+  const lang = body.preferredLanguage ?? body.context?.preferredLanguage ?? 'en'
+  const seed = typeof body.context?.seed === 'string' ? body.context.seed.trim() : ''
+  const blob = [seed, body.userMessage].filter(Boolean).join('\n')
+  if (canonicalSiteUrlFromText(blob, lang)) return false
+  return true
+}
+
 function buildUserPrompt(
   body: DiscoveryAiRequest,
   analysis: SiteAnalysisResult | null,
@@ -126,6 +147,8 @@ function buildUserPrompt(
     body.preferredLanguage ?? body.context?.preferredLanguage ?? 'en'
   const attachSite = shouldAttachSiteEvidence(body)
   const confirmFirst = shouldConfirmBeforeExplore(body, target)
+  const clarifyUrl = needsSiteUrlClarification(body, target)
+  const siteUrlPending = confirmFirst || clarifyUrl
   const base = body.context ?? {}
   const seed = typeof base.seed === 'string' ? base.seed.trim() : ''
   // Latest user turn wins when they revise the journey; seed is the default otherwise.
@@ -143,7 +166,7 @@ function buildUserPrompt(
         statedJourneyIntent,
         statedJourneyIntentSource: intentSource,
         url: analysis?.url ?? target?.url ?? base.url ?? null,
-        pageSnapshot: confirmFirst
+        pageSnapshot: siteUrlPending
           ? null
           : analysis?.snapshot ?? base.pageSnapshot ?? null,
         siteTarget: target
@@ -163,9 +186,9 @@ function buildUserPrompt(
               status: analysis.status,
             }
           : null,
-        siteExplore: confirmFirst ? null : siteExplorePromptView(explore),
+        siteExplore: siteUrlPending ? null : siteExplorePromptView(explore),
         // Ambiguous acronym/name: candidate ready — confirm with user before proposals.
-        siteConfirmation: confirmFirst
+        siteConfirmation: siteUrlPending
           ? {
               needed: true,
               candidateUrl: target?.url ?? null,
@@ -181,7 +204,7 @@ function buildUserPrompt(
           userMessage: body.userMessage,
           contextUrl: base.url ?? null,
           targetUrl: analysis?.url ?? target?.url ?? base.url ?? null,
-          pageSnapshot: confirmFirst
+          pageSnapshot: siteUrlPending
             ? null
             : analysis?.snapshot ?? base.pageSnapshot ?? null,
           answers: base.answers ?? null,
@@ -220,7 +243,7 @@ function buildUserPrompt(
     !fromLatest &&
     statedJourneyIntent &&
     looksLikeSiteConfirmation(body.userMessage) &&
-    !confirmFirst
+    !siteUrlPending
       ? `${body.userMessage}\n\n[Original monitoring request — honor for proposals #1]: ${statedJourneyIntent}`
       : body.userMessage
 
@@ -236,7 +259,7 @@ function buildUserPrompt(
         /403|forbidden|access denied/i.test(`${p.title ?? ''} ${p.heading ?? ''}`),
       ),
     )
-  if (attachSite && !confirmFirst && deepFromMessage) {
+  if (attachSite && !siteUrlPending && deepFromMessage) {
     if (statedJourneyIntent) {
       userMessage = `${userMessage}\n\n[User stated BOTH an outcome and a deep destination. proposals[0] MUST implement the stated outcome — never replace it with homepage availability or “search from homepage”. Lock this exact path as the destination/context]: ${deepFromMessage}`
       if (exploreBlocked) {
@@ -245,7 +268,7 @@ function buildUserPrompt(
     } else {
       userMessage = `${userMessage}\n\n[Deep URL = destination page only — lock this exact path. Do NOT infer the monitoring goal from the path slug (e.g. /brochure ≠ download). Return 2–3 proposals for THIS page (e.g. visibility/accessibility, fill fields, fill+submit) — never jump straight to form-param questions]: ${deepFromMessage}`
     }
-  } else if (attachSite && !confirmFirst && statedJourneyIntent) {
+  } else if (attachSite && !siteUrlPending && statedJourneyIntent) {
     userMessage = `${userMessage}\n\n[Stated journey outcome — proposals[0] MUST match this; never substitute homepage availability]: ${statedJourneyIntent}`
   }
 
@@ -623,14 +646,16 @@ async function groundAndMaybeDryRunPlan(options: {
   requestStartedAt: number
   sendStatus: (text: string) => void
   confirmFirst?: boolean
+  clarifyUrl?: boolean
 }): Promise<Record<string, unknown>> {
-  const { explore, analysis, target, body, requestStartedAt, sendStatus, confirmFirst } = options
+  const { explore, analysis, target, body, requestStartedAt, sendStatus, confirmFirst, clarifyUrl } =
+    options
   let parsed = { ...options.parsed }
   const lang = body.preferredLanguage ?? body.context?.preferredLanguage ?? 'en'
   const budgetLeft = () => 55_000 - (Date.now() - requestStartedAt)
 
-  // Never dry-run (or keep a plan) while still confirming the site.
-  if (confirmFirst) {
+  // Never dry-run (or keep a plan) while URL is still unknown or unconfirmed.
+  if (confirmFirst || clarifyUrl) {
     return { ...parsed, plan: null, readyForPlan: false, proposals: null }
   }
 
@@ -638,10 +663,43 @@ async function groundAndMaybeDryRunPlan(options: {
     return parsed
   }
 
+  const seed =
+    typeof body.context?.seed === 'string' ? body.context.seed.trim() : ''
+  const contextUrl =
+    analysis?.url ??
+    target?.url ??
+    body.context?.url ??
+    canonicalSiteUrlFromText(`${seed}\n${body.userMessage}`, lang === 'fr' ? 'fr' : 'en') ??
+    null
+
+  const planSteps = Array.isArray((parsed.plan as Record<string, unknown>).steps)
+    ? ((parsed.plan as Record<string, unknown>).steps as Array<Record<string, unknown>>)
+    : []
+  const needsNavigate = planSteps.some(
+    (s) =>
+      typeof s.action === 'string' &&
+      /navigate|go to|open/i.test(s.action) &&
+      !/https?:\/\//i.test(`${s.label ?? ''} ${s.href ?? ''}`),
+  )
+  if (needsNavigate && !contextUrl) {
+    const trace = Array.isArray(parsed.workTrace) ? [...parsed.workTrace] : []
+    trace.push(
+      lang === 'fr'
+        ? 'Plan sans URL navigable — précisez le site ou collez un lien'
+        : 'Plan has no navigable URL — specify the site or paste a link',
+    )
+    return {
+      ...parsed,
+      plan: null,
+      readyForPlan: false,
+      workTrace: trace.slice(0, 8),
+    }
+  }
+
   const grounded = applyGroundingToPlan(
     parsed.plan as Record<string, unknown>,
     explore,
-    analysis?.url ?? target?.url ?? body.context?.url ?? null,
+    contextUrl,
   )
   parsed = { ...parsed, plan: grounded.plan }
 
@@ -806,12 +864,14 @@ function buildResultPayload(
   modelName: string,
   streamedStatuses: string[],
   confirmFirst: boolean,
+  clarifyUrl: boolean,
 ) {
+  const siteUrlPending = confirmFirst || clarifyUrl
   const declined = isSiteCandidateDeclined(body)
   // Hard gates: never ship journey proposals while confirming the site, or after the
   // user declined the candidate (e.g. « c'était juste un souhait »).
   let proposals =
-    confirmFirst || declined || !Array.isArray(parsed.proposals) ? null : parsed.proposals
+    siteUrlPending || declined || !Array.isArray(parsed.proposals) ? null : parsed.proposals
   let questions = declined
     ? null
     : Array.isArray(parsed.questions)
@@ -830,7 +890,7 @@ function buildResultPayload(
     summarizeStatedJourneyIntent(seed)
   const destinationUrl = analysis?.url ?? target?.url ?? body.context?.url ?? null
 
-  if (!confirmFirst && !declined) {
+  if (!siteUrlPending && !declined) {
     // Drop model-invented site confirmation when the URL was already explicit.
     if (
       questions &&
@@ -858,7 +918,7 @@ function buildResultPayload(
     }
   }
 
-  if (!confirmFirst && !declined && stated) {
+  if (!siteUrlPending && !declined && stated) {
     proposals = ensureProposalsHonorStatedIntent(proposals, stated, {
       destinationUrl,
       preferredLanguage: lang,
@@ -872,6 +932,18 @@ function buildResultPayload(
 
   // Server-owned URL fact-check UI: always the candidate host + decline.
   // Never ship model-invented alternate hosts as soft options.
+  if (clarifyUrl && !declined && !confirmFirst) {
+    questions = [
+      {
+        id: 'site-url',
+        prompt: fr
+          ? `Je n’ai pas encore d’URL certaine pour ce site. Collez le lien exact à surveiller, ou précisez le domaine (ex. fr.wikipedia.org).`
+          : `I don't have a certain URL for this site yet. Paste the exact link to monitor, or give the domain (e.g. en.wikipedia.org).`,
+        options: [],
+      },
+    ]
+  }
+
   if (confirmFirst && !declined) {
     const yes = fr ? `Oui, ${host}` : `Yes, ${host}`
     const no = fr ? 'Non, autre site' : 'No, another site'
@@ -896,6 +968,8 @@ function buildResultPayload(
   if (questions || proposals) {
     if (confirmFirst) {
       formTitle = fr ? 'Confirmer le site' : 'Confirm the site'
+    } else if (clarifyUrl) {
+      formTitle = fr ? 'Préciser le site' : 'Specify the site'
     } else if (!formTitle) {
       if (proposals) {
         formTitle = fr ? 'Choisir un parcours' : 'Choose a journey'
@@ -907,16 +981,20 @@ function buildResultPayload(
     }
   }
 
-  const fallbackMessage = confirmFirst
+  const fallbackMessage = clarifyUrl
     ? fr
-      ? `J’ai trouvé ${host} comme site officiel. Tu confirmes que c’est bien l’URL à surveiller ?`
-      : `I found ${host} as the official site. Confirm this is the URL to monitor?`
-    : fr
-      ? 'Voici ce que je propose.'
-      : 'Here is what I suggest.'
+      ? `Pour construire un parcours rejouable, j’ai besoin de l’URL du site — ou d’un nom assez précis pour que je la déduise.`
+      : `To build a replayable journey, I need the site URL — or a precise enough name so I can infer it.`
+    : confirmFirst
+      ? fr
+        ? `J’ai trouvé ${host} comme site officiel. Tu confirmes que c’est bien l’URL à surveiller ?`
+        : `I found ${host} as the official site. Confirm this is the URL to monitor?`
+      : fr
+        ? 'Voici ce que je propose.'
+        : 'Here is what I suggest.'
 
-  // While confirming, prefer a host-locked message — model copy can invent alternate sites.
-  const message = confirmFirst
+  // While URL is pending, prefer server-owned copy — model may invent hosts.
+  const message = siteUrlPending
     ? fallbackMessage
     : typeof parsed.message === 'string' && parsed.message.trim()
       ? parsed.message
@@ -936,18 +1014,18 @@ function buildResultPayload(
     questions,
     proposals,
     plan:
-      confirmFirst || declined
+      siteUrlPending || declined
         ? null
         : parsed.plan && typeof parsed.plan === 'object'
           ? parsed.plan
           : null,
-    readyForPlan: confirmFirst || declined ? false : Boolean(parsed.readyForPlan),
+    readyForPlan: siteUrlPending || declined ? false : Boolean(parsed.readyForPlan),
     pageSnapshot:
-      confirmFirst || declined
+      siteUrlPending || declined
         ? null
         : analysis?.snapshot ?? body.context?.pageSnapshot ?? null,
     siteTarget: declined ? null : target,
-    siteConfirmation: confirmFirst
+    siteConfirmation: siteUrlPending
       ? {
           needed: true,
           candidateUrl: target?.url ?? null,
@@ -966,18 +1044,28 @@ function buildResultPayload(
             exploreMethod: explore?.method ?? null,
             pagesVisited: explore?.pagesVisited ?? null,
           }
-        : target?.url
+        : clarifyUrl
           ? {
-              // Candidate from brand resolve — client keeps URL for the confirm turn.
               ok: false,
-              url: target.url,
-              reason: confirmFirst ? 'awaiting_user_confirmation' : null,
-              title: target.label,
+              url: '',
+              reason: 'awaiting_site_url',
+              title: null,
               status: null,
               exploreMethod: null,
               pagesVisited: null,
             }
-          : null,
+          : target?.url
+            ? {
+                // Candidate from brand resolve — client keeps URL for the confirm turn.
+                ok: false,
+                url: target.url,
+                reason: confirmFirst ? 'awaiting_user_confirmation' : null,
+                title: target.label,
+                status: null,
+                exploreMethod: null,
+                pagesVisited: null,
+              }
+            : null,
     model: modelName,
   }
 }
@@ -1022,6 +1110,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       apiKeyEntries.map((entry) => entry.key),
     )
     const confirmFirst = shouldConfirmBeforeExplore(body, target)
+    const clarifyUrl = needsSiteUrlClarification(body, target)
 
     ;({ analysis, explore } = await gatherSiteEvidence(body, target, sendStatus))
 
@@ -1084,6 +1173,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               requestStartedAt,
               sendStatus,
               confirmFirst,
+              clarifyUrl,
             })
 
             writeNdjson(
@@ -1097,6 +1187,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 modelName,
                 streamedStatuses,
                 confirmFirst,
+                clarifyUrl,
               ),
             )
             return res.end()

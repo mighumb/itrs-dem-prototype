@@ -7,6 +7,7 @@ import {
   extractArticleBrandCompounds,
   looksLikeSocialChat,
   messageRequestsSiteWork,
+  canonicalSiteUrlFromText,
 } from './discoverySiteIntent.js'
 
 export type ResolvedSiteTarget = {
@@ -440,6 +441,16 @@ export async function resolveSiteTarget(
       source: hadProtocol ? 'explicit_url' : 'bare_domain',
       label: null,
       note: hadProtocol ? null : `Normalized domain to ${fromMessage}`,
+    }
+  }
+
+  const canonical = canonicalSiteUrlFromText(userText, options.preferredLanguage)
+  if (canonical) {
+    return {
+      url: canonical,
+      source: 'bare_domain',
+      label: null,
+      note: `Known site URL (${canonical})`,
     }
   }
 

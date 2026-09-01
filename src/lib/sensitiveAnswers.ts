@@ -4,7 +4,7 @@ const SENSITIVE_FIELD =
   /e-?mail|mail|téléphone|telephone|phone|prénom|prenom|first\s*name|nom\b|last\s*name|coordonn|mot\s*de\s*passe|password|passwd|pwd|secret|otp|identifiant|username|user\s*name|login|utilisateur|carte|card|cvv|cvc|pin\b/i
 
 export function isSensitiveAnswerField(prompt: string, questionId?: string): boolean {
-  if (questionId === 'site-confirm') return false
+  if (questionId === 'site-confirm' || questionId === 'site-url') return false
   return SENSITIVE_FIELD.test(prompt)
 }
 
