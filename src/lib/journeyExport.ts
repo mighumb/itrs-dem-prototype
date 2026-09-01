@@ -1,6 +1,7 @@
 import type { JourneyAction, LastRunSnapshot } from '../types'
 import { computeLastRunKpi } from './runMonitoring'
 import type { Locale } from '../i18n/messages'
+import type { RecordedBrowserStep } from './extensionBridge'
 
 export type JourneyExportStep = {
   n: number
@@ -87,6 +88,61 @@ export function serializeJourneyExport(
 
 export function journeyExportFilename(title: string): string {
   return `${exportSlug(title)}-steps.json`
+}
+
+function normalizeExportStep(raw: unknown, index: number): JourneyExportStep | null {
+  if (!raw || typeof raw !== 'object') return null
+  const s = raw as Record<string, unknown>
+  if (typeof s.label !== 'string' || typeof s.action !== 'string') return null
+  const id = typeof s.id === 'string' && s.id.trim() ? s.id.trim() : `import-${index + 1}`
+  return {
+    n: typeof s.n === 'number' ? s.n : index + 1,
+    id,
+    action: s.action.trim(),
+    label: s.label.trim(),
+    target: typeof s.target === 'string' ? s.target : null,
+    href: typeof s.href === 'string' ? s.href : null,
+    targetHint: typeof s.targetHint === 'string' ? s.targetHint : null,
+  }
+}
+
+/** Parse journey export JSON (file body or ```json block). */
+export function parseJourneyExportDocument(raw: string): JourneyExportDocument | null {
+  const trimmed = raw.trim()
+  if (!trimmed) return null
+  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1]?.trim()
+  const jsonText = fenced || trimmed
+  let data: unknown
+  try {
+    data = JSON.parse(jsonText)
+  } catch {
+    return null
+  }
+  if (!data || typeof data !== 'object') return null
+  const doc = data as Record<string, unknown>
+  const stepsRaw = Array.isArray(doc.steps) ? doc.steps : null
+  if (!stepsRaw || stepsRaw.length === 0) return null
+  const steps = stepsRaw
+    .map((step, index) => normalizeExportStep(step, index))
+    .filter((s): s is JourneyExportStep => s != null)
+  if (steps.length === 0) return null
+  const title =
+    typeof doc.title === 'string' && doc.title.trim() ? doc.title.trim().slice(0, 80) : 'Recorded journey'
+  const url = typeof doc.url === 'string' && /^https?:\/\//i.test(doc.url) ? doc.url : null
+  return { title, url, steps }
+}
+
+export function journeyExportToRecordedSteps(doc: JourneyExportDocument): RecordedBrowserStep[] {
+  return doc.steps.map((step, index) => ({
+    id: step.id || `import-${index + 1}`,
+    action: step.action,
+    label: step.label,
+    url: doc.url ?? step.href ?? '',
+    href: step.href ?? undefined,
+    targetHint: step.targetHint ?? undefined,
+    selector: step.target ?? undefined,
+    at: Date.now() + index,
+  }))
 }
 
 export function buildRunReportExportDocument(

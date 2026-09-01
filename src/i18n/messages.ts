@@ -120,6 +120,10 @@ export const messages = {
     extensionStartFailed: 'Could not reach the extension. Is it enabled on this page?',
     extensionNoSteps: 'No steps recorded yet. Browse the site, then try again.',
     extensionImported: 'Imported {count} step(s) from your Chrome recording. You can edit or Run them.',
+    extensionReadyToRun:
+      '{count} step(s) are loaded in the panel — click **Lancer** to replay them with Playwright. The assistant is optional here; your recording is the source of truth.',
+    extensionJsonApplied: 'Journey JSON applied — {count} step(s) loaded. Click **Lancer** to run.',
+    extensionJsonInvalid: 'Could not read journey steps from that JSON. Use the export from Take control or the panel export menu.',
     downloadJsonFile: 'Download JSON file',
     jsonAttachmentHint: 'JSON · click to download',
 
@@ -499,6 +503,11 @@ export const messages = {
     extensionStartFailed: 'Extension inaccessible. Est-elle activée sur cette page ?',
     extensionNoSteps: 'Aucune étape pour l’instant. Naviguez sur le site, puis réessayez.',
     extensionImported: '{count} étape(s) importée(s) depuis Chrome. Vous pouvez les modifier ou Lancer.',
+    extensionReadyToRun:
+      '{count} étape(s) chargées dans le panneau — clique **Lancer** pour les rejouer avec Playwright. L’assistant est optionnel ici ; ton enregistrement fait foi.',
+    extensionJsonApplied: 'JSON du parcours appliqué — {count} étape(s) chargées. Clique **Lancer** pour exécuter.',
+    extensionJsonInvalid:
+      'Impossible de lire les étapes dans ce JSON. Utilise l’export « Prendre le contrôle » ou le menu d’export du panneau.',
     downloadJsonFile: 'Télécharger le fichier JSON',
     jsonAttachmentHint: 'JSON · cliquer pour télécharger',
 

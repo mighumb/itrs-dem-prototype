@@ -793,6 +793,17 @@ function looksLikeCssSelector(value: string): boolean {
   return /^(?:[#.\[a-z]|input|textarea|button|form)/i.test(value.trim()) && /[#.\[\]=>:]/.test(value)
 }
 
+/** Tag-only selectors from the extension recorder match the wrong element. */
+export function isWeakRecordedSelector(selector: string | null | undefined): boolean {
+  if (!selector) return true
+  const s = selector.trim().toLowerCase()
+  if (!s) return true
+  if (/^(a|button|div|span|input|select|textarea|li|ul|p|h[1-6]|form|label|section|article|nav|main)$/.test(s)) {
+    return true
+  }
+  return false
+}
+
 /** True when a hint names a form field rather than the value to type. */
 function looksLikeFieldName(hint: string): boolean {
   const h = hint.trim()
@@ -972,7 +983,7 @@ async function tryVisibleLocator(
  * (Nom / Email / …) — never dump every value into the first text input.
  */
 async function resolveTypeLocator(page: Page, step: RunnableStep): Promise<Locator | null> {
-  if (step.target && !/^https?:\/\//i.test(step.target)) {
+  if (step.target && !/^https?:\/\//i.test(step.target) && !isWeakRecordedSelector(step.target)) {
     const sel = step.target.split(',')[0]!.trim()
     const byTarget = await tryVisibleLocator(page, () => page.locator(sel).first(), 900)
     if (byTarget) return byTarget
@@ -1149,7 +1160,7 @@ async function resolveClickLocator(page: Page, step: RunnableStep): Promise<Loca
     }
   }
 
-  if (step.target && !/^https?:\/\//i.test(step.target)) {
+  if (step.target && !/^https?:\/\//i.test(step.target) && !isWeakRecordedSelector(step.target)) {
     try {
       const loc = page.locator(step.target).first()
       if (await loc.isVisible({ timeout: 900 })) return loc
