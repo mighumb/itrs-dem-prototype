@@ -239,14 +239,6 @@ function cssEscape(value: string): string {
   return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
 }
 
-function isWikipediaHost(url: string): boolean {
-  try {
-    return /(^|\.)wikipedia\.org$/i.test(new URL(url).hostname)
-  } catch {
-    return false
-  }
-}
-
 export type MarketCountry = 'FR' | 'US'
 
 /**
@@ -715,37 +707,88 @@ async function isSearchFieldLocator(loc: Locator): Promise<boolean> {
       const id = el.id || ''
       const name = el.name || ''
       const type = el.type || ''
+      const role = el.getAttribute('role') || ''
+      const placeholder = el.placeholder || ''
       return (
+        role === 'searchbox' ||
         type === 'search' ||
         id === 'searchInput' ||
         name === 'search' ||
         name === 'q' ||
-        name === 'query'
+        name === 'query' ||
+        /recherch|search/i.test(placeholder)
       )
     })
     .catch(() => false)
 }
 
-async function submitWikipediaSearch(page: Page, query: string): Promise<void> {
+/** After typing in a search box: wait for suggestions, click a match, else Enter. */
+async function submitTypeaheadAfterFill(page: Page, query: string): Promise<void> {
   const needle = query.trim().slice(0, 60)
-  const menuSelectors = [
-    '.cdx-menu-item',
-    '.cdx-typeahead-search__menu .cdx-menu-item',
-    '.mw-searchSuggest-link',
-    '.suggestion-title',
+  const firstToken = needle.split(/\s+/)[0] ?? needle
+  const tokenRe = new RegExp(firstToken.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i')
+  await page.waitForTimeout(350)
+
+  const suggestionStrategies: Array<() => Promise<boolean>> = [
+    // ARIA combobox / autocomplete (Codex, MUI, many design systems).
+    async () => {
+      const option = page.getByRole('option', { name: tokenRe }).first()
+      if (!(await option.isVisible({ timeout: 2000 }).catch(() => false))) return false
+      await option.click({ timeout: 4000 })
+      return true
+    },
+    async () => {
+      const listbox = page.getByRole('listbox').first()
+      if (!(await listbox.isVisible({ timeout: 1500 }).catch(() => false))) return false
+      const item = listbox.getByRole('option', { name: tokenRe }).first()
+      if (!(await item.isVisible({ timeout: 1500 }).catch(() => false))) return false
+      await item.click({ timeout: 4000 })
+      return true
+    },
+    // Visible menu rows (generic + MediaWiki Codex class names).
+    async () => {
+      for (const sel of [
+        '[role="option"]',
+        '[role="listbox"] li',
+        '.cdx-menu-item',
+        '.cdx-typeahead-search__menu .cdx-menu-item',
+        '.autocomplete-suggestion',
+        '.search-suggestion',
+        '.ui-menu-item',
+      ]) {
+        const item = page.locator(sel).filter({ hasText: tokenRe }).first()
+        if (await item.isVisible({ timeout: 1200 }).catch(() => false)) {
+          await item.click({ timeout: 4000 })
+          return true
+        }
+      }
+      return false
+    },
+    // First suggestion link in an open search menu (Wikipedia and similar).
+    async () => {
+      const link = page
+        .locator(
+          '[role="listbox"] a[href], .cdx-typeahead-search__menu a[href], .cdx-menu a[href], .search-suggest a[href]',
+        )
+        .filter({ hasText: tokenRe })
+        .first()
+      if (!(await link.isVisible({ timeout: 1500 }).catch(() => false))) return false
+      await link.click({ timeout: 4000 })
+      return true
+    },
   ]
-  for (const sel of menuSelectors) {
+
+  for (const tryClick of suggestionStrategies) {
     try {
-      const item = page.locator(sel).filter({ hasText: needle }).first()
-      if (await item.isVisible({ timeout: 2500 })) {
-        await item.click({ timeout: 4000 })
+      if (await tryClick()) {
         await page.waitForLoadState('domcontentloaded', { timeout: 15000 }).catch(() => undefined)
         return
       }
     } catch {
-      // try next selector
+      // try next strategy
     }
   }
+
   await page.keyboard.press('Enter')
   await page.waitForLoadState('domcontentloaded', { timeout: 15000 }).catch(() => undefined)
 }
@@ -757,20 +800,15 @@ async function submitSearchAfterType(
   query: string,
 ): Promise<void> {
   const isSearchField = await isSearchFieldLocator(loc)
-  const shouldSubmitWithEnter =
+  const shouldSubmit =
+    isSearchTypeStep(step) ||
     /^search$/i.test(step.action.trim()) ||
     /^(search|recherch)/i.test(step.label.trim()) ||
     isSearchField
 
-  if (!shouldSubmitWithEnter) return
+  if (!shouldSubmit) return
 
-  if (isWikipediaHost(page.url())) {
-    await submitWikipediaSearch(page, query)
-    return
-  }
-
-  await page.keyboard.press('Enter')
-  await page.waitForLoadState('domcontentloaded', { timeout: 15000 }).catch(() => undefined)
+  await submitTypeaheadAfterFill(page, query)
 }
 
 /** Prefer quoted payload in labels: "…", '…', « … », “ … ”. */
@@ -1346,6 +1384,11 @@ async function executeStepWithCapture(
       throw new Error(
         `Could not find the form field for: ${step.label}. Refusing to type into an unrelated input.`,
       )
+    }
+    const searchSubmit = isSearchTypeStep(step) || (await isSearchFieldLocator(loc))
+    if (searchSubmit) {
+      await submitSearchAfterType(page, step, loc, value)
+      return captureFrame(page)
     }
     const frame = await captureHighlighted(page, loc)
     await submitSearchAfterType(page, step, loc, value)
