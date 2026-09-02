@@ -239,6 +239,54 @@ function cssEscape(value: string): string {
   return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
 }
 
+/** Strip combining marks so "Zinedine" matches "Zinédine". */
+export function foldDiacritics(value: string): string {
+  return value.normalize('NFD').replace(/\p{M}/gu, '')
+}
+
+/**
+ * Case- and diacritic-insensitive RegExp for Playwright role/name matching.
+ * Maps base Latin letters to common accented variants.
+ */
+export function diacriticInsensitiveRegExp(value: string, flags = 'i'): RegExp {
+  // Fold first so "Zinédine" and "Zinedine" produce the same character classes.
+  const sliced = foldDiacritics(value).trim().slice(0, 48)
+  const escaped = sliced.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const variants: Record<string, string> = {
+    a: 'aàáâãäåāăą',
+    c: 'cçćč',
+    e: 'eèéêëēĕėęě',
+    i: 'iìíîïĩīĭį',
+    n: 'nñńň',
+    o: 'oòóôõöøōŏő',
+    u: 'uùúûüũūŭůű',
+    y: 'yýÿŷ',
+    s: 'sśšş',
+    z: 'zźżž',
+  }
+  const body = [...escaped]
+    .map((ch) => {
+      const lower = ch.toLowerCase()
+      const set = variants[lower]
+      if (!set) return ch
+      const chars = ch === lower ? set : set.toUpperCase()
+      return `[${chars}]`
+    })
+    .join('')
+  return new RegExp(body, flags)
+}
+
+function pageLooksLikeSearchResults(url: string): boolean {
+  try {
+    const u = new URL(url)
+    if (u.searchParams.has('search')) return true
+    const pathAndQuery = `${u.pathname}${u.search}${u.hash}`
+    return /special:search|sp[eé]cial:recherche|special%3asearch/i.test(pathAndQuery)
+  } catch {
+    return /[?&]search=|special:search|sp[eé]cial:recherche/i.test(url)
+  }
+}
+
 export type MarketCountry = 'FR' | 'US'
 
 /**
@@ -722,11 +770,21 @@ async function isSearchFieldLocator(loc: Locator): Promise<boolean> {
     .catch(() => false)
 }
 
+/** True when visible text matches the query ignoring case/diacritics. */
+async function locatorTextMatchesFolded(loc: Locator, foldedNeedle: string): Promise<boolean> {
+  const text = ((await loc.innerText().catch(() => '')) || (await loc.textContent().catch(() => '')) || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!text) return false
+  return foldDiacritics(text).toLowerCase().includes(foldedNeedle.toLowerCase())
+}
+
 /** After typing in a search box: wait for suggestions, click a match, else Enter. */
 async function submitTypeaheadAfterFill(page: Page, query: string): Promise<void> {
   const needle = query.trim().slice(0, 60)
   const firstToken = needle.split(/\s+/)[0] ?? needle
-  const tokenRe = new RegExp(firstToken.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i')
+  const tokenRe = diacriticInsensitiveRegExp(firstToken)
+  const foldedToken = foldDiacritics(firstToken)
   await page.waitForTimeout(350)
 
   const suggestionStrategies: Array<() => Promise<boolean>> = [
@@ -745,7 +803,7 @@ async function submitTypeaheadAfterFill(page: Page, query: string): Promise<void
       await item.click({ timeout: 4000 })
       return true
     },
-    // Visible menu rows (generic + MediaWiki Codex class names).
+    // Visible menu rows (generic + MediaWiki Codex class names) — folded text match.
     async () => {
       for (const sel of [
         '[role="option"]',
@@ -756,8 +814,12 @@ async function submitTypeaheadAfterFill(page: Page, query: string): Promise<void
         '.search-suggestion',
         '.ui-menu-item',
       ]) {
-        const item = page.locator(sel).filter({ hasText: tokenRe }).first()
-        if (await item.isVisible({ timeout: 1200 }).catch(() => false)) {
+        const items = page.locator(sel)
+        const n = Math.min(await items.count().catch(() => 0), 10)
+        for (let i = 0; i < n; i++) {
+          const item = items.nth(i)
+          if (!(await item.isVisible({ timeout: 400 }).catch(() => false))) continue
+          if (!(await locatorTextMatchesFolded(item, foldedToken))) continue
           await item.click({ timeout: 4000 })
           return true
         }
@@ -766,15 +828,18 @@ async function submitTypeaheadAfterFill(page: Page, query: string): Promise<void
     },
     // First suggestion link in an open search menu (Wikipedia and similar).
     async () => {
-      const link = page
-        .locator(
-          '[role="listbox"] a[href], .cdx-typeahead-search__menu a[href], .cdx-menu a[href], .search-suggest a[href]',
-        )
-        .filter({ hasText: tokenRe })
-        .first()
-      if (!(await link.isVisible({ timeout: 1500 }).catch(() => false))) return false
-      await link.click({ timeout: 4000 })
-      return true
+      const links = page.locator(
+        '[role="listbox"] a[href], .cdx-typeahead-search__menu a[href], .cdx-menu a[href], .search-suggest a[href]',
+      )
+      const n = Math.min(await links.count().catch(() => 0), 10)
+      for (let i = 0; i < n; i++) {
+        const link = links.nth(i)
+        if (!(await link.isVisible({ timeout: 400 }).catch(() => false))) continue
+        if (!(await locatorTextMatchesFolded(link, foldedToken))) continue
+        await link.click({ timeout: 4000 })
+        return true
+      }
+      return false
     },
   ]
 
@@ -1215,12 +1280,57 @@ async function resolveClickLocator(page: Page, step: RunnableStep): Promise<Loca
     isSearchSubmitClickLabel(step.label) ? 'Search' : null,
     step.label
       .replace(/^(click|select|choose|open|choisis|sélectionne|ouvre|clique|cliquer)\s+/i, '')
+      .replace(/^(sur\s+)?(le\s+|la\s+|l['’]\s*)?(lien|bouton|onglet|menu|section)\s+/i, '')
+      .replace(/^(sur\s+)/i, '')
       .split(/\s+and\b/i)[0]
       ?.trim(),
   ].filter((v): v is string => Boolean(v && v.length > 1 && v.length < 80))
 
   for (const hint of textHints) {
-    const pattern = new RegExp(hint.slice(0, 40).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i')
+    const pattern = diacriticInsensitiveRegExp(hint.slice(0, 40))
+    const folded = foldDiacritics(hint).slice(0, 40)
+
+    // Prefer primary search-result title links when still on a results page.
+    if (pageLooksLikeSearchResults(page.url())) {
+      const resultLinks = page.locator(
+        [
+          '.mw-search-result-heading a',
+          '.mw-search-results .mw-search-result-heading a',
+          '[data-mw-search-result] a',
+          'main .search-result a',
+          '.searchresults .mw-search-result-heading a',
+          '.searchresults a',
+          // “La page X a été trouvée” banner on Special:Search
+          '.mw-search-exists a',
+          '#mw-content-text > .mw-parser-output > p a',
+          '#mw-content-text > p a',
+        ].join(', '),
+      )
+      const n = Math.min(await resultLinks.count().catch(() => 0), 16)
+      for (let i = 0; i < n; i++) {
+        const link = resultLinks.nth(i)
+        if (!(await link.isVisible({ timeout: 500 }).catch(() => false))) continue
+        if (!(await locatorTextMatchesFolded(link, folded))) continue
+        return link
+      }
+    }
+
+    // Table of contents / in-page section jumps (Palmarès, etc.).
+    try {
+      const toc = page.locator(
+        '#toc a, .toc a, .vector-toc a, nav[aria-label*="contents" i] a, nav[aria-label*="sommaire" i] a, .mw-table-of-contents a',
+      )
+      const tocCount = Math.min(await toc.count().catch(() => 0), 40)
+      for (let i = 0; i < tocCount; i++) {
+        const link = toc.nth(i)
+        if (!(await link.isVisible({ timeout: 200 }).catch(() => false))) continue
+        if (!(await locatorTextMatchesFolded(link, folded))) continue
+        return link
+      }
+    } catch {
+      // continue
+    }
+
     try {
       const loc = page.getByRole('button', { name: pattern }).first()
       if (await loc.isVisible({ timeout: 700 })) return loc
@@ -1233,8 +1343,36 @@ async function resolveClickLocator(page: Page, step: RunnableStep): Promise<Loca
     } catch {
       // continue
     }
+    // Heading match then click its nearest anchor (section navigation).
     try {
-      const loc = page.getByText(hint, { exact: false }).first()
+      const heading = page.locator('h1, h2, h3, h4').filter({ hasText: pattern }).first()
+      if (await heading.isVisible({ timeout: 700 }).catch(() => false)) {
+        const id = await heading.getAttribute('id').catch(() => null)
+        if (id) {
+          const byId = page.locator(`#${cssEscape(id)}, a[href="#${cssEscape(id)}"]`).first()
+          if (await byId.isVisible({ timeout: 400 }).catch(() => false)) return byId
+          return heading
+        }
+        return heading
+      }
+    } catch {
+      // continue
+    }
+    // Folded scan of visible links/buttons (accents: Zinedine ↔ Zinédine).
+    try {
+      const candidates = page.locator('a[href], button, [role="button"], [role="link"]')
+      const n = Math.min(await candidates.count().catch(() => 0), 40)
+      for (let i = 0; i < n; i++) {
+        const el = candidates.nth(i)
+        if (!(await el.isVisible({ timeout: 200 }).catch(() => false))) continue
+        if (!(await locatorTextMatchesFolded(el, folded))) continue
+        return el
+      }
+    } catch {
+      // continue
+    }
+    try {
+      const loc = page.getByText(pattern).first()
       if (await loc.isVisible({ timeout: 700 })) return loc
     } catch {
       // continue
@@ -1450,6 +1588,22 @@ async function executeStepWithCapture(
       await prepareFormForSubmit(page)
     }
 
+    // Type already submitted search (Enter / suggestion) — don't re-click Rechercher.
+    // On a results page, open the exact-match / top result instead of re-submitting.
+    if (isSearchSubmitClickLabel(step.label) && pageLooksLikeSearchResults(page.url())) {
+      const primary = page
+        .locator(
+          '.mw-search-exists a, .mw-search-result-heading a, #mw-content-text > .mw-parser-output > p a, #mw-content-text > p a',
+        )
+        .first()
+      if (await primary.isVisible({ timeout: 1500 }).catch(() => false)) {
+        const frame = await captureHighlighted(page, primary)
+        await performClick(page, primary)
+        return frame
+      }
+      return captureFrame(page)
+    }
+
     const loc = await resolveClickLocator(page, step)
     if (loc) {
       // Capture with blue box BEFORE the click (element may disappear after navigation).
@@ -1502,11 +1656,27 @@ async function executeStepWithCapture(
   await new Promise((resolve) => setTimeout(resolve, 500))
   let verifyLoc: Locator | null = null
   if (step.targetHint) {
-    verifyLoc = page.getByText(step.targetHint, { exact: false }).first()
-    const visible = await verifyLoc
+    const hint = step.targetHint.trim()
+    const pattern = diacriticInsensitiveRegExp(hint.slice(0, 48))
+    const folded = foldDiacritics(hint).slice(0, 48)
+    verifyLoc = page.getByText(pattern).first()
+    let visible = await verifyLoc
       .waitFor({ state: 'visible', timeout: 8000 })
       .then(() => true)
       .catch(() => false)
+    if (!visible) {
+      // Folded scan of headings/body (Palmarès ≈ Palmares, entraîneur accents, etc.).
+      const nodes = page.locator('h1, h2, h3, h4, h5, main, article, #mw-content-text, [role="main"]')
+      const n = Math.min(await nodes.count().catch(() => 0), 30)
+      for (let i = 0; i < n; i++) {
+        const el = nodes.nth(i)
+        if (!(await el.isVisible({ timeout: 200 }).catch(() => false))) continue
+        if (!(await locatorTextMatchesFolded(el, folded))) continue
+        verifyLoc = el
+        visible = true
+        break
+      }
+    }
     if (!visible) {
       // Also try role/landmark-ish login success signals when hint is generic.
       const alt = page
