@@ -1347,9 +1347,13 @@ export default function Home({
 
   const handleRun = () => {
     if (!plan) return
+    const launchLabel = t('run')
+    const userMsg: ChatMessage = { id: uid('user'), role: 'user', content: launchLabel }
+    const nextMessages = [...messages, userMsg]
+    setMessages(nextMessages)
     onStart({
       prompt: plan.prompt,
-      messages,
+      messages: nextMessages,
       plan,
       siteUrl: ctx?.url ?? plan.prompt.match(/https?:\/\/[^\s<>"']+/i)?.[0]?.replace(/[.,);]+$/g, '') ?? null,
       autoRun: true,
