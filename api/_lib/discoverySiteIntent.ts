@@ -389,6 +389,52 @@ export function messageRequestsSiteWork(text: string): boolean {
 }
 
 /**
+ * User rejects download / submit and wants field-fill / validation only.
+ * « Je ne veux pas télécharger… seulement tester les champs » must NOT keep a download intent.
+ */
+export function isFillFieldsWithoutSubmitAsk(text: string): boolean {
+  const t = text.trim()
+  if (!t) return false
+  const rejectsDownloadOrSubmit =
+    /(?:ne\s+(?:veux|veut|voulais|souhaite|souhaitez|voudrais)\s+pas|pas\s+(?:envie|besoin)\s+de|sans|without|don't|do\s+not|no\s+need\s+to)\s+(?:[^\n.!?]{0,40}?)?(?:télécharg\w*|download\w*|soumett\w*|submit\w*|envoy\w*|envoyer)/i.test(
+      t,
+    ) ||
+    /(?:pas|sans|without)\s+(?:de\s+|d['’])?(?:téléchargement|download|soumission|submit)/i.test(t)
+  const wantsFields =
+    /(?:seulement|uniquement|only|juste|just)\s+(?:tester\s+|remplir\s+|fill(?:ing)?\s+)?(?:les\s+|the\s+)?(?:champs|fields|saisie|formulaire|form\b)/i.test(
+      t,
+    ) ||
+    /(?:tester|test(?:er)?|remplir|fill(?:ing)?|valider|validate)\s+(?:les\s+|the\s+)?(?:champs|fields|saisie|formulaire|form\b)/i.test(
+      t,
+    ) ||
+    /(?:champs|fields)\s+(?:de\s+)?(?:saisie|input|information)/i.test(t)
+  return rejectsDownloadOrSubmit || (wantsFields && /télécharg|download|brochure|soumett|submit/i.test(t) && rejectsDownloadOrSubmit)
+}
+
+/** Normalized intent when the user pivots to form-fill without download/submit. */
+export function fillFieldsOnlyIntent(preferredLanguage?: string | null): string {
+  return preferredLanguage === 'fr' || preferredLanguage == null
+    ? 'Remplir / tester les champs du formulaire sans télécharger ni soumettre'
+    : 'Fill / test the form fields without downloading or submitting'
+}
+
+/**
+ * Prefer the latest turn when it revises the goal (e.g. cancels download).
+ * Falls back to seed intent when the latest message has no journey outcome.
+ */
+export function resolveStatedJourneyIntent(
+  latestMessage: string,
+  seed?: string | null,
+  preferredLanguage?: string | null,
+): string | null {
+  const latest = latestMessage.trim()
+  if (latest && isFillFieldsWithoutSubmitAsk(latest)) {
+    return fillFieldsOnlyIntent(preferredLanguage ?? (/[àâäéèêëïîôùûüç]/i.test(latest) ? 'fr' : 'en'))
+  }
+  return summarizeStatedJourneyIntent(latest) ?? summarizeStatedJourneyIntent(seed ?? '')
+}
+
+/**
  * User already named a concrete journey outcome (beyond brand / URL alone).
  * Used so proposals #1 must honor that ask after site confirm — not generic templates.
  *
@@ -400,6 +446,11 @@ export function summarizeStatedJourneyIntent(text: string): string | null {
   if (!t || t.length < 3) return null
   if (looksLikeSiteConfirmation(t) || looksLikeSiteDecline(t) || looksLikeSocialChat(t)) {
     return null
+  }
+
+  // Explicit pivot: reject download/submit → fill fields only (do not keep “télécharger” as intent).
+  if (isFillFieldsWithoutSubmitAsk(t)) {
+    return fillFieldsOnlyIntent(/[àâäéèêëïîôùûüç]|je\s+ne|champs|saisie|formulaire/i.test(t) ? 'fr' : 'en')
   }
 
   // Strip URLs/domains so path tokens (…/brochure) never count as journey verbs.
@@ -417,9 +468,20 @@ export function summarizeStatedJourneyIntent(text: string): string | null {
     return null
   }
 
+  // Remove negated download/submit phrases so “ne veux pas télécharger” does not count as download.
+  const withoutNegatedDownloads = withoutLocators
+    .replace(
+      /(?:ne\s+(?:veux|veut|voulais|souhaite|voudrais)\s+pas|pas\s+(?:envie|besoin)\s+de|sans|without|don't|do\s+not)\s+(?:[^\n.!?]{0,40}?)?(?:télécharg\w*|download\w*|soumett\w*|submit\w*|envoy\w*)/gi,
+      ' ',
+    )
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  const forVerbCheck = withoutNegatedDownloads || withoutLocators
+
   const hasJourneyVerb =
-    /\b(achat|acheter|commande|commander|panier|livraison|livrer|checkout|purchase|buy|buying|order|orders|cart|delivery|recherche|search|connexion|login|log[\s-]?in|inscription|signup|sign[\s-]?up|parcours|journey|monitorer|monitore|surveiller|surveille|réserver|reserver|book(?:ing)?|payer|pay|payment|tunnel|brochure|télécharger|telecharger|download|formulaire|devis|contact|essai|trial|demo|démo|vérif(?:ier)?|verify|check|remplir|fill|soumettre|submit|accessib|visible|affich)/i.test(
-      withoutLocators,
+    /\b(achat|acheter|commande|commander|panier|livraison|livrer|checkout|purchase|buy|buying|order|orders|cart|delivery|recherche|search|connexion|login|log[\s-]?in|inscription|signup|sign[\s-]?up|parcours|journey|monitorer|monitore|surveiller|surveille|réserver|reserver|book(?:ing)?|payer|pay|payment|tunnel|brochure|télécharger|telecharger|download|formulaire|devis|contact|essai|trial|demo|démo|vérif(?:ier)?|verify|check|remplir|fill|soumettre|submit|accessib|visible|affich|tester|test|champ|field|saisie)/i.test(
+      forVerbCheck,
     )
   if (!hasJourneyVerb) return null
 

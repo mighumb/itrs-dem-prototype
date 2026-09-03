@@ -8,6 +8,7 @@ import { useLocale } from '../context/LocaleContext'
 import { HOME_ROTATING_TARGETS } from '../i18n/messages'
 import {
   answersIncludeSiteDecline,
+  isFillFieldsWithoutSubmitAsk,
   looksLikeSiteConfirmation,
   looksLikeSiteDecline,
   requestDiscoveryAi,
@@ -969,12 +970,26 @@ export default function Home({
       setCtx(chatCtx)
     } else if (
       chatCtx &&
-      summarizeStatedJourneyIntent(text) &&
+      (summarizeStatedJourneyIntent(text) || isFillFieldsWithoutSubmitAsk(text)) &&
       !looksLikeSiteConfirmation(text)
     ) {
-      // User revised the journey in chat — refresh seed so later proposes follow the new ask.
-      chatCtx = { ...chatCtx, seed: text.trim() }
+      // User revised the journey in chat — refresh seed and drop a stale selected proposal
+      // (e.g. “Télécharger via Ressources” after “je ne veux pas télécharger”).
+      chatCtx = {
+        ...chatCtx,
+        seed: text.trim(),
+        selectedProposalId: isFillFieldsWithoutSubmitAsk(text)
+          ? null
+          : chatCtx.selectedProposalId,
+        selectedProposal: isFillFieldsWithoutSubmitAsk(text)
+          ? null
+          : chatCtx.selectedProposal,
+      }
       setCtx(chatCtx)
+      if (isFillFieldsWithoutSubmitAsk(text)) {
+        setProposals([])
+        setConfiguring(false)
+      }
     }
 
     const useIterate = Boolean(existingPlan && !pivot.newSiteOrJourney)

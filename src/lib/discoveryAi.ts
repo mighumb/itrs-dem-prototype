@@ -24,6 +24,8 @@ export {
   looksLikeSiteDecline,
   looksLikeSocialChat,
   messageRequestsSiteWork,
+  isFillFieldsWithoutSubmitAsk,
+  resolveStatedJourneyIntent,
   summarizeStatedJourneyIntent,
   shouldSkipJourneyChooser,
   isFullySpecifiedMonitoringAsk,
