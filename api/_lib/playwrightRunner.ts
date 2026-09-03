@@ -276,14 +276,18 @@ export function diacriticInsensitiveRegExp(value: string, flags = 'i'): RegExp {
   return new RegExp(body, flags)
 }
 
+/** Heuristic: URL looks like a search-results page (any site). */
 function pageLooksLikeSearchResults(url: string): boolean {
   try {
     const u = new URL(url)
-    if (u.searchParams.has('search')) return true
-    const pathAndQuery = `${u.pathname}${u.search}${u.hash}`
-    return /special:search|sp[eé]cial:recherche|special%3asearch/i.test(pathAndQuery)
+    if (u.searchParams.has('search') || u.searchParams.has('q') || u.searchParams.has('query')) {
+      // Empty query on a search endpoint still counts as results chrome.
+      return true
+    }
+    const path = u.pathname.toLowerCase()
+    return /\/(search|recherche|find|results?)(\/|$)/i.test(path) || /special:search|sp[eé]cial:recherche/i.test(path)
   } catch {
-    return /[?&]search=|special:search|sp[eé]cial:recherche/i.test(url)
+    return /[?&](search|q|query)=|\/(search|recherche)\b/i.test(url)
   }
 }
 
@@ -841,16 +845,16 @@ async function submitTypeaheadAfterFill(page: Page, query: string): Promise<void
       await item.click({ timeout: 4000 })
       return true
     },
-    // Visible menu rows (generic + MediaWiki Codex class names) — folded text match.
+    // Visible menu rows — ARIA first, then common autocomplete class names.
     async () => {
       for (const sel of [
         '[role="option"]',
         '[role="listbox"] li',
-        '.cdx-menu-item',
-        '.cdx-typeahead-search__menu .cdx-menu-item',
+        '[role="listbox"] [role="presentation"]',
         '.autocomplete-suggestion',
         '.search-suggestion',
         '.ui-menu-item',
+        '.tt-suggestion',
       ]) {
         const items = page.locator(sel)
         const n = Math.min(await items.count().catch(() => 0), 10)
@@ -864,10 +868,10 @@ async function submitTypeaheadAfterFill(page: Page, query: string): Promise<void
       }
       return false
     },
-    // First suggestion link in an open search menu (Wikipedia and similar).
+    // First suggestion link in an open search menu.
     async () => {
       const links = page.locator(
-        '[role="listbox"] a[href], .cdx-typeahead-search__menu a[href], .cdx-menu a[href], .search-suggest a[href]',
+        '[role="listbox"] a[href], [role="menu"] a[href], .search-suggest a[href], .autocomplete-suggestions a[href]',
       )
       const n = Math.min(await links.count().catch(() => 0), 10)
       for (let i = 0; i < n; i++) {
@@ -1328,23 +1332,22 @@ async function resolveClickLocator(page: Page, step: RunnableStep): Promise<Loca
     const pattern = diacriticInsensitiveRegExp(hint.slice(0, 40))
     const folded = foldDiacritics(hint).slice(0, 40)
 
-    // Prefer primary search-result title links when still on a results page.
+    // Prefer primary result links when still on a search-results page (any site).
     if (pageLooksLikeSearchResults(page.url())) {
       const resultLinks = page.locator(
         [
-          '.mw-search-result-heading a',
-          '.mw-search-results .mw-search-result-heading a',
-          '[data-mw-search-result] a',
-          'main .search-result a',
-          '.searchresults .mw-search-result-heading a',
-          '.searchresults a',
-          // “La page X a été trouvée” banner on Special:Search
-          '.mw-search-exists a',
-          '#mw-content-text > .mw-parser-output > p a',
-          '#mw-content-text > p a',
+          'main a[href]',
+          '[role="main"] a[href]',
+          'article a[href]',
+          '[role="list"] a[href]',
+          '[role="listbox"] a[href]',
+          'ol a[href]',
+          '.search-result a[href]',
+          '.search-results a[href]',
+          '.results a[href]',
         ].join(', '),
       )
-      const n = Math.min(await resultLinks.count().catch(() => 0), 16)
+      const n = Math.min(await resultLinks.count().catch(() => 0), 20)
       for (let i = 0; i < n; i++) {
         const link = resultLinks.nth(i)
         if (!(await link.isVisible({ timeout: 500 }).catch(() => false))) continue
@@ -1353,10 +1356,10 @@ async function resolveClickLocator(page: Page, step: RunnableStep): Promise<Loca
       }
     }
 
-    // Table of contents / in-page section jumps (Palmarès, etc.).
+    // In-page section jumps: TOC / landmark nav / hash links.
     try {
       const toc = page.locator(
-        '#toc a, .toc a, .vector-toc a, nav[aria-label*="contents" i] a, nav[aria-label*="sommaire" i] a, .mw-table-of-contents a',
+        'nav[aria-label*="contents" i] a[href^="#"], nav[aria-label*="sommaire" i] a[href^="#"], nav[aria-label*="table of contents" i] a[href^="#"], #toc a[href^="#"], .toc a[href^="#"], aside a[href^="#"]',
       )
       const tocCount = Math.min(await toc.count().catch(() => 0), 40)
       for (let i = 0; i < tocCount; i++) {
@@ -1396,7 +1399,7 @@ async function resolveClickLocator(page: Page, step: RunnableStep): Promise<Loca
     } catch {
       // continue
     }
-    // Folded scan of visible links/buttons (accents: Zinedine ↔ Zinédine).
+    // Folded scan of visible links/buttons (diacritic-insensitive).
     try {
       const candidates = page.locator('a[href], button, [role="button"], [role="link"]')
       const n = Math.min(await candidates.count().catch(() => 0), 40)
@@ -1626,14 +1629,17 @@ async function executeStepWithCapture(
       await prepareFormForSubmit(page)
     }
 
-    // Type already submitted search (Enter / suggestion) — don't re-click Rechercher.
+    /**
+     * Product rule — search submit is idempotent:
+     * - If Type already navigated away and the search box is empty, do not click Search again
+     *   (that would often submit an empty query and leave the destination).
+     * - If we are on a results page, open the first visible main-content link instead of
+     *   re-submitting the same search.
+     */
     if (isSearchSubmitClickLabel(step.label)) {
-      // On a results page, open the exact-match / top result instead of re-submitting.
       if (pageLooksLikeSearchResults(page.url())) {
         const primary = page
-          .locator(
-            '.mw-search-exists a, .mw-search-result-heading a, #mw-content-text > .mw-parser-output > p a, #mw-content-text > p a',
-          )
+          .locator('main a[href], [role="main"] a[href], article a[href], [role="list"] a[href], .search-result a[href], .results a[href]')
           .first()
         if (await primary.isVisible({ timeout: 1500 }).catch(() => false)) {
           const frame = await captureHighlighted(page, primary)
@@ -1642,15 +1648,13 @@ async function executeStepWithCapture(
         }
         return captureFrame(page)
       }
-      // After typeahead navigated to an article, the search box is empty — clicking
-      // Rechercher would open an empty Special:Search and destroy progress.
       const query = await searchInputValue(page)
       if (!query) {
         return captureFrame(page)
       }
     }
 
-    // Click target already open (typeahead / prior navigation landed on the page).
+    // Product rule — Click is idempotent when the destination is already open.
     const clickHints = [
       step.targetHint,
       extractQuotedText(step.label),
@@ -1730,7 +1734,7 @@ async function executeStepWithCapture(
       .catch(() => false)
     if (!visible) {
       // Contiguous folded match on headings/body.
-      const nodes = page.locator('h1, h2, h3, h4, h5, main, article, #mw-content-text, [role="main"]')
+      const nodes = page.locator('h1, h2, h3, h4, h5, main, article, [role="main"]')
       const n = Math.min(await nodes.count().catch(() => 0), 30)
       for (let i = 0; i < n; i++) {
         const el = nodes.nth(i)
@@ -1742,8 +1746,9 @@ async function executeStepWithCapture(
       }
     }
     if (!visible && tokens.length > 0) {
-      // Split section titles: plan says « Palmarès d'entraîneur », page has
-      // « Palmarès » + « En tant qu'entraîneur » — require all tokens on page.
+      // Soft Verify: plan phrasing may not match DOM headings 1:1.
+      // Require all significant tokens in one heading, or last token in a heading
+      // while all tokens appear in the main content.
       const headings = page.locator('h1, h2, h3, h4, h5')
       const hCount = Math.min(await headings.count().catch(() => 0), 50)
       for (let i = 0; i < hCount; i++) {
@@ -1765,7 +1770,7 @@ async function executeStepWithCapture(
           if (!(await el.isVisible({ timeout: 150 }).catch(() => false))) continue
           const text = foldDiacritics(await el.innerText().catch(() => '')).toLowerCase()
           if (!text.includes(last)) continue
-          const main = page.locator('#mw-content-text, main, [role="main"], article').first()
+          const main = page.locator('main, [role="main"], article, body').first()
           const body = foldDiacritics(await main.innerText().catch(() => '')).toLowerCase()
           if (tokens.every((t) => body.includes(t))) {
             verifyLoc = el
