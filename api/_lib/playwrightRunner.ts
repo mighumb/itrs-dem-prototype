@@ -1565,12 +1565,14 @@ async function executeStepWithCapture(
       )
     }
     const searchSubmit = isSearchTypeStep(step) || (await isSearchFieldLocator(loc))
+    // Evidence for Type must show the filled value — capture before typeahead/Enter
+    // navigates away (otherwise the field looks empty on the next page).
+    const frame = await captureHighlighted(page, loc)
     if (searchSubmit) {
       await submitSearchAfterType(page, step, loc, value)
-      return captureFrame(page)
+    } else {
+      await submitSearchAfterType(page, step, loc, value)
     }
-    const frame = await captureHighlighted(page, loc)
-    await submitSearchAfterType(page, step, loc, value)
     return frame
   }
 
