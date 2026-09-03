@@ -817,6 +817,7 @@ async function groundAndMaybeDryRunPlan(options: {
     parsed.plan as Record<string, unknown>,
     explore,
     contextUrl,
+    body.userMessage,
   )
   parsed = { ...parsed, plan: grounded.plan }
 
