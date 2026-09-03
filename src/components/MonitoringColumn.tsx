@@ -140,7 +140,7 @@ export default function MonitoringColumn({
               const isSelected = step.stepId === selectedStepId
               const isFailed = step.status === 'failed'
               const stepNumber = step.index + 1
-              const shortLabel = step.label.split(/\s+/).filter(Boolean).slice(0, 2).join(' ')
+              const shortLabel = maskSensitiveDisplayText(step.label).split(/\s+/).filter(Boolean).slice(0, 2).join(' ')
               const hasShot = Boolean(step.screenshotDataUrl)
 
               return (
@@ -403,7 +403,7 @@ function ScreenshotLightbox({
             <p className="text-[10px] font-medium uppercase tracking-wider text-zinc-400">
               {tf('stepN', { n: step.index + 1 })}
             </p>
-            <p className="mt-0.5 truncate text-sm font-semibold text-white">{step.label}</p>
+            <p className="mt-0.5 truncate text-sm font-semibold text-white">{maskSensitiveDisplayText(step.label)}</p>
           </div>
           <button
             type="button"
@@ -420,7 +420,7 @@ function ScreenshotLightbox({
           <div className="mx-auto aspect-video max-h-[min(72vh,720px)] w-full overflow-hidden rounded-xl bg-zinc-900">
             <img
               src={step.screenshotDataUrl}
-              alt={step.label}
+              alt={maskSensitiveDisplayText(step.label)}
               className="h-full w-full object-contain object-top"
             />
           </div>
@@ -480,7 +480,7 @@ function StepDetailPanel({
                 {tf('stepN', { n: step.index + 1 })}
               </p>
               <p className="mt-0.5 truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-                {step.label}
+                {maskSensitiveDisplayText(step.label)}
               </p>
             </div>
             <StatusBadge status={isFailed ? 'failing' : 'ok'} label={statusLabel} />
@@ -525,7 +525,7 @@ function StepDetailPanel({
             src={step.screenshotDataUrl}
             failed={isFailed}
             size="hero"
-            alt={tf('monitoringCaptureAlt', { label: step.label })}
+            alt={tf('monitoringCaptureAlt', { label: maskSensitiveDisplayText(step.label) })}
             onOpen={hasShot ? onExpandCapture : undefined}
           />
         </div>
