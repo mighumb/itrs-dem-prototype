@@ -389,6 +389,89 @@ function pullStatusLines(buffer: string): { statuses: string[]; rest: string } {
   return { statuses, rest }
 }
 
+
+export type PlanReviewIntent = 'approve' | 'edit' | 'launch' | 'ask'
+
+function parsePlanReviewIntent(raw: unknown): PlanReviewIntent | null {
+  if (typeof raw !== 'string') return null
+  const v = raw.trim().toLowerCase()
+  if (v === 'approve' || v === 'edit' || v === 'launch' || v === 'ask') return v
+  return null
+}
+
+function hasSettledPlanSteps(body: DiscoveryAiRequest): boolean {
+  return Array.isArray(body.context?.currentSteps) && body.context.currentSteps.length > 0
+}
+
+function plansEssentiallySame(
+  prior: Array<{ label?: string; action?: string }> | null | undefined,
+  next: unknown,
+): boolean {
+  if (!Array.isArray(prior) || prior.length === 0 || !Array.isArray(next)) return false
+  if (prior.length !== next.length) return false
+  return prior.every((p, i) => {
+    const n = next[i]
+    if (!n || typeof n !== 'object') return false
+    const step = n as Record<string, unknown>
+    const pl = `${p.label ?? ''}`.trim().toLowerCase()
+    const nl = `${typeof step.label === 'string' ? step.label : ''}`.trim().toLowerCase()
+    const pa = `${p.action ?? ''}`.trim().toLowerCase()
+    const na = `${typeof step.action === 'string' ? step.action : ''}`.trim().toLowerCase()
+    if (pl && nl && pl === nl) return true
+    return Boolean(pa && na && pa === na && pl.slice(0, 28) === nl.slice(0, 28))
+  })
+}
+
+/**
+ * When a plan is already on screen, honor LLM planReviewIntent:
+ * approve/launch/ask → drop plan echo + skip dry-run material.
+ * Natural language understanding lives in the model; this only enforces the contract.
+ */
+function applyPlanReviewGate(
+  parsed: Record<string, unknown>,
+  body: DiscoveryAiRequest,
+): Record<string, unknown> {
+  let intent = parsePlanReviewIntent(parsed.planReviewIntent)
+  if (!hasSettledPlanSteps(body) || !['iterate', 'chat', 'plan'].includes(body.mode)) {
+    return { ...parsed, planReviewIntent: intent }
+  }
+
+  const nextSteps =
+    parsed.plan && typeof parsed.plan === 'object'
+      ? (parsed.plan as Record<string, unknown>).steps
+      : null
+  // Model re-emitted the same plan without declaring intent → treat as approve.
+  if (!intent && parsed.readyForPlan && plansEssentiallySame(body.context?.currentSteps, nextSteps)) {
+    intent = 'approve'
+  }
+
+  if (intent !== 'approve' && intent !== 'launch' && intent !== 'ask') {
+    return { ...parsed, planReviewIntent: intent }
+  }
+
+  const lang = body.preferredLanguage ?? body.context?.preferredLanguage ?? 'en'
+  const trace = Array.isArray(parsed.workTrace) ? [...parsed.workTrace] : []
+  trace.push(
+    lang === 'fr'
+      ? `Revue plan (${intent}) — pas de nouvelle répétition`
+      : `Plan review (${intent}) — skipping dry-run`,
+  )
+  return {
+    ...parsed,
+    planReviewIntent: intent,
+    plan: null,
+    readyForPlan: false,
+    proposals: null,
+    questions: null,
+    verification: {
+      scope: 'none',
+      reason: `planReviewIntent=${intent}`,
+      stepIndexes: [],
+    },
+    workTrace: trace.slice(0, 8),
+  }
+}
+
 function parseModelOutput(fullText: string): {
   statuses: string[]
   parsed: Record<string, unknown>
@@ -670,7 +753,13 @@ async function groundAndMaybeDryRunPlan(options: {
     return { ...parsed, plan: null, readyForPlan: false, proposals: null }
   }
 
-  // User only approved the settled plan — no browser rehearsal on this turn.
+  // LLM (or structural echo) said approve/launch/ask — never re-rehearse.
+  const reviewIntent = parsePlanReviewIntent(parsed.planReviewIntent)
+  if (reviewIntent === 'approve' || reviewIntent === 'launch' || reviewIntent === 'ask') {
+    return parsed
+  }
+
+  // Heuristic word-list approve (legacy fast path) — still skip dry-run.
   if (
     isSettledPlanApprovalTurn({
       mode: body.mode,
@@ -1048,6 +1137,7 @@ function buildResultPayload(
           ? parsed.plan
           : null,
     readyForPlan: siteUrlPending || declined ? false : Boolean(parsed.readyForPlan),
+    planReviewIntent: parsePlanReviewIntent(parsed.planReviewIntent),
     pageSnapshot:
       siteUrlPending || declined
         ? null
@@ -1192,8 +1282,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               }
             }
 
+            const gated = applyPlanReviewGate(rawParsed, body)
             const parsed = await groundAndMaybeDryRunPlan({
-              parsed: rawParsed,
+              parsed: gated,
               explore,
               analysis,
               target,

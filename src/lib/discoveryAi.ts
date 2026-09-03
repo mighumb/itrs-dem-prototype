@@ -46,6 +46,8 @@ export type SiteAnalysisInfo = {
   status: number | null
 }
 
+export type PlanReviewIntent = 'approve' | 'edit' | 'launch' | 'ask'
+
 export interface DiscoveryAiResult {
   message: string
   workTrace: string[] | null
@@ -55,6 +57,8 @@ export interface DiscoveryAiResult {
   proposals: JourneyProposal[] | null
   plan: DiscoveryPlan | null
   readyForPlan: boolean
+  /** LLM classification when a plan was already on screen — natural language, not a word list. */
+  planReviewIntent: PlanReviewIntent | null
   siteAnalysis: SiteAnalysisInfo | null
   pageSnapshot: string | null
   /** Nominal path is always gemini. unavailable = API/key/network failure (no scripted discovery). */
@@ -292,6 +296,7 @@ function finalizeDiscoveryResult(options: {
   proposals: unknown
   plan: unknown
   readyForPlan: unknown
+  planReviewIntent?: unknown
   siteAnalysis: unknown
   pageSnapshot: unknown
   model: unknown
@@ -400,11 +405,19 @@ function finalizeDiscoveryResult(options: {
     proposals,
     plan,
     readyForPlan,
+    planReviewIntent: normalizePlanReviewIntent(options.planReviewIntent),
     siteAnalysis,
     pageSnapshot: typeof options.pageSnapshot === 'string' ? options.pageSnapshot : null,
     source: options.source,
     model: typeof options.model === 'string' ? options.model : null,
   }
+}
+
+function normalizePlanReviewIntent(raw: unknown): PlanReviewIntent | null {
+  if (typeof raw !== 'string') return null
+  const v = raw.trim().toLowerCase()
+  if (v === 'approve' || v === 'edit' || v === 'launch' || v === 'ask') return v
+  return null
 }
 
 function normalizePlan(raw: unknown, fallbackPrompt: string): DiscoveryPlan | null {
@@ -476,6 +489,7 @@ function geminiUnavailable(
     proposals: null,
     plan: null,
     readyForPlan: false,
+    planReviewIntent: null,
     siteAnalysis: null,
     pageSnapshot: null,
     source: 'unavailable',
@@ -524,6 +538,7 @@ export async function requestDiscoveryAi(options: {
     proposals: null,
     plan: null,
     readyForPlan: false,
+    planReviewIntent: null,
     siteAnalysis: null,
     pageSnapshot: null,
     source: 'unavailable',
@@ -675,6 +690,7 @@ export async function requestDiscoveryAi(options: {
         proposals: resultData.proposals,
         plan: resultData.plan,
         readyForPlan: resultData.readyForPlan,
+        planReviewIntent: resultData.planReviewIntent,
         siteAnalysis: resultData.siteAnalysis,
         pageSnapshot: resultData.pageSnapshot,
         model: resultData.model ?? 'gemini',
@@ -708,6 +724,7 @@ export async function requestDiscoveryAi(options: {
       proposals: data.proposals,
       plan: data.plan,
       readyForPlan: data.readyForPlan,
+      planReviewIntent: data.planReviewIntent,
       siteAnalysis: data.siteAnalysis,
       pageSnapshot: data.pageSnapshot,
       model: data.model ?? 'gemini',
