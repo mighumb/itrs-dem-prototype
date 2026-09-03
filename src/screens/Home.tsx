@@ -343,9 +343,9 @@ export default function Home({
     setPhase('planning')
   }
 
-  const approvePlanForRun = () => {
+  const approvePlanForRun = (message?: string) => {
     setPlanConfirmed(true)
-    pushAgentReply(t('planConfirmApproved'))
+    pushAgentReply(message?.trim() || t('planConfirmApproved'))
   }
 
   const wantsPlanAdjustments = (text: string, seedUrl?: string | null) => {
@@ -996,6 +996,14 @@ export default function Home({
       if (ai.aborted) return
       rememberSnapshot(ai)
 
+      if (existingPlan && ai.planReviewIntent === 'approve') {
+        approvePlanForRun(ai.message)
+        return
+      }
+      if (existingPlan && ai.planReviewIntent === 'launch') {
+        if (launchSettledPlan(history)) return
+      }
+
       const modelReturnedPlan = Boolean(ai.plan && ai.plan.steps.length > 0)
       const bindModelPlan =
         modelReturnedPlan &&
@@ -1003,7 +1011,7 @@ export default function Home({
 
       if (modelReturnedPlan && ai.plan) {
         if (bindModelPlan) {
-          if (shouldLaunchFromText(text)) {
+          if (shouldLaunchFromText(text) || ai.planReviewIntent === 'launch') {
             const next = sanitizeDiscoveryPlan(ai.plan)
             setPlan(next)
             setPlanConfirmed(true)
@@ -1258,12 +1266,20 @@ export default function Home({
         if (ai.aborted) return
         rememberSnapshot(ai)
 
+        if (ai.planReviewIntent === 'approve') {
+          approvePlanForRun(ai.message)
+          return
+        }
+        if (ai.planReviewIntent === 'launch') {
+          if (launchSettledPlan(history)) return
+        }
+
         const bindModelPlan =
           Boolean(ai.plan && ai.plan.steps.length > 0) &&
           (shouldBindPlanningAiPlan(text, ai, seedUrl) || ai.readyForPlan)
 
         if (bindModelPlan && ai.plan) {
-          if (launchIntent) {
+          if (launchIntent || ai.planReviewIntent === 'launch') {
             setPlanConfirmed(true)
             setPlan(sanitizeDiscoveryPlan(ai.plan))
             setPhase('planning')
@@ -1277,6 +1293,18 @@ export default function Home({
             return
           }
           presentPlan(ai.message, ai.plan, { workTrace: ai.workTrace })
+          return
+        }
+
+        if (ai.planReviewIntent === 'ask') {
+          pushAgentReply(
+            appendPlanNotAppliedHint(ai.message, text, false, locale),
+            { workTrace: ai.workTrace },
+          )
+          if (planSnapshot) {
+            setPlan(planSnapshot)
+            setPhase('planning')
+          }
           return
         }
 

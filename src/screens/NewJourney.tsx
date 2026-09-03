@@ -1476,6 +1476,30 @@ const NewJourney = forwardRef<NewJourneyHandle, NewJourneyProps>(function NewJou
 
         if (ai.aborted || abort.signal.aborted) return
 
+        if (ai.planReviewIntent === 'approve') {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `agent-approve-${Date.now()}`,
+              role: 'agent',
+              content: ai.message?.trim() || t('planConfirmApproved'),
+            },
+          ])
+          return
+        }
+        if (ai.planReviewIntent === 'launch' && !isRunningRef.current && actionCount > 0) {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `agent-launch-${Date.now()}`,
+              role: 'agent',
+              content: ai.message?.trim() || runStartMessage(locale),
+            },
+          ])
+          void runReplay(undefined, { intro: 'start', markComplete: true })
+          return
+        }
+
         const askPlan = wantsPlanInChat(trimmed) || wantsPlanCorrection(trimmed)
         const modelReturnedPlan = Boolean(ai.plan && ai.plan.steps.length > 0)
         const bindModelPlan =
