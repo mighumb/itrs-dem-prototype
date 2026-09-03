@@ -430,6 +430,17 @@ export default function Home({
     return true
   }
 
+  const dismissFloatingTools = () => {
+    setProposals([])
+    setQuestions([])
+    setFormTitle(null)
+    setConfiguring(false)
+    setQuestionIndex(0)
+    if (phase === 'proposals' || phase === 'questionnaire') {
+      setPhase(planRef.current ? 'planning' : 'conversation')
+    }
+  }
+
   const openProposalsStack = (
     nextProposals: JourneyProposal[],
     title: string | null,
@@ -973,23 +984,16 @@ export default function Home({
       (summarizeStatedJourneyIntent(text) || isFillFieldsWithoutSubmitAsk(text)) &&
       !looksLikeSiteConfirmation(text)
     ) {
-      // User revised the journey in chat — refresh seed and drop a stale selected proposal
-      // (e.g. “Télécharger via Ressources” after “je ne veux pas télécharger”).
+      // User revised the journey in chat — refresh seed and drop stale chooser state
+      // so an old card (e.g. download) cannot outlive a new ask.
       chatCtx = {
         ...chatCtx,
         seed: text.trim(),
-        selectedProposalId: isFillFieldsWithoutSubmitAsk(text)
-          ? null
-          : chatCtx.selectedProposalId,
-        selectedProposal: isFillFieldsWithoutSubmitAsk(text)
-          ? null
-          : chatCtx.selectedProposal,
+        selectedProposalId: null,
+        selectedProposal: null,
       }
       setCtx(chatCtx)
-      if (isFillFieldsWithoutSubmitAsk(text)) {
-        setProposals([])
-        setConfiguring(false)
-      }
+      dismissFloatingTools()
     }
 
     const useIterate = Boolean(existingPlan && !pivot.newSiteOrJourney)
@@ -1030,12 +1034,14 @@ export default function Home({
             const next = sanitizeDiscoveryPlan(ai.plan)
             setPlan(next)
             setPlanConfirmed(true)
+            dismissFloatingTools()
             pushAgentReply(messageWithAuthoritativePlan(ai.message, next), {
               workTrace: ai.workTrace,
             })
             launchSettledPlan(history)
             return
           }
+          dismissFloatingTools()
           presentPlan(ai.message, ai.plan, { workTrace: ai.workTrace })
           return
         }
@@ -1051,6 +1057,10 @@ export default function Home({
         openQuestionnaireStack(ai.questions, ai.formTitle, ai.message, ai.workTrace)
         return
       }
+
+      // Chat-only reply: never leave a stale chooser/form from a previous turn
+      // (e.g. message says “no download” while “Télécharger via Ressources” stays open).
+      dismissFloatingTools()
 
       pushAgentReply(
         appendPlanNotAppliedHint(ai.message, text, bindModelPlan, locale),
