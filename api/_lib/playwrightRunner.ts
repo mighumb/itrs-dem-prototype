@@ -528,12 +528,34 @@ export async function enforceUserDestination(
 }
 
 const HIGHLIGHT_ID = '__dem_action_highlight__'
+/** Primary product blue — keep in sync with `--color-accent` in `src/index.css`. */
+export const ACTION_HIGHLIGHT_COLOR = '#0071e3'
 
-async function paintHighlight(
-  page: Page,
-  box: { x: number; y: number; width: number; height: number },
-): Promise<void> {
-  const pad = 4
+type ViewportBox = { x: number; y: number; width: number; height: number }
+
+async function locatorViewportBox(locator: Locator): Promise<ViewportBox | null> {
+  try {
+    const viaDom = await locator.evaluate((el) => {
+      const r = (el as Element).getBoundingClientRect()
+      if (r.width < 2 || r.height < 2) return null
+      return { x: r.x, y: r.y, width: r.width, height: r.height }
+    })
+    if (viaDom) return viaDom
+  } catch {
+    // fall through to Playwright box
+  }
+  const box = await locator.boundingBox().catch(() => null)
+  if (!box || box.width < 2 || box.height < 2) return null
+  return box
+}
+
+/**
+ * Product rule — every action evidence shot frames the active zone
+ * (input, click target, select, verify target, or page landmark) with
+ * a primary-blue rectangle baked into the JPEG.
+ */
+async function paintHighlight(page: Page, box: ViewportBox): Promise<void> {
+  const pad = 6
   const painted = {
     x: Math.max(0, box.x - pad),
     y: Math.max(0, box.y - pad),
@@ -542,27 +564,28 @@ async function paintHighlight(
   }
   await page
     .evaluate(
-      ({ id, b }) => {
+      ({ id, b, color }) => {
         document.getElementById(id)?.remove()
         const el = document.createElement('div')
         el.id = id
+        el.setAttribute('data-dem-action-highlight', '1')
         Object.assign(el.style, {
           position: 'fixed',
           left: `${b.x}px`,
           top: `${b.y}px`,
           width: `${b.width}px`,
           height: `${b.height}px`,
-          border: '3px solid #0071e3',
-          borderRadius: '4px',
-          boxShadow: '0 0 0 3px rgba(0, 113, 227, 0.28)',
-          background: 'rgba(0, 113, 227, 0.06)',
+          border: `4px solid ${color}`,
+          borderRadius: '6px',
+          boxShadow: `0 0 0 4px ${color}59`,
+          background: `${color}14`,
           pointerEvents: 'none',
           zIndex: '2147483647',
           boxSizing: 'border-box',
         })
         document.documentElement.appendChild(el)
       },
-      { id: HIGHLIGHT_ID, b: painted },
+      { id: HIGHLIGHT_ID, b: painted, color: ACTION_HIGHLIGHT_COLOR },
     )
     .catch(() => undefined)
 }
@@ -576,14 +599,44 @@ async function clearHighlight(page: Page): Promise<void> {
 async function highlightLocator(page: Page, locator: Locator): Promise<boolean> {
   try {
     await locator.scrollIntoViewIfNeeded({ timeout: 2000 }).catch(() => undefined)
-    const box = await locator.boundingBox()
-    if (!box || box.width < 2 || box.height < 2) return false
+    const box = await locatorViewportBox(locator)
+    if (!box) return false
     await paintHighlight(page, box)
-    await page.waitForTimeout(160)
+    await page.waitForTimeout(220)
     return true
   } catch {
     return false
   }
+}
+
+/** Best-effort page content zone when a step has no discrete control. */
+async function findPageLandmark(page: Page): Promise<Locator | null> {
+  for (const factory of [
+    () => page.locator('main, [role="main"]').first(),
+    () => page.locator('h1').first(),
+    () => page.locator('article, #content, [id*="content" i]').first(),
+    () => page.locator('body').first(),
+  ]) {
+    const loc = await tryVisibleLocator(page, factory, 500)
+    if (loc) return loc
+  }
+  return null
+}
+
+/** Visible evidence for an already-reached click/verify target. */
+async function findHintEvidenceLocator(page: Page, hint: string): Promise<Locator | null> {
+  const raw = hint.trim().slice(0, 48)
+  if (raw.length < 2) return findPageLandmark(page)
+  const pattern = diacriticInsensitiveRegExp(raw)
+  for (const factory of [
+    () => page.getByRole('heading', { name: pattern }).first(),
+    () => page.getByRole('link', { name: pattern }).first(),
+    () => page.getByText(pattern).first(),
+  ]) {
+    const loc = await tryVisibleLocator(page, factory, 700)
+    if (loc) return loc
+  }
+  return findPageLandmark(page)
 }
 
 async function captureFrame(page: Page): Promise<RunnerFrame> {
@@ -602,7 +655,8 @@ async function captureHighlighted(
   page: Page,
   locator: Locator | null,
 ): Promise<RunnerFrame> {
-  if (locator) await highlightLocator(page, locator)
+  const target = locator ?? (await findPageLandmark(page))
+  if (target) await highlightLocator(page, target)
   try {
     return await captureFrame(page)
   } finally {
@@ -1486,8 +1540,8 @@ export function shouldExecuteAsClick(step: RunnableStep): boolean {
 }
 
 /**
- * Run one step and return a screenshot. Click/Type shots include a blue
- * highlight around the interacted element (baked into the JPEG).
+ * Run one step and return a screenshot. Every action evidence shot frames the
+ * active zone with the primary-blue rectangle (baked into the JPEG).
  */
 async function executeStepWithCapture(
   page: Page,
@@ -1519,7 +1573,7 @@ async function executeStepWithCapture(
     if (destinationUrl && (urlPathKey(dest) === urlPathKey(destinationUrl) || isDeepUrl(dest))) {
       await enforceUserDestination(page, destinationUrl, runnerLocale)
     }
-    return captureFrame(page)
+    return captureHighlighted(page, await findPageLandmark(page))
   }
 
   if (shouldExecuteAsSelect(step)) {
@@ -1527,7 +1581,7 @@ async function executeStepWithCapture(
     if (!loc) {
       // Soft fallback: fill any empty brochure selects so the run can continue.
       await fillEmptyFormSelects(page)
-      return captureFrame(page)
+      return captureHighlighted(page, await findPageLandmark(page))
     }
     const frame = await captureHighlighted(page, loc)
     await performSelect(page, loc, step)
@@ -1603,7 +1657,7 @@ async function executeStepWithCapture(
       // Banner already gone (auto-dismissed on Navigate) — don't invent a second cookie fail.
       await dismissNoise(page)
       if (!(await consentBannerVisible(page))) {
-        return captureFrame(page)
+        return captureHighlighted(page, await findPageLandmark(page))
       }
       throw new Error(`Could not click consent control for: ${step.label}`)
     }
@@ -1643,11 +1697,12 @@ async function executeStepWithCapture(
           await performClick(page, primary)
           return frame
         }
-        return captureFrame(page)
+        return captureHighlighted(page, await findPageLandmark(page))
       }
       const query = await searchInputValue(page)
       if (!query) {
-        return captureFrame(page)
+        // Idempotent Search: still frame the (empty) search field as the active zone.
+        return captureHighlighted(page, await findSearchLocator(page))
       }
     }
 
@@ -1664,7 +1719,7 @@ async function executeStepWithCapture(
     const pageTitle = await page.title().catch(() => '')
     for (const hint of clickHints) {
       if (alreadyOnClickTargetPage(page.url(), pageTitle, hint)) {
-        return captureFrame(page)
+        return captureHighlighted(page, await findHintEvidenceLocator(page, hint))
       }
     }
 
@@ -1687,8 +1742,9 @@ async function executeStepWithCapture(
         (isFormEntryClick || Boolean(step.href && isDeepUrl(step.href)))
       ) {
         await page.waitForLoadState('domcontentloaded', { timeout: 12000 }).catch(() => undefined)
-        const corrected = await enforceUserDestination(page, destinationUrl, runnerLocale)
-        if (corrected) frame = await captureFrame(page)
+        // Keep the pre-click highlighted frame — destination snap must not erase
+        // the blue action box that proves which control was used.
+        await enforceUserDestination(page, destinationUrl, runnerLocale)
       }
       return frame
     }
@@ -1704,11 +1760,11 @@ async function executeStepWithCapture(
       if (destinationUrl) {
         await enforceUserDestination(page, destinationUrl, runnerLocale)
       }
-      return captureFrame(page)
+      return captureHighlighted(page, await findPageLandmark(page))
     }
     // “Lancer la recherche” / Search submit with no visible button → Enter in focused field.
     if (isSearchSubmitClickLabel(step.label)) {
-      const frame = await captureFrame(page)
+      const frame = await captureHighlighted(page, await findSearchLocator(page))
       await page.keyboard.press('Enter')
       await page.waitForLoadState('domcontentloaded', { timeout: 15000 }).catch(() => undefined)
       return frame
@@ -1808,8 +1864,8 @@ async function executeStepWithCapture(
       // plain capture
     }
   }
-  // Vague Verify with no hint — observe only (cannot invent a success signal).
-  return captureFrame(page)
+  // Vague Verify with no hint — still frame the main content as the observed zone.
+  return captureHighlighted(page, await findPageLandmark(page))
 }
 
 export async function launchBrowser(): Promise<Browser> {
