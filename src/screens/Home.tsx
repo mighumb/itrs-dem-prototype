@@ -994,9 +994,17 @@ export default function Home({
       }
       setCtx(chatCtx)
       dismissFloatingTools()
+      // Fill-only pivots invalidate a settled download/submit plan — do not keep Lancer on it.
+      if (isFillFieldsWithoutSubmitAsk(text) && existingPlan) {
+        setPlan(null)
+        setPlanConfirmed(false)
+      }
     }
 
-    const useIterate = Boolean(existingPlan && !pivot.newSiteOrJourney)
+    const invalidatePlanForFillOnly = isFillFieldsWithoutSubmitAsk(text)
+    const useIterate = Boolean(
+      existingPlan && !pivot.newSiteOrJourney && !invalidatePlanForFillOnly,
+    )
 
     await withTyping(async (signal, onStatus) => {
       const ai = await requestDiscoveryAi({
@@ -1015,11 +1023,11 @@ export default function Home({
       if (ai.aborted) return
       rememberSnapshot(ai)
 
-      if (existingPlan && ai.planReviewIntent === 'approve') {
+      if (existingPlan && !invalidatePlanForFillOnly && ai.planReviewIntent === 'approve') {
         approvePlanForRun(ai.message)
         return
       }
-      if (existingPlan && ai.planReviewIntent === 'launch') {
+      if (existingPlan && !invalidatePlanForFillOnly && ai.planReviewIntent === 'launch') {
         if (launchSettledPlan(history)) return
       }
 
@@ -1066,7 +1074,7 @@ export default function Home({
         appendPlanNotAppliedHint(ai.message, text, bindModelPlan, locale),
         { workTrace: ai.workTrace },
       )
-      if (existingPlan && !pivot.newSiteOrJourney) {
+      if (existingPlan && !pivot.newSiteOrJourney && !invalidatePlanForFillOnly) {
         setPlan(existingPlan)
         setPhase('planning')
       }

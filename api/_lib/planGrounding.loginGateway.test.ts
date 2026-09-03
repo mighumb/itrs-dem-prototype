@@ -107,4 +107,42 @@ const brochureSteps: GroundedPlanStep[] = [
   )
 }
 
+
+
+{
+  const downloadPlan = {
+    title: 'HETIC brochure download',
+    steps: [
+      { action: 'Navigate', label: 'Naviguer vers la page brochure' },
+      { action: 'Type', label: 'Saisir « miguel@example.com » dans Email' },
+      {
+        action: 'Click',
+        label: 'Cliquer sur « Je télécharge la brochure »',
+        targetHint: 'Je télécharge la brochure',
+      },
+      {
+        action: 'Verify',
+        label: 'Vérifier la confirmation / le succès du téléchargement de brochure',
+      },
+    ],
+  }
+  const { plan } = applyGroundingToPlan(
+    downloadPlan,
+    null,
+    'https://www.hetic.net/brochure',
+    "Je ne veux pas télécharger, seulement tester les champs de saisie",
+  )
+  const steps = plan.steps as GroundedPlanStep[]
+  assert.equal(
+    steps.some((s) => /télécharg|download/i.test(`${s.action} ${s.label}`)),
+    false,
+    'fill-only pivot must strip download Click/Verify from grounded plan',
+  )
+  assert.equal(
+    steps.some((s) => /email/i.test(s.label)),
+    true,
+    'field Type steps must survive fill-only scrub',
+  )
+}
+
 console.log('OK — planGrounding login gateway / rejected-step cases passed')

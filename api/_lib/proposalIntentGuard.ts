@@ -268,13 +268,28 @@ export function ensureProposalsHonorStatedIntent(
     /sans\s+(?:télécharg|download|soumett|submit)|without\s+(?:download|submit)/i.test(intent) &&
     /remplir|fill|tester|test|champ|field|saisie|formulaire/i.test(intent)
   const scoped = fillOnly
-    ? withoutWeak.filter((p) => !/t[eé]l[eé]charg|download|livre\s*blanc|white\s*paper/i.test(blobOf(p)))
+    ? withoutWeak.filter(
+        (p) =>
+          !/t[eé]l[eé]charg|download|livre\s*blanc|white\s*paper|soumett|submit|envoy(er)?|send\s+(the\s+)?form/i.test(
+            blobOf(p),
+          ),
+      )
     : withoutWeak
-  const pool = (scoped.length > 0 ? scoped : withoutWeak).length > 0
+  // Fill-only: never fall back to contradicted download/submit cards — synthesize instead.
+  const pool = fillOnly
     ? scoped.length > 0
       ? scoped
-      : withoutWeak
-    : normalized
+      : []
+    : (scoped.length > 0 ? scoped : withoutWeak).length > 0
+      ? scoped.length > 0
+        ? scoped
+        : withoutWeak
+      : normalized
+
+  if (fillOnly && pool.length === 0) {
+    const synthesized = synthesizeProposalsFromIntent(intent, destination, fr)
+    return [synthesized[0]!]
+  }
 
   const honored = pool.filter((p) => proposalHonorsStatedIntent(p, intent))
   if (honored.length > 0) {

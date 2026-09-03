@@ -54,7 +54,11 @@ export function outcomeVerifyFromSteps(
     if (/verify|vérif|wait|check/i.test(`${step.action} ${step.label}`)) continue
     const blob = `${step.label} ${step.targetHint ?? ''} ${step.href ?? ''}`
 
-    if (/télécharge|download|brochure/i.test(blob)) {
+    // Require an actual download/submit control — a Navigate to /brochure is not a download outcome.
+    if (
+      /(click|cliquer|clique|soumett|submit|envoy)/i.test(`${step.action} ${step.label}`) &&
+      /télécharge|download|brochure/i.test(blob)
+    ) {
       return {
         label: langFr
           ? 'Vérifier la confirmation / le succès du téléchargement de brochure'

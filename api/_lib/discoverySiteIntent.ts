@@ -418,6 +418,17 @@ export function fillFieldsOnlyIntent(preferredLanguage?: string | null): string 
     : 'Fill / test the form fields without downloading or submitting'
 }
 
+/** True for a fill-only ask OR the normalized fill-only intent string. */
+export function isFillOnlyJourneyIntent(text: string | null | undefined): boolean {
+  const t = typeof text === 'string' ? text.trim() : ''
+  if (!t) return false
+  if (isFillFieldsWithoutSubmitAsk(t)) return true
+  return (
+    /sans\s+(?:télécharg|download|soumett|submit)|without\s+(?:download|submit)/i.test(t) &&
+    /remplir|fill|tester|test|champ|field|saisie|formulaire/i.test(t)
+  )
+}
+
 /**
  * Prefer the latest turn when it revises the goal (e.g. cancels download).
  * Falls back to seed intent when the latest message has no journey outcome.

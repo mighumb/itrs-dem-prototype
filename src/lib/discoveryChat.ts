@@ -1,4 +1,5 @@
 import type { DiscoveryPlan } from '../mock/discovery'
+import { isFillFieldsWithoutSubmitAsk } from '../../api/_lib/discoverySiteIntent'
 import {
   isBareJourneyLaunch,
   isLocaleNoiseComplaint,
@@ -53,7 +54,7 @@ export function classifyIterateWorkspacePlanIntent(
   const text = userMessage.trim()
   const lower = text.toLowerCase()
   const showPlan = wantsPlanInChat(text)
-  const correctPlan = wantsPlanCorrection(text)
+  const correctPlan = wantsPlanCorrection(text) || isFillFieldsWithoutSubmitAsk(text)
   const localeNoiseFix = isLocaleNoiseComplaint(text)
 
   const editSteps =

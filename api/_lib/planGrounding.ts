@@ -4,11 +4,12 @@
  */
 
 import type { SiteExploreResult } from './exploreSite.js'
-import { canonicalSiteUrlFromText } from './discoverySiteIntent.js'
+import { canonicalSiteUrlFromText, isFillOnlyJourneyIntent } from './discoverySiteIntent.js'
 import {
   homepageOf,
   isDeepUrl,
   queryFromDeepUrl,
+  stripFillOnlyContradictedSteps,
   stripLocaleSearchNoiseSteps,
   stripUserRejectedActionSteps,
 } from './urlPathHelpers.js'
@@ -24,6 +25,7 @@ export {
   homepageOf,
   isDeepUrl,
   queryFromDeepUrl,
+  stripFillOnlyContradictedSteps,
   stripLocaleSearchNoiseSteps,
   stripUserRejectedActionSteps,
   extractRejectedActionTargets,
@@ -490,10 +492,14 @@ export function applyGroundingToPlan(
   // After all structural transforms — honor explicit user removals last so
   // login-gateway / naturalize cannot re-inject a rejected control.
   const honored = stripUserRejectedActionSteps(cleaned, userMessage)
-  const withOutcome = ensureOutcomeVerify(honored)
-  const issues = groundingIssues(withOutcome, explore)
+  const fillOnly = isFillOnlyJourneyIntent(userMessage)
+  const withoutContradicted = stripFillOnlyContradictedSteps(honored, fillOnly)
+  const withOutcome = ensureOutcomeVerify(withoutContradicted)
+  // Outcome verify must not reintroduce a contradicted download/submit success check.
+  const finalSteps = stripFillOnlyContradictedSteps(withOutcome, fillOnly)
+  const issues = groundingIssues(finalSteps, explore)
   return {
-    plan: { ...plan, steps: withOutcome },
+    plan: { ...plan, steps: finalSteps },
     issues,
   }
 }

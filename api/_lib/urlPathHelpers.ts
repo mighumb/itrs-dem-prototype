@@ -214,3 +214,33 @@ export function stripUserRejectedActionSteps<
     )
   })
 }
+
+/**
+ * Fill-only pivot: drop download / submit Clicks and their success Verifies
+ * so grounding cannot re-derive a contradicted outcome from leftover steps.
+ */
+export function stripFillOnlyContradictedSteps<
+  T extends { label: string; action: string; targetHint?: string },
+>(steps: T[], fillOnly: boolean): T[] {
+  if (!fillOnly || steps.length === 0) return steps
+  return steps.filter((step) => {
+    const blob = `${step.action} ${step.label} ${step.targetHint ?? ''}`
+    const isInteractive =
+      /(click|cliquer|clique|select|choisis|soumett|submit|envoy)/i.test(blob)
+    const isVerify = /(verify|v[eé]rif|check|wait)/i.test(blob)
+    const isDownloadOrSubmit =
+      /t[eé]l[eé]charg|download|soumett|submit|envoyer|je\s+valide|send\s+(the\s+)?form|livre\s*blanc|white\s*paper/i.test(
+        blob,
+      )
+    if (isInteractive && isDownloadOrSubmit) return false
+    if (
+      isVerify &&
+      /t[eé]l[eé]charg|download|confirmation\s+d['’]?envoi|form\s+submission|brochure\s+download|succ[eè]s\s+du\s+t[eé]l[eé]charg/i.test(
+        blob,
+      )
+    ) {
+      return false
+    }
+    return true
+  })
+}

@@ -47,4 +47,25 @@ assert.equal(
 )
 assert.match(guarded![0]!.title, /Remplir|champs|Fill|fields/i)
 
+
+// Submit-flavored cards must also drop on fill-only.
+const guardedSubmit = ensureProposalsHonorStatedIntent(
+  [
+    {
+      id: 'stale-submit',
+      title: 'Remplir et soumettre',
+      description: 'Compléter le formulaire et envoyer.',
+      prompt: 'Soumettre le formulaire brochure',
+    },
+  ],
+  resolveStatedJourneyIntent(pivot, 'télécharger la brochure', 'fr'),
+  { preferredLanguage: 'fr', destinationUrl: 'https://www.hetic.net/brochure' },
+)
+assert.ok(guardedSubmit && guardedSubmit.length >= 1)
+assert.equal(
+  guardedSubmit!.some((p) => /soumett|submit|envoy/i.test(`${p.title} ${p.description}`)),
+  false,
+  'must not keep submit proposals after fill-only pivot',
+)
+
 console.log('OK — fill-fields-without-submit intent cases passed')

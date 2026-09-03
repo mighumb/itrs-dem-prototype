@@ -23,6 +23,7 @@ import {
   looksLikeSiteDecline,
   isSettledPlanApprovalTurn,
   messageRequestsSiteWork,
+  isFillOnlyJourneyIntent,
   resolveStatedJourneyIntent,
   summarizeStatedJourneyIntent,
 } from './_lib/discoverySiteIntent.js'
@@ -449,7 +450,13 @@ function applyPlanReviewGate(
       ? (parsed.plan as Record<string, unknown>).steps
       : null
   // Model re-emitted the same plan without declaring intent → treat as approve.
-  if (!intent && parsed.readyForPlan && plansEssentiallySame(body.context?.currentSteps, nextSteps)) {
+  // Never auto-approve when the latest turn pivots away from the settled outcome (fill-only).
+  if (
+    !intent &&
+    parsed.readyForPlan &&
+    plansEssentiallySame(body.context?.currentSteps, nextSteps) &&
+    !isFillOnlyJourneyIntent(body.userMessage)
+  ) {
     intent = 'approve'
   }
 
@@ -1024,7 +1031,7 @@ function buildResultPayload(
       const kept = proposals.filter((p) => {
         if (!p || typeof p !== 'object') return false
         const blob = `${(p as { title?: string }).title ?? ''} ${(p as { description?: string }).description ?? ''} ${(p as { prompt?: string }).prompt ?? ''}`
-        return !/t[eé]l[eé]charg|download|livre\s*blanc|white\s*paper/i.test(blob)
+        return !/t[eé]l[eé]charg|download|livre\s*blanc|white\s*paper|soumett|submit|envoy(er)?|send\s+(the\s+)?form/i.test(blob)
       })
       proposals = kept.length > 0 ? kept : null
     }
@@ -1032,7 +1039,7 @@ function buildResultPayload(
       const kept = questions.filter((q) => {
         if (!q || typeof q !== 'object') return false
         const prompt = String((q as { prompt?: unknown }).prompt ?? '')
-        return !/t[eé]l[eé]charg|download|livre\s*blanc|white\s*paper|via\s+ressources/i.test(prompt)
+        return !/t[eé]l[eé]charg|download|livre\s*blanc|white\s*paper|via\s+ressources|soumett|submit|envoy(er)?|mot\s+de\s+passe|password|connexion|sign\s*in|log\s*in/i.test(prompt)
       })
       questions = kept.length > 0 ? kept : null
     }

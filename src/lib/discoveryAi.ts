@@ -25,6 +25,7 @@ export {
   looksLikeSocialChat,
   messageRequestsSiteWork,
   isFillFieldsWithoutSubmitAsk,
+  isFillOnlyJourneyIntent,
   resolveStatedJourneyIntent,
   summarizeStatedJourneyIntent,
   shouldSkipJourneyChooser,
