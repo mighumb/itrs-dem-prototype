@@ -12,20 +12,29 @@ for (const phrase of [
   "oui, c'est bon",
   'ok parfait',
   "c'est bon",
+  "c'est good",
+  "c'est good.",
+  "oui c'est good",
+  "it's good",
+  'sounds good',
+  'looks good',
+  'all good',
   'oui',
   'ça me va',
+  'ca marche',
 ]) {
-  assert.equal(looksLikePlanApprovalOnly(phrase), true, phrase)
+  assert.equal(looksLikePlanApprovalOnly(phrase), true, `should approve: ${phrase}`)
 }
 
 assert.equal(looksLikePlanApprovalOnly('lance le parcours'), false)
 assert.equal(looksLikePlanApprovalOnly('ajoute une étape'), false)
 assert.equal(looksLikePlanApprovalOnly('non merci'), false)
+assert.equal(looksLikePlanApprovalOnly('change step 2'), false)
 
 assert.equal(
   isSettledPlanApprovalTurn({
     mode: 'iterate',
-    userMessage: "oui c'est bon",
+    userMessage: "c'est good",
     currentSteps: [{ label: 'Navigate', action: 'Go' }],
   }),
   true,
@@ -34,7 +43,7 @@ assert.equal(
 assert.equal(
   isSettledPlanApprovalTurn({
     mode: 'iterate',
-    userMessage: "oui c'est bon",
+    userMessage: "c'est good",
     currentSteps: [],
   }),
   false,
