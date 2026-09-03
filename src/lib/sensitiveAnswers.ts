@@ -80,3 +80,11 @@ export function maskFreeformUserChatContent(content: string): string {
   )
   return masked
 }
+
+/**
+ * Display-only redaction for plan step labels / agent bubbles.
+ * Keeps stored runnable values intact — never use this as the Type value for Playwright.
+ */
+export function maskSensitiveDisplayText(content: string): string {
+  return maskFreeformUserChatContent(content)
+}

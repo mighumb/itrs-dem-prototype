@@ -1,6 +1,7 @@
 import { useLocale } from '../context/LocaleContext'
 import { ChevronRight, Download, FileJson, Sparkles, X } from 'lucide-react'
 import type { MessageKey } from '../i18n/messages'
+import { maskSensitiveDisplayText } from '../lib/sensitiveAnswers'
 import type { ChatMessage } from '../types'
 
 interface GlobalAgentProps {
@@ -87,7 +88,7 @@ export function AgentMessage({
   const isAgent = message.role === 'agent'
   const attachment = message.attachment
 
-  const bubbleContent = message.content.split('\n').map((line, i) => (
+  const bubbleContent = maskSensitiveDisplayText(message.content).split('\n').map((line, i) => (
     <p key={i} className={`break-words [overflow-wrap:anywhere] ${i > 0 ? 'mt-1.5' : ''}`}>
       {isAgent
         ? line.split('**').map((part, j) =>

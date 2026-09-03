@@ -20,6 +20,7 @@ import {
   reorderStages,
   stageStatus,
 } from '../lib/journeyStages'
+import { maskSensitiveDisplayText } from '../lib/sensitiveAnswers'
 import { defaultStepDurationForAction } from '../mock/data'
 import type { JourneyAction, JourneyStage } from '../types'
 
@@ -645,7 +646,7 @@ export default function JourneyTimeline({
                               {renderActionBadge(Icon, isRunning, isDone, isFailed)}
                               <div className="min-w-0 flex-1">
                                 <span className="block truncate text-xs font-medium text-zinc-900 dark:text-zinc-100">
-                                  {action.label}
+                                  {maskSensitiveDisplayText(action.label)}
                                 </span>
                                 {(isRunning || (action.duration && isDone && !canEdit)) && (
                                   <p className="mt-0.5 truncate text-[10px] text-zinc-400">

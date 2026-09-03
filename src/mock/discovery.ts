@@ -1,5 +1,6 @@
 import { looksLikePlanApprovalOnly } from '../../api/_lib/discoverySiteIntent'
 import { stripLocaleSearchNoiseSteps } from '../../api/_lib/urlPathHelpers'
+import { maskSensitiveDisplayText } from '../lib/sensitiveAnswers'
 
 export type DiscoveryPhase = 'idle' | 'questionnaire' | 'proposals' | 'planning' | 'conversation'
 
@@ -540,9 +541,10 @@ export function sanitizeDiscoveryPlan(plan: DiscoveryPlan): DiscoveryPlan {
 export function formatPlanMessage(plan: DiscoveryPlan): string {
   const steps = stripLocaleSearchNoiseSteps(plan.steps)
   const lines = steps.map(
-    (step, index) => `${index + 1}. **${step.action}** — ${step.label}`,
+    (step, index) =>
+      `${index + 1}. **${step.action}** — ${maskSensitiveDisplayText(step.label)}`,
   )
-  return `${plan.summary}\n\n${lines.join('\n')}`
+  return `${maskSensitiveDisplayText(plan.summary)}\n\n${lines.join('\n')}`
 }
 
 /** Drop a trailing numbered step list (and a short “Voici le plan…” lead-in). */

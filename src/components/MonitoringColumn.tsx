@@ -2,8 +2,9 @@ import { AlertTriangle, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Do
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useLocale } from '../context/LocaleContext'
-import { computeLastRunKpi, formatDurationMs } from '../lib/runMonitoring'
 import { downloadTextFile } from '../lib/journeyExport'
+import { computeLastRunKpi, formatDurationMs } from '../lib/runMonitoring'
+import { maskSensitiveDisplayText } from '../lib/sensitiveAnswers'
 import type { LastRunSnapshot, LastRunStepMetric } from '../types'
 
 interface MonitoringColumnProps {
