@@ -72,50 +72,74 @@ export function looksLikeSiteConfirmation(text: string): boolean {
 
 /**
  * User accepts the current plan without edits — not launch, not correction.
- * Matches bare affirmations and common combos (« oui c'est bon », « ok parfait »).
+ * Covers FR/EN and casual mixes (« oui c'est bon », « c'est good », « sounds good »).
+ * Product rule: approval must short-circuit before any iterate / dry-run / re-plan.
  */
 export function looksLikePlanApprovalOnly(text: string): boolean {
-  const t = text.trim()
-  if (!t || t.length > 160) return false
-  if (/^(non|no)\b/i.test(t)) return false
+  const raw = text.trim()
+  if (!raw || raw.length > 160) return false
+  if (/^(non|no)\b/i.test(raw)) return false
   if (
     /\b(change|modifi|ajout|supprim|corrige|retire|enl[eè]ve|wrong|pas bon|il manque|manque|ajoute|before|avant)\b/i.test(
-      t,
+      raw,
     )
   ) {
     return false
   }
   if (
-    /\b(lance|lancer|exécute|execute|run|start|démarre|demarre|relance|relancer)\b/i.test(t)
+    /\b(lance|lancer|exécute|execute|run|start|démarre|demarre|relance|relancer)\b/i.test(raw)
   ) {
     return false
   }
+
+  const n = raw
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .replace(/['’]/g, "'")
+    .replace(/\s+/g, ' ')
+    .replace(/[.!…]+$/g, '')
+    .trim()
+
+  // Single-token / short affirmations
   if (
-    /^(oui|yes|ok|parfait|nickel|très bien|tres bien|c'?est bon|ça marche|ca marche|d'accord|daccord)\s*[.!]?$/i.test(
-      t,
+    /^(oui|ouais|yes|yep|yeah|ok|okay|parfait|nickel|tres bien|d'accord|daccord|sure|exact|exactement|valide|approved|fine|great)$/.test(
+      n,
     )
   ) {
     return true
   }
+
+  // « c'est bon / c'est good / it's good / that's fine » (+ optional oui/ok)
   if (
-    /^(oui|yes|ok|okay)[,!\s]+(c'?est\s+(?:bon|bien|parfait|ça|ca)|ça\s+marche|ca\s+marche|parfait|nickel)\s*[.!]?$/i.test(
-      t,
+    /^(oui|yes|ok|okay)?\s*,?\s*(c'est|ca|it'?s|that'?s|thats)\s+(bon|bien|good|parfait|nickel|ok|okay|fine|great|marche)$/.test(
+      n,
     )
   ) {
     return true
   }
-  if (
-    /^(c'?est\s+(?:bon|bien|parfait)|ça\s+me\s+va|ca\s+me\s+va)\s*[.!]?$/i.test(t)
-  ) {
+
+  // « ok parfait », « oui nickel »
+  if (/^(oui|yes|ok|okay)\s*,?\s+(parfait|nickel|bon|bien|good|fine|great)$/.test(n)) {
     return true
   }
+
+  // Bare « c'est bon » without subject already covered; also « bon pour moi »
+  if (/^(c'est\s+)?(bon|bien|good)(\s+pour\s+moi)?$/.test(n)) return true
+
+  // « ça me va », « sounds/looks/all/seems good », « we're good »
+  if (/^ca\s+me\s+va$/.test(n)) return true
+  if (/^(sounds|looks|all|seems)\s+good$/.test(n)) return true
+  if (/^(on est bon|we'?re good|good for me|looks good)$/.test(n)) return true
+
   if (
-    /\b(ça me va|ca me va|me convient|convient|validé|valide|approved|looks good|good for me|no changes|pas de changement|rien à (changer|modifier)|nothing to change|on est bon|we'?re good)\b/i.test(
-      t,
+    /\b(me convient|convient|no changes|pas de changement|rien a (changer|modifier)|nothing to change)\b/.test(
+      n,
     )
   ) {
     return true
   }
+
   return false
 }
 
