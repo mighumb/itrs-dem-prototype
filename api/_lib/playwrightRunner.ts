@@ -287,6 +287,44 @@ function pageLooksLikeSearchResults(url: string): boolean {
   }
 }
 
+/** True when URL/title already matches the click target (e.g. article opened by typeahead). */
+export function alreadyOnClickTargetPage(url: string, title: string, hint: string): boolean {
+  const raw = hint.trim()
+  if (raw.length < 3) return false
+  const foldedHint = foldDiacritics(raw).toLowerCase().replace(/\s+/g, ' ')
+  const foldedTitle = foldDiacritics(title || '').toLowerCase()
+  let decodedUrl = url
+  try {
+    decodedUrl = decodeURIComponent(url)
+  } catch {
+    // keep raw
+  }
+  const foldedUrl = foldDiacritics(decodedUrl).toLowerCase()
+  if (foldedTitle.includes(foldedHint)) return true
+  const slugSpace = foldedHint.replace(/\s+/g, '_')
+  const slugNone = foldedHint.replace(/\s+/g, '')
+  if (foldedUrl.includes(slugSpace) || foldedUrl.includes(slugNone)) return true
+  // First meaningful token (Zinedine / Mbappé) often enough for wiki titles
+  const token = foldedHint.split(/\s+/).find((t) => t.length >= 4)
+  if (token && (foldedTitle.includes(token) || foldedUrl.includes(token))) return true
+  return false
+}
+
+/** Meaningful tokens for soft Verify (ignore tiny words). */
+export function significantVerifyTokens(hint: string): string[] {
+  return foldDiacritics(hint)
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((t) => t.length >= 4)
+    .filter((t) => !/^(dans|pour|avec|section|presence|présence|verify|check|page|this|that|sont|avec|comme)$/i.test(t))
+}
+
+async function searchInputValue(page: Page): Promise<string> {
+  const loc = await findSearchLocator(page)
+  if (!loc) return ''
+  return (await loc.inputValue().catch(() => ''))?.trim() ?? ''
+}
+
 export type MarketCountry = 'FR' | 'US'
 
 /**
@@ -1589,19 +1627,44 @@ async function executeStepWithCapture(
     }
 
     // Type already submitted search (Enter / suggestion) — don't re-click Rechercher.
-    // On a results page, open the exact-match / top result instead of re-submitting.
-    if (isSearchSubmitClickLabel(step.label) && pageLooksLikeSearchResults(page.url())) {
-      const primary = page
-        .locator(
-          '.mw-search-exists a, .mw-search-result-heading a, #mw-content-text > .mw-parser-output > p a, #mw-content-text > p a',
-        )
-        .first()
-      if (await primary.isVisible({ timeout: 1500 }).catch(() => false)) {
-        const frame = await captureHighlighted(page, primary)
-        await performClick(page, primary)
-        return frame
+    if (isSearchSubmitClickLabel(step.label)) {
+      // On a results page, open the exact-match / top result instead of re-submitting.
+      if (pageLooksLikeSearchResults(page.url())) {
+        const primary = page
+          .locator(
+            '.mw-search-exists a, .mw-search-result-heading a, #mw-content-text > .mw-parser-output > p a, #mw-content-text > p a',
+          )
+          .first()
+        if (await primary.isVisible({ timeout: 1500 }).catch(() => false)) {
+          const frame = await captureHighlighted(page, primary)
+          await performClick(page, primary)
+          return frame
+        }
+        return captureFrame(page)
       }
-      return captureFrame(page)
+      // After typeahead navigated to an article, the search box is empty — clicking
+      // Rechercher would open an empty Special:Search and destroy progress.
+      const query = await searchInputValue(page)
+      if (!query) {
+        return captureFrame(page)
+      }
+    }
+
+    // Click target already open (typeahead / prior navigation landed on the page).
+    const clickHints = [
+      step.targetHint,
+      extractQuotedText(step.label),
+      step.label
+        .replace(/^(click|select|choose|open|choisis|sélectionne|ouvre|clique|cliquer)\s+/i, '')
+        .replace(/^(sur\s+)?(le\s+|la\s+|l['’]\s*)?(lien|bouton|onglet|menu|section)\s+/i, '')
+        .replace(/^(sur\s+)/i, '')
+        .trim(),
+    ].filter((v): v is string => Boolean(v && v.length > 2 && v.length < 80))
+    const pageTitle = await page.title().catch(() => '')
+    for (const hint of clickHints) {
+      if (alreadyOnClickTargetPage(page.url(), pageTitle, hint)) {
+        return captureFrame(page)
+      }
     }
 
     const loc = await resolveClickLocator(page, step)
@@ -1659,13 +1722,14 @@ async function executeStepWithCapture(
     const hint = step.targetHint.trim()
     const pattern = diacriticInsensitiveRegExp(hint.slice(0, 48))
     const folded = foldDiacritics(hint).slice(0, 48)
+    const tokens = significantVerifyTokens(hint)
     verifyLoc = page.getByText(pattern).first()
     let visible = await verifyLoc
-      .waitFor({ state: 'visible', timeout: 8000 })
+      .waitFor({ state: 'visible', timeout: 2000 })
       .then(() => true)
       .catch(() => false)
     if (!visible) {
-      // Folded scan of headings/body (Palmarès ≈ Palmares, entraîneur accents, etc.).
+      // Contiguous folded match on headings/body.
       const nodes = page.locator('h1, h2, h3, h4, h5, main, article, #mw-content-text, [role="main"]')
       const n = Math.min(await nodes.count().catch(() => 0), 30)
       for (let i = 0; i < n; i++) {
@@ -1675,6 +1739,40 @@ async function executeStepWithCapture(
         verifyLoc = el
         visible = true
         break
+      }
+    }
+    if (!visible && tokens.length > 0) {
+      // Split section titles: plan says « Palmarès d'entraîneur », page has
+      // « Palmarès » + « En tant qu'entraîneur » — require all tokens on page.
+      const headings = page.locator('h1, h2, h3, h4, h5')
+      const hCount = Math.min(await headings.count().catch(() => 0), 50)
+      for (let i = 0; i < hCount; i++) {
+        const el = headings.nth(i)
+        if (!(await el.isVisible({ timeout: 150 }).catch(() => false))) continue
+        const text = foldDiacritics(await el.innerText().catch(() => '')).toLowerCase()
+        if (tokens.every((t) => text.includes(t))) {
+          verifyLoc = el
+          visible = true
+          break
+        }
+      }
+      if (!visible) {
+        // Prefer the most specific heading that matches the last token
+        // while other tokens appear elsewhere (hash section + subsection).
+        const last = tokens[tokens.length - 1]!
+        for (let i = 0; i < hCount; i++) {
+          const el = headings.nth(i)
+          if (!(await el.isVisible({ timeout: 150 }).catch(() => false))) continue
+          const text = foldDiacritics(await el.innerText().catch(() => '')).toLowerCase()
+          if (!text.includes(last)) continue
+          const main = page.locator('#mw-content-text, main, [role="main"], article').first()
+          const body = foldDiacritics(await main.innerText().catch(() => '')).toLowerCase()
+          if (tokens.every((t) => body.includes(t))) {
+            verifyLoc = el
+            visible = true
+            break
+          }
+        }
       }
     }
     if (!visible) {
