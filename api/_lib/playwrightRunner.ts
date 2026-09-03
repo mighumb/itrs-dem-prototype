@@ -1564,15 +1564,10 @@ async function executeStepWithCapture(
         `Could not find the form field for: ${step.label}. Refusing to type into an unrelated input.`,
       )
     }
-    const searchSubmit = isSearchTypeStep(step) || (await isSearchFieldLocator(loc))
     // Evidence for Type must show the filled value — capture before typeahead/Enter
     // navigates away (otherwise the field looks empty on the next page).
     const frame = await captureHighlighted(page, loc)
-    if (searchSubmit) {
-      await submitSearchAfterType(page, step, loc, value)
-    } else {
-      await submitSearchAfterType(page, step, loc, value)
-    }
+    await submitSearchAfterType(page, step, loc, value)
     return frame
   }
 
