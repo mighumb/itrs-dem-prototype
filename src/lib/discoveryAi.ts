@@ -443,12 +443,19 @@ function normalizePlan(raw: unknown, fallbackPrompt: string): DiscoveryPlan | nu
         return [normalized]
       })
     : []
-  if (typeof p.title !== 'string' || typeof p.summary !== 'string' || steps.length === 0) {
+  if (typeof p.title !== 'string' || steps.length === 0) {
     return null
   }
+  const summary =
+    typeof p.summary === 'string' && p.summary.trim()
+      ? p.summary.trim()
+      : steps
+          .slice(0, 3)
+          .map((s) => s.action)
+          .join(' → ')
   return {
     title: p.title,
-    summary: p.summary,
+    summary,
     steps,
     prompt: typeof p.prompt === 'string' && p.prompt.trim() ? p.prompt : fallbackPrompt,
   }

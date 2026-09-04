@@ -1235,11 +1235,18 @@ function buildResultPayload(
   let message = softenDryRunUserMessage(rawMessage, workTrace, journeyCtx, fr)
 
   // Hard override: direct-download journeys never ask for lead-form details.
+  // Only claim a plan when steps are actually present (client requires a real plan).
+  const planObj =
+    parsed.plan && typeof parsed.plan === 'object'
+      ? (parsed.plan as { steps?: unknown; title?: unknown })
+      : null
+  const hasPlanSteps = Array.isArray(planObj?.steps) && planObj.steps.length > 0
   if (
     !siteUrlPending &&
     !declined &&
     journeyCtx?.pageArchetype === 'direct_download' &&
-    parsed.readyForPlan
+    parsed.readyForPlan &&
+    hasPlanSteps
   ) {
     const ctaLabel = journeyCtx.primaryCta?.label
     message = fr

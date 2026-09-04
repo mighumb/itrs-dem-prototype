@@ -118,8 +118,17 @@ const demoProxy = finalizeExplicitDownloadJourney({
 assert.equal(demoProxy.readyForPlan, true)
 assert.equal(demoProxy.questions, null)
 assert.match(String(demoProxy.message), /direct click|no form/i)
-const demoSteps = (demoProxy.plan as { steps: Array<{ action: string }> }).steps
-assert.equal(demoSteps.filter((s) => s.action === 'Type').length, 0)
-assert.equal(demoSteps.length, 3)
+const demoPlan = demoProxy.plan as {
+  title: string
+  summary: string
+  prompt: string
+  steps: Array<{ action: string }>
+}
+assert.equal(typeof demoPlan.summary, 'string')
+assert.ok(demoPlan.summary.length > 0)
+assert.equal(typeof demoPlan.prompt, 'string')
+assert.ok(demoPlan.prompt.length > 0)
+assert.equal(demoPlan.steps.filter((s) => s.action === 'Type').length, 0)
+assert.equal(demoPlan.steps.length, 3)
 
 console.log('OK — download journey advance cases passed')

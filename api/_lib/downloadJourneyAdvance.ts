@@ -153,10 +153,15 @@ export function finalizeExplicitDownloadJourney(options: {
     const steps = synthesizePlanFromContext(synthCtx, explore)
     if (steps) {
       const title = fr ? 'Téléchargement du document' : 'Document download'
+      const summary = fr
+        ? 'Ouvrir la page, cliquer sur le bouton de téléchargement, vérifier le succès.'
+        : 'Open the page, click the download button, verify success.'
+      const prompt =
+        stated.length > 400 ? `${stated.slice(0, 397)}…` : stated
       parsed = {
         ...parsed,
         message: downloadPlanMessage(cta, fr),
-        plan: { title, steps },
+        plan: { title, summary, steps, prompt },
         readyForPlan: true,
         proposals: null,
         questions: null,
