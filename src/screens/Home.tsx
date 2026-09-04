@@ -9,6 +9,7 @@ import { HOME_ROTATING_TARGETS } from '../i18n/messages'
 import {
   answersIncludeSiteDecline,
   isFillFieldsWithoutSubmitAsk,
+  shouldInvalidateSettledPlan,
   looksLikeSiteConfirmation,
   looksLikeSiteDecline,
   requestDiscoveryAi,
@@ -994,16 +995,27 @@ export default function Home({
       }
       setCtx(chatCtx)
       dismissFloatingTools()
-      // Fill-only pivots invalidate a settled download/submit plan — do not keep Lancer on it.
-      if (isFillFieldsWithoutSubmitAsk(text) && existingPlan) {
+      // Outcome revision (any phrasing) invalidates a settled plan — do not keep Lancer on it.
+      if (
+        existingPlan &&
+        shouldInvalidateSettledPlan({
+          latestMessage: text,
+          seed: chatCtx.seed,
+          planSteps: existingPlan.steps,
+        })
+      ) {
         setPlan(null)
         setPlanConfirmed(false)
       }
     }
 
-    const invalidatePlanForFillOnly = isFillFieldsWithoutSubmitAsk(text)
+    const invalidateSettledPlan = shouldInvalidateSettledPlan({
+      latestMessage: text,
+      seed: chatCtx?.seed,
+      planSteps: existingPlan?.steps,
+    })
     const useIterate = Boolean(
-      existingPlan && !pivot.newSiteOrJourney && !invalidatePlanForFillOnly,
+      existingPlan && !pivot.newSiteOrJourney && !invalidateSettledPlan,
     )
 
     await withTyping(async (signal, onStatus) => {
@@ -1023,11 +1035,11 @@ export default function Home({
       if (ai.aborted) return
       rememberSnapshot(ai)
 
-      if (existingPlan && !invalidatePlanForFillOnly && ai.planReviewIntent === 'approve') {
+      if (existingPlan && !invalidateSettledPlan && ai.planReviewIntent === 'approve') {
         approvePlanForRun(ai.message)
         return
       }
-      if (existingPlan && !invalidatePlanForFillOnly && ai.planReviewIntent === 'launch') {
+      if (existingPlan && !invalidateSettledPlan && ai.planReviewIntent === 'launch') {
         if (launchSettledPlan(history)) return
       }
 
@@ -1074,7 +1086,7 @@ export default function Home({
         appendPlanNotAppliedHint(ai.message, text, bindModelPlan, locale),
         { workTrace: ai.workTrace },
       )
-      if (existingPlan && !pivot.newSiteOrJourney && !invalidatePlanForFillOnly) {
+      if (existingPlan && !pivot.newSiteOrJourney && !invalidateSettledPlan) {
         setPlan(existingPlan)
         setPhase('planning')
       }

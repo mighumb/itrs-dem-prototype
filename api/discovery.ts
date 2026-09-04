@@ -23,7 +23,9 @@ import {
   looksLikeSiteDecline,
   isSettledPlanApprovalTurn,
   messageRequestsSiteWork,
+  extractJourneyOutcomeSignals,
   isFillOnlyJourneyIntent,
+  shouldInvalidateSettledPlan,
   resolveStatedJourneyIntent,
   summarizeStatedJourneyIntent,
 } from './_lib/discoverySiteIntent.js'
@@ -455,7 +457,16 @@ function applyPlanReviewGate(
     !intent &&
     parsed.readyForPlan &&
     plansEssentiallySame(body.context?.currentSteps, nextSteps) &&
-    !isFillOnlyJourneyIntent(body.userMessage)
+    !shouldInvalidateSettledPlan({
+      latestMessage: body.userMessage,
+      seed: typeof body.context?.seed === 'string' ? body.context.seed : null,
+      planSteps: Array.isArray(body.context?.currentSteps)
+        ? body.context.currentSteps.map((s) => ({
+            label: typeof s.label === 'string' ? s.label : '',
+            action: typeof s.action === 'string' ? s.action : '',
+          }))
+        : null,
+    })
   ) {
     intent = 'approve'
   }
@@ -1026,7 +1037,12 @@ function buildResultPayload(
   const destinationUrl = analysis?.url ?? target?.url ?? body.context?.url ?? null
 
   // Mid-conversation pivot: drop download/submit proposals when the user now wants fields-only.
-  if (stated && /sans\s+(?:télécharg|download|soumett|submit)|without\s+(?:download|submit)/i.test(stated)) {
+  if (
+    stated &&
+    (extractJourneyOutcomeSignals(stated).negative.length > 0 ||
+      extractJourneyOutcomeSignals(body.userMessage).negative.length > 0 ||
+      isFillOnlyJourneyIntent(stated))
+  ) {
     if (proposals) {
       const kept = proposals.filter((p) => {
         if (!p || typeof p !== 'object') return false
