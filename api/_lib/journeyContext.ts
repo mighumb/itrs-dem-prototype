@@ -95,13 +95,18 @@ export function classifyPageArchetype(options: {
   statedIntent: string
 }): PageArchetype {
   const { explore, destinationUrl, outcome, statedIntent } = options
-  const inventory = observedFormInventory(explore)
+  // Forms only count on the destination path — never inherit sibling lead forms
+  // (e.g. Book-a-demo on /request-a-demo while downloading from #use-cases).
+  const inventory = observedFormInventory(explore, { pageUrl: destinationUrl })
   const hasForm = Boolean(inventory?.hasFormEvidence)
   const downloadCta = bestCtaForOutcome(explore, 'download', statedIntent, destinationUrl, 50)
 
   if (exploreHasPasswordField(explore) && outcome === 'login') return 'login_gateway'
   if (outcome === 'download' && downloadCta && !hasForm) return 'direct_download'
   if (outcome === 'download' && downloadCta && hasForm) return 'gated_download'
+  // Download intent + destination itself has no form → direct download
+  // (CTA may be inferred from intent when explore missed the button).
+  if (outcome === 'download' && !hasForm && destinationUrl) return 'direct_download'
   if ((outcome === 'fill_fields' || outcome === 'submit_form') && hasForm) return 'lead_form'
   if (
     destinationUrl &&
@@ -131,7 +136,9 @@ export function resolveJourneyContext(options: {
     /[àâäéèêëïîôùûüç]/i.test(stated) ||
     options.preferredLanguage !== 'en'
   const explore = options.explore ?? null
-  const hasFormEvidence = Boolean(observedFormInventory(explore)?.hasFormEvidence)
+  const hasFormEvidence = Boolean(
+    observedFormInventory(explore, { pageUrl: destinationUrl })?.hasFormEvidence,
+  )
   const pageArchetype = classifyPageArchetype({
     explore,
     destinationUrl,
@@ -151,13 +158,15 @@ export function resolveJourneyContext(options: {
       (hasExplicitSiteLocator(stated) || isDeepUrl(options.contextUrl ?? '')),
   )
 
+  // Explicit deep URL + download outcome is enough for direct_download even when
+  // explore missed the button (hash tab not yet activated) — CTA can be inferred.
   const highConfidence = Boolean(
     destinationUrl &&
       isDeepUrl(destinationUrl) &&
       skipHomepageDetour &&
       ((outcome === 'download' &&
-        primaryCta &&
-        (pageArchetype === 'direct_download' || pageArchetype === 'gated_download')) ||
+        (pageArchetype === 'direct_download' ||
+          (primaryCta && pageArchetype === 'gated_download'))) ||
         (outcome === 'fill_fields' && pageArchetype === 'lead_form' && hasFormEvidence)),
   )
 
@@ -175,7 +184,7 @@ export function resolveJourneyContext(options: {
 }
 
 const FORM_WORK_TRACE_RE =
-  /identif(?:y|ying|ication)|available\s+form\s+field|form\s+field|champ(?:s)?\s+(?:de\s+)?formulaire|collect(?:ing)?\s+(?:details|form)|remplir\s+le\s+formulaire/i
+  /identif(?:y|ying|ication)|available\s+form\s+field|form\s+field|champ(?:s)?\s+(?:de\s+)?formulaire|collect(?:ing)?\s+(?:details|form)|lead\s+form|remplir\s+le\s+formulaire|book\s+a\s+demo.*(?:proxy|form)|(?:proxy|form).*book\s+a\s+demo|request-a-demo|download\s+via\s+resources|no\s+specific.+download\s+form|as\s+a\s+proxy/i
 
 /** Drop misleading LLM workTrace lines when the page has no form (direct download). */
 export function filterWorkTraceForContext(

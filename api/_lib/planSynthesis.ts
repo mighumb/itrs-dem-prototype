@@ -37,8 +37,9 @@ function toDownloadCta(cta: NonNullable<JourneyContext['primaryCta']>): Observed
 function formTypeSteps(
   explore: SiteExploreResult | null | undefined,
   langFr: boolean,
+  destinationUrl?: string | null,
 ): SynthesizedPlanStep[] {
-  const inventory = observedFormInventory(explore)
+  const inventory = observedFormInventory(explore, { pageUrl: destinationUrl })
   if (!inventory?.hasFormEvidence) return []
   const types: SynthesizedPlanStep[] = []
   for (const field of inventory.fields) {
@@ -73,7 +74,7 @@ export function synthesizePlanFromContext(
         href: dest,
       },
     ]
-    const types = formTypeSteps(explore, fr)
+    const types = formTypeSteps(explore, fr, dest)
     if (ctx.pageArchetype === 'gated_download' && types.length > 0) {
       steps.push(...types)
     }
@@ -94,7 +95,7 @@ export function synthesizePlanFromContext(
   }
 
   if (ctx.outcome === 'fill_fields' && ctx.pageArchetype === 'lead_form') {
-    const types = formTypeSteps(explore, fr)
+    const types = formTypeSteps(explore, fr, dest)
     if (types.length === 0) return null
     return [
       {

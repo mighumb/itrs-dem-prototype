@@ -1232,7 +1232,26 @@ function buildResultPayload(
     journeyCtx,
   )
 
-  const message = softenDryRunUserMessage(rawMessage, workTrace, journeyCtx, fr)
+  let message = softenDryRunUserMessage(rawMessage, workTrace, journeyCtx, fr)
+
+  // Hard override: direct-download journeys never ask for lead-form details.
+  if (
+    !siteUrlPending &&
+    !declined &&
+    journeyCtx?.pageArchetype === 'direct_download' &&
+    parsed.readyForPlan
+  ) {
+    const ctaLabel = journeyCtx.primaryCta?.label
+    message = fr
+      ? ctaLabel
+        ? `Voici le plan pour télécharger via « ${ctaLabel} » sur la page indiquée — clic direct, sans formulaire.`
+        : 'Voici le plan de téléchargement — clic direct, sans formulaire.'
+      : ctaLabel
+        ? `Here is the plan to download via “${ctaLabel}” on the page you shared — direct click, no form.`
+        : 'Here is the download journey — direct click, no form.'
+    questions = null
+    proposals = null
+  }
 
   return {
     type: 'result' as const,
