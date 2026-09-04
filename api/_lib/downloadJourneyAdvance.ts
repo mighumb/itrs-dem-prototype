@@ -24,11 +24,15 @@ function inferCtaFromIntent(
 ): ObservedDownloadCta | null {
   const subject = downloadSubjectFromIntent(stated)
   if (!subject) return null
-  const label = /^download\b/i.test(subject.trim())
-    ? subject.trim()
-    : `Download ${subject.replace(/^(the|la|le)\s+/i, '')}`
+  const rest = subject.trim()
+  // Keep natural phrasing: "Download the solution brief".
+  const label = /^download\b/i.test(rest)
+    ? rest
+    : /^(the|la|le|l['’])\s+/i.test(rest)
+      ? `Download ${rest}`
+      : `Download the ${rest}`
   return {
-    label,
+    label: label.replace(/\s+/g, ' ').trim(),
     pageUrl: destinationUrl ?? '',
     source: 'button',
   }

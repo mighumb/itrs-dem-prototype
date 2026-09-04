@@ -2298,6 +2298,12 @@ export function isScreenshotOnlyDryRunError(error: string | null | undefined): b
   return /captureScreenshot|Unable to capture screenshot|screenshot.*protocol error/i.test(error)
 }
 
+/** True when dry-run ran out of time (often on post-download Verify). */
+export function isDryRunDeadlineError(error: string | null | undefined): boolean {
+  if (!error) return false
+  return /dry-run deadline|deadline reached/i.test(error)
+}
+
 /**
  * Fast headless rehearsal (no screenshots) to validate a plan before showing Run.
  */

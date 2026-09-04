@@ -147,6 +147,8 @@ export function appendDryRunWarning(
   locale: Locale,
 ): string {
   const trace = (workTrace ?? []).join(' ')
+  // Soft-success traces (screenshot / Verify deadline) must not scare the user.
+  if (/Dry-run OK|Répétition OK/i.test(trace)) return message
   if (!/dry-run|dry run|répétition partielle|partial dry-run|fragile/i.test(trace)) {
     return message
   }

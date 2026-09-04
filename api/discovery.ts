@@ -11,6 +11,7 @@ import { applyGroundingToPlan } from './_lib/planGrounding.js'
 import {
   dryRunJourneyWithPlaywright,
   isScreenshotOnlyDryRunError,
+  isDryRunDeadlineError,
   type RunnableStep,
 } from './_lib/playwrightRunner.js'
 import { DISCOVERY_SYSTEM_PROMPT } from './_lib/discoverySystemPrompt.js'
@@ -982,20 +983,30 @@ async function groundAndMaybeDryRunPlan(options: {
   })
 
   const trace = Array.isArray(parsed.workTrace) ? [...parsed.workTrace] : []
+  const isDirectDownload = journeyCtxForDryRun?.pageArchetype === 'direct_download'
   const screenshotOnlyFailure =
+    !dry.ok && isScreenshotOnlyDryRunError(dry.error) && isDirectDownload
+  // Navigate+Click succeeded; Verify timed out after download click (PDF / new tab).
+  const verifyDeadlineSoftOk =
     !dry.ok &&
-    isScreenshotOnlyDryRunError(dry.error) &&
-    journeyCtxForDryRun?.pageArchetype === 'direct_download'
+    isDirectDownload &&
+    isDryRunDeadlineError(dry.error) &&
+    dry.stepsOk >= 2 &&
+    (dry.failedIndex == null || dry.failedIndex >= 2)
 
-  if (dry.ok || screenshotOnlyFailure) {
+  if (dry.ok || screenshotOnlyFailure || verifyDeadlineSoftOk) {
     trace.push(
       lang === 'fr'
         ? screenshotOnlyFailure
-          ? `Répétition OK (${dry.stepsOk + (screenshotOnlyFailure ? 1 : 0)} étape${dry.stepsOk > 0 ? 's' : ''}, scope ${resolvedFinal.scope}) — clic téléchargement OK, capture écran seulement en échec`
-          : `Répétition OK (${dry.stepsOk} étape${dry.stepsOk > 1 ? 's' : ''}, scope ${resolvedFinal.scope})`
+          ? `Répétition OK (${dry.stepsOk + 1} étapes, scope ${resolvedFinal.scope}) — clic téléchargement OK, capture écran seulement en échec`
+          : verifyDeadlineSoftOk
+            ? `Répétition OK (${dry.stepsOk} étapes réussies, scope ${resolvedFinal.scope}) — Verify hors délai après le clic (PDF / nouvel onglet) ; parcours toujours lançable`
+            : `Répétition OK (${dry.stepsOk} étape${dry.stepsOk > 1 ? 's' : ''}, scope ${resolvedFinal.scope})`
         : screenshotOnlyFailure
-          ? `Dry-run OK (${dry.stepsOk + 1} step${dry.stepsOk > 0 ? 's' : ''}, scope ${resolvedFinal.scope}) — download click succeeded; screenshot capture only failed`
-          : `Dry-run OK (${dry.stepsOk} step${dry.stepsOk > 1 ? 's' : ''}, scope ${resolvedFinal.scope})`,
+          ? `Dry-run OK (${dry.stepsOk + 1} steps, scope ${resolvedFinal.scope}) — download click succeeded; screenshot capture only failed`
+          : verifyDeadlineSoftOk
+            ? `Dry-run OK (${dry.stepsOk} steps succeeded, scope ${resolvedFinal.scope}) — Verify hit deadline after the click (PDF / new tab); journey still runnable`
+            : `Dry-run OK (${dry.stepsOk} step${dry.stepsOk > 1 ? 's' : ''}, scope ${resolvedFinal.scope})`,
     )
   } else {
     trace.push(

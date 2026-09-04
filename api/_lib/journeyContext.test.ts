@@ -107,19 +107,29 @@ const noisyTrace = [
   'Preparing to collect lead form details for the solution brief download',
   "Using the 'Book a Demo' form fields on /request-a-demo as a proxy",
   "User selected 'Download via Resources' for the solution brief",
+  "A direct 'Download the solution brief' link was not found on this specific page.",
+  'Proposing alternative journeys based on the page content.',
 ]
 const cleaned = filterWorkTraceForContext(noisyTrace, ctx)
-assert.ok(!cleaned.some((l) => /identifying available form fields|lead form|Book a Demo|Download via Resources/i.test(l)))
+assert.ok(
+  !cleaned.some((l) =>
+    /identifying available form fields|lead form|Book a Demo|Download via Resources|link was not found|alternative journeys/i.test(
+      l,
+    ),
+  ),
+)
 assert.ok(cleaned.some((l) => /direct download|no form fields observed/i.test(l)))
 
-const scary = 'Plan ready — but expect a hiccup during run.'
+const scary = 'Plan ready — but expect a hiccup during run.\n\n**Heads-up:** fragile step.'
 const softened = softenDryRunUserMessage(
   scary,
-  ['Partial dry-run — step 2 fragile (page.screenshot: Unable to capture screenshot)'],
+  [
+    'Partial dry-run — step 3 fragile (Dry-run deadline reached)',
+    'Dry-run OK (2 steps succeeded) — Verify hit deadline after the click',
+  ],
   ctx,
   false,
 )
-assert.match(softened, /screenshot capture failed/i)
-assert.doesNotMatch(softened, /hiccup/i)
+assert.doesNotMatch(softened, /Heads-up|hiccup|fragile/i)
 
 console.log('OK — journey context + CTA ranking cases passed')

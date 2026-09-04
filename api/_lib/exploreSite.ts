@@ -246,14 +246,9 @@ const COLLECT_INVENTORY_SOURCE = `(([maxLinks, maxButtons]) => {
     }
   }
 
-  const links = Array.from(linkMap.values())
-    .sort((a, b) => b.score - a.score)
-    .slice(0, maxLinks)
-    .map(({ label, href }) => ({ label, href }))
-
   const buttonTexts = new Set()
   const buttonEls = Array.from(
-    document.querySelectorAll('button, [role="button"], input[type="submit"], a.button, .btn'),
+    document.querySelectorAll('button, [role="button"], input[type="submit"], a.button, .btn, a[download]'),
   )
   for (const el of buttonEls) {
     const label =
@@ -265,6 +260,30 @@ const COLLECT_INVENTORY_SOURCE = `(([maxLinks, maxButtons]) => {
     if (clean && clean.length < 50) buttonTexts.add(clean)
     if (buttonTexts.size >= maxButtons) break
   }
+  // Download / brochure CTAs are often plain <a> links, not .btn — keep them as buttons.
+  for (const a of anchors) {
+    if (buttonTexts.size >= maxButtons) break
+    const label = textOf(a).replace(/\\s+/g, ' ').trim().slice(0, 60)
+    if (!label || label.length >= 50) continue
+    if (!/download|t[eé]l[eé]charg|solution\\s*brief|white\\s*paper|livre\\s*blanc|brochure|\\bpdf\\b/i.test(label)) {
+      continue
+    }
+    buttonTexts.add(label)
+  }
+
+  // Prefer download-labeled links so they survive the maxLinks slice.
+  const links = Array.from(linkMap.values())
+    .map((item) => {
+      const boost = /download|t[eé]l[eé]charg|solution\\s*brief|white\\s*paper|livre\\s*blanc|brochure|\\bpdf\\b/i.test(
+        item.label,
+      )
+        ? 20
+        : 0
+      return { ...item, score: item.score + boost }
+    })
+    .sort((a, b) => b.score - a.score)
+    .slice(0, maxLinks)
+    .map(({ label, href }) => ({ label, href }))
 
   const forms = Array.from(document.querySelectorAll('form'))
     .slice(0, 5)
