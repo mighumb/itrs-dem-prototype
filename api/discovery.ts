@@ -10,6 +10,8 @@ import {
 import { applyGroundingToPlan } from './_lib/planGrounding.js'
 import {
   dryRunJourneyWithPlaywright,
+  isScreenshotOnlyDryRunError,
+  isDryRunDeadlineError,
   type RunnableStep,
 } from './_lib/playwrightRunner.js'
 import { DISCOVERY_SYSTEM_PROMPT } from './_lib/discoverySystemPrompt.js'
@@ -30,6 +32,10 @@ import {
   summarizeStatedJourneyIntent,
 } from './_lib/discoverySiteIntent.js'
 import { ensureProposalsHonorStatedIntent } from './_lib/proposalIntentGuard.js'
+import { applyDownloadCtaGrounding } from './_lib/downloadCtaGrounding.js'
+import { finalizeExplicitDownloadJourney } from './_lib/downloadJourneyAdvance.js'
+import { resolveJourneyContext, filterWorkTraceForContext, softenDryRunUserMessage } from './_lib/journeyContext.js'
+import { isDemoProposalBlob } from './_lib/ctaRanking.js'
 import {
   buildRelocalizeUserPrompt,
   mergeRelocalizedForm,
@@ -329,6 +335,7 @@ function normalizeWorkTrace(
   target: ResolvedSiteTarget | null,
   explore: SiteExploreResult | null,
   streamedStatuses: string[],
+  journeyCtx: ReturnType<typeof resolveJourneyContext> = null,
 ): string[] | null {
   const fromModel = Array.isArray(raw)
     ? raw
@@ -361,7 +368,8 @@ function normalizeWorkTrace(
   for (const line of merged) {
     if (!deduped.includes(line)) deduped.push(line)
   }
-  return deduped.length > 0 ? deduped.slice(0, 8) : null
+  const filtered = filterWorkTraceForContext(deduped, journeyCtx)
+  return filtered.length > 0 ? filtered : null
 }
 
 function writeNdjson(res: VercelResponse, event: Record<string, unknown>) {
@@ -848,13 +856,22 @@ async function groundAndMaybeDryRunPlan(options: {
   parsed = { ...parsed, plan: grounded.plan }
 
   if (grounded.issues.length > 0) {
-    const trace = Array.isArray(parsed.workTrace) ? [...parsed.workTrace] : []
-    trace.push(
-      lang === 'fr'
-        ? 'Certaines étapes manquent encore d’ancrage observé — hypothèses possibles'
-        : 'Some steps still lack observed anchors — may include hypotheses',
-    )
-    parsed.workTrace = trace.slice(0, 8)
+    const journeyCtxForIssues = resolveJourneyContext({
+      statedIntent: body.userMessage,
+      contextUrl,
+      explore,
+      preferredLanguage: lang,
+    })
+    // High-confidence synthesized plans are fully server-owned — don't scare with "hypotheses".
+    if (!journeyCtxForIssues?.highConfidence) {
+      const trace = Array.isArray(parsed.workTrace) ? [...parsed.workTrace] : []
+      trace.push(
+        lang === 'fr'
+          ? 'Certaines étapes manquent encore d’ancrage observé — hypothèses possibles'
+          : 'Some steps still lack observed anchors — may include hypotheses',
+      )
+      parsed.workTrace = trace.slice(0, 8)
+    }
   }
 
   const signals: VerificationSignals = computeVerificationSignals({
@@ -967,12 +984,38 @@ async function groundAndMaybeDryRunPlan(options: {
     deadlineMs: Math.min(45_000, Math.max(18_000, budgetLeft() - 6_000)),
   })
 
+  const journeyCtxForDryRun = resolveJourneyContext({
+    statedIntent: body.userMessage,
+    contextUrl,
+    explore,
+    preferredLanguage: lang,
+  })
+
   const trace = Array.isArray(parsed.workTrace) ? [...parsed.workTrace] : []
-  if (dry.ok) {
+  const isDirectDownload = journeyCtxForDryRun?.pageArchetype === 'direct_download'
+  const screenshotOnlyFailure =
+    !dry.ok && isScreenshotOnlyDryRunError(dry.error) && isDirectDownload
+  // Navigate+Click succeeded; Verify timed out after download click (PDF / new tab).
+  const verifyDeadlineSoftOk =
+    !dry.ok &&
+    isDirectDownload &&
+    isDryRunDeadlineError(dry.error) &&
+    dry.stepsOk >= 2 &&
+    (dry.failedIndex == null || dry.failedIndex >= 2)
+
+  if (dry.ok || screenshotOnlyFailure || verifyDeadlineSoftOk) {
     trace.push(
       lang === 'fr'
-        ? `Répétition OK (${dry.stepsOk} étape${dry.stepsOk > 1 ? 's' : ''}, scope ${resolvedFinal.scope})`
-        : `Dry-run OK (${dry.stepsOk} step${dry.stepsOk > 1 ? 's' : ''}, scope ${resolvedFinal.scope})`,
+        ? screenshotOnlyFailure
+          ? `Répétition OK (${dry.stepsOk + 1} étapes, scope ${resolvedFinal.scope}) — clic téléchargement OK, capture écran seulement en échec`
+          : verifyDeadlineSoftOk
+            ? `Répétition OK (${dry.stepsOk} étapes réussies, scope ${resolvedFinal.scope}) — Verify hors délai après le clic (PDF / nouvel onglet) ; parcours toujours lançable`
+            : `Répétition OK (${dry.stepsOk} étape${dry.stepsOk > 1 ? 's' : ''}, scope ${resolvedFinal.scope})`
+        : screenshotOnlyFailure
+          ? `Dry-run OK (${dry.stepsOk + 1} steps, scope ${resolvedFinal.scope}) — download click succeeded; screenshot capture only failed`
+          : verifyDeadlineSoftOk
+            ? `Dry-run OK (${dry.stepsOk} steps succeeded, scope ${resolvedFinal.scope}) — Verify hit deadline after the click (PDF / new tab); journey still runnable`
+            : `Dry-run OK (${dry.stepsOk} step${dry.stepsOk > 1 ? 's' : ''}, scope ${resolvedFinal.scope})`,
     )
   } else {
     trace.push(
@@ -1035,6 +1078,35 @@ function buildResultPayload(
     body.preferredLanguage ?? body.context?.preferredLanguage ?? null,
   )
   const destinationUrl = analysis?.url ?? target?.url ?? body.context?.url ?? null
+
+  const downloadGrounded = applyDownloadCtaGrounding({
+    stated,
+    explore,
+    destinationUrl,
+    proposals,
+    questions,
+    userMessage: body.userMessage,
+    seed,
+    preferredLanguage: lang,
+  })
+  proposals = downloadGrounded.proposals
+  questions = downloadGrounded.questions
+
+  const journeyCtx = resolveJourneyContext({
+    statedIntent: stated,
+    contextUrl: destinationUrl,
+    explore,
+    preferredLanguage: lang,
+  })
+  if (journeyCtx?.outcome === 'download' && Array.isArray(proposals)) {
+    const filtered = proposals.filter((p) => {
+      if (!p || typeof p !== 'object') return false
+      const blob = `${(p as { title?: string }).title ?? ''} ${(p as { description?: string }).description ?? ''} ${(p as { prompt?: string }).prompt ?? ''}`
+      if (journeyCtx.primaryCta && isDemoProposalBlob(blob)) return false
+      return true
+    })
+    proposals = filtered.length > 0 ? filtered : null
+  }
 
   // Mid-conversation pivot: drop download/submit proposals when the user now wants fields-only.
   if (
@@ -1165,22 +1237,53 @@ function buildResultPayload(
         : 'Here is what I suggest.'
 
   // While URL is pending, prefer server-owned copy — model may invent hosts.
-  const message = siteUrlPending
+  const rawMessage = siteUrlPending
     ? fallbackMessage
     : typeof parsed.message === 'string' && parsed.message.trim()
       ? parsed.message
       : fallbackMessage
 
+  const workTrace = normalizeWorkTrace(
+    parsed.workTrace,
+    declined ? null : analysis,
+    declined ? null : target,
+    declined ? null : explore,
+    streamedStatuses,
+    journeyCtx,
+  )
+
+  let message = softenDryRunUserMessage(rawMessage, workTrace, journeyCtx, fr)
+
+  // Hard override: direct-download journeys never ask for lead-form details.
+  // Only claim a plan when steps are actually present (client requires a real plan).
+  const planObj =
+    parsed.plan && typeof parsed.plan === 'object'
+      ? (parsed.plan as { steps?: unknown; title?: unknown })
+      : null
+  const hasPlanSteps = Array.isArray(planObj?.steps) && planObj.steps.length > 0
+  if (
+    !siteUrlPending &&
+    !declined &&
+    journeyCtx?.pageArchetype === 'direct_download' &&
+    parsed.readyForPlan &&
+    hasPlanSteps
+  ) {
+    const ctaLabel = journeyCtx.primaryCta?.label
+    message = fr
+      ? ctaLabel
+        ? `Voici le plan pour télécharger via « ${ctaLabel} » sur la page indiquée — clic direct, sans formulaire.`
+        : 'Voici le plan de téléchargement — clic direct, sans formulaire.'
+      : ctaLabel
+        ? `Here is the plan to download via “${ctaLabel}” on the page you shared — direct click, no form.`
+        : 'Here is the download journey — direct click, no form.'
+    questions = null
+    proposals = null
+  }
+
   return {
     type: 'result' as const,
     message,
-    workTrace: normalizeWorkTrace(
-      parsed.workTrace,
-      declined ? null : analysis,
-      declined ? null : target,
-      declined ? null : explore,
-      streamedStatuses,
-    ),
+    workTrace,
     formTitle: questions || proposals ? formTitle : null,
     questions,
     proposals,
@@ -1337,8 +1440,31 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             }
 
             const gated = applyPlanReviewGate(rawParsed, body)
-            const parsed = await groundAndMaybeDryRunPlan({
+            const statedForAdvance = resolveStatedJourneyIntent(
+              body.userMessage,
+              typeof body.context?.seed === 'string' ? body.context.seed.trim() : '',
+              body.preferredLanguage ?? body.context?.preferredLanguage ?? null,
+            )
+            const destinationForAdvance =
+              analysis?.url ?? target?.url ?? body.context?.url ?? null
+            const journeyCtxForAdvance = resolveJourneyContext({
+              statedIntent: statedForAdvance,
+              contextUrl: destinationForAdvance,
+              explore,
+              preferredLanguage: body.preferredLanguage ?? body.context?.preferredLanguage ?? null,
+            })
+            const advanced = finalizeExplicitDownloadJourney({
               parsed: gated,
+              stated: statedForAdvance,
+              explore,
+              destinationUrl: destinationForAdvance,
+              userMessage: body.userMessage,
+              seed: typeof body.context?.seed === 'string' ? body.context.seed : null,
+              preferredLanguage: body.preferredLanguage ?? body.context?.preferredLanguage ?? null,
+              journeyCtx: journeyCtxForAdvance,
+            })
+            const parsed = await groundAndMaybeDryRunPlan({
+              parsed: advanced,
               explore,
               analysis,
               target,

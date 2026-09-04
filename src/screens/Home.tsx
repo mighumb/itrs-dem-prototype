@@ -333,15 +333,19 @@ export default function Home({
   const presentPlan = (
     intro: string,
     nextPlan: DiscoveryPlan,
-    options?: { workTrace?: string[] | null },
+    options?: { workTrace?: string[] | null; readyToRun?: boolean },
   ) => {
     const clean = sanitizeDiscoveryPlan(nextPlan)
+    const ready = Boolean(options?.readyToRun)
     const withPlan = messageWithAuthoritativePlan(intro, clean)
-    const body = `${withPlan}\n\n${t('planConfirmQuestion')}`.trim()
+    const body = ready
+      ? withPlan
+      : `${withPlan}\n\n${t('planConfirmQuestion')}`.trim()
     pushAgentReply(body, options)
     pendingAiPlanRef.current = null
     setPlan(clean)
-    setPlanConfirmed(false)
+    // readyForPlan from server → show Run immediately (no extra approval hop).
+    setPlanConfirmed(ready)
     setPhase('planning')
   }
 
@@ -517,7 +521,7 @@ export default function Home({
 
       // Nominal path: only show Run when Gemini produced a plan — never a local template.
       if (ai.plan) {
-        presentPlan(ai.message, ai.plan, { workTrace: ai.workTrace })
+        presentPlan(ai.message, ai.plan, { workTrace: ai.workTrace, readyToRun: Boolean(ai.readyForPlan) })
         return
       }
 
@@ -559,7 +563,7 @@ export default function Home({
 
       // Complete plan → show steps + Run (precise free-typed seeds).
       if (ai.plan && (ai.readyForPlan || ai.plan.steps.length > 0)) {
-        presentPlan(ai.message, ai.plan, { workTrace: ai.workTrace })
+        presentPlan(ai.message, ai.plan, { workTrace: ai.workTrace, readyToRun: Boolean(ai.readyForPlan) })
         return
       }
 
@@ -607,7 +611,7 @@ export default function Home({
 
       // Model sometimes returns a ready plan instead of chooser options — honor it.
       if (ai.plan && (ai.readyForPlan || ai.plan.steps.length > 0)) {
-        presentPlan(ai.message, ai.plan, { workTrace: ai.workTrace })
+        presentPlan(ai.message, ai.plan, { workTrace: ai.workTrace, readyToRun: Boolean(ai.readyForPlan) })
         return
       }
 
@@ -917,7 +921,7 @@ export default function Home({
 
       if (ai.plan && (ai.readyForPlan || ai.plan.steps.length > 0)) {
         setConfiguring(false)
-        presentPlan(ai.message, ai.plan, { workTrace: ai.workTrace })
+        presentPlan(ai.message, ai.plan, { workTrace: ai.workTrace, readyToRun: Boolean(ai.readyForPlan) })
         return
       }
 
@@ -1062,7 +1066,7 @@ export default function Home({
             return
           }
           dismissFloatingTools()
-          presentPlan(ai.message, ai.plan, { workTrace: ai.workTrace })
+          presentPlan(ai.message, ai.plan, { workTrace: ai.workTrace, readyToRun: Boolean(ai.readyForPlan) })
           return
         }
         pendingAiPlanRef.current = sanitizeDiscoveryPlan(ai.plan)
@@ -1165,7 +1169,7 @@ export default function Home({
 
       if (ai.plan && (ai.readyForPlan || ai.plan.steps.length > 0)) {
         setConfiguring(false)
-        presentPlan(ai.message, ai.plan, { workTrace: ai.workTrace })
+        presentPlan(ai.message, ai.plan, { workTrace: ai.workTrace, readyToRun: Boolean(ai.readyForPlan) })
         return
       }
 
@@ -1337,7 +1341,7 @@ export default function Home({
             })
             return
           }
-          presentPlan(ai.message, ai.plan, { workTrace: ai.workTrace })
+          presentPlan(ai.message, ai.plan, { workTrace: ai.workTrace, readyToRun: Boolean(ai.readyForPlan) })
           return
         }
 

@@ -41,6 +41,12 @@ function preferFrLabels(steps: OutcomeVerifyStep[]): boolean {
   return /[àâäéèêëïîôùûüç]/i.test(steps.map((s) => s.label).join(' '))
 }
 
+function extractQuotedFromLabel(label: string): string | null {
+  const m = label.match(/[«"“]([^»"”]+)[»"”]/)
+  const q = m?.[1]?.trim()
+  return q && q.length >= 3 && q.length <= 80 ? q : null
+}
+
 /**
  * Infer the critical-path success check from the last decisive Click/submit.
  * Generic across sites — not HETIC-only.
@@ -57,13 +63,19 @@ export function outcomeVerifyFromSteps(
     // Require an actual download/submit control — a Navigate to /brochure is not a download outcome.
     if (
       /(click|cliquer|clique|soumett|submit|envoy)/i.test(`${step.action} ${step.label}`) &&
-      /télécharge|download|brochure/i.test(blob)
+      /t[eé]l[eé]charg|download|brochure|solution\s*brief|white\s*paper|livre\s*blanc|position\s*paper/i.test(
+        blob,
+      )
     ) {
+      const ctaHint =
+        step.targetHint?.trim() ||
+        extractQuotedFromLabel(step.label) ||
+        (langFr ? 'téléchargement' : 'download')
       return {
         label: langFr
-          ? 'Vérifier la confirmation / le succès du téléchargement de brochure'
-          : 'Verify the brochure download confirmation / success',
-        targetHint: 'confirmation',
+          ? 'Vérifier le succès du téléchargement'
+          : 'Verify the download succeeded',
+        targetHint: ctaHint,
       }
     }
     if (/envoyer|submit|valider|send\s+(the\s+)?form|je\s+valide/i.test(blob)) {

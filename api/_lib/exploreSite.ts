@@ -16,6 +16,11 @@ import {
   type RunnerLocale,
 } from './playwrightRunner.js'
 import { analyzePublicSite, type SiteAnalysisResult } from './analyzeSite.js'
+import {
+  activatePageFragment,
+  destinationHasActivatableHash,
+  mergeExploreInventories,
+} from './exploreHashActivation.js'
 
 export type SiteExploreLink = {
   label: string
@@ -69,8 +74,9 @@ function cacheKeyFor(url: string, market: string): string {
   try {
     const u = new URL(url)
     const path = u.pathname.replace(/\/+$/, '') || '/'
-    // Path + market matter: /brochure (FR) must not reuse /brochure-inter (US) cache.
-    return `${u.origin}${path}|${market}`
+    const hash = u.hash ? u.hash.toLowerCase() : ''
+    // Path + hash + market: /page#use-cases must not reuse /page cache.
+    return `${u.origin}${path}${hash}|${market}`
   } catch {
     return `${url}|${market}`
   }
@@ -79,13 +85,20 @@ function cacheKeyFor(url: string, market: string): string {
 /** Read a still-fresh explore result without re-crawling (used on later Discovery turns). */
 export function peekExploreCache(url: string | null | undefined): SiteExploreResult | null {
   if (!url) return null
-  // Prefer exact path+any market hit; fall back to scanning keys for same origin+path.
   try {
     const u = new URL(url)
     const path = u.pathname.replace(/\/+$/, '') || '/'
-    const prefix = `${u.origin}${path}|`
+    const hash = u.hash ? u.hash.toLowerCase() : ''
+    const exactPrefix = `${u.origin}${path}${hash}|`
     for (const [key, entry] of exploreCache) {
-      if (!key.startsWith(prefix)) continue
+      if (!key.startsWith(exactPrefix)) continue
+      if (entry.expires <= Date.now()) continue
+      return entry.explore
+    }
+    // Fall back to same path without hash when no fragment-specific cache exists.
+    const pathPrefix = `${u.origin}${path}|`
+    for (const [key, entry] of exploreCache) {
+      if (!key.startsWith(pathPrefix)) continue
       if (entry.expires <= Date.now()) continue
       return entry.explore
     }
@@ -233,14 +246,9 @@ const COLLECT_INVENTORY_SOURCE = `(([maxLinks, maxButtons]) => {
     }
   }
 
-  const links = Array.from(linkMap.values())
-    .sort((a, b) => b.score - a.score)
-    .slice(0, maxLinks)
-    .map(({ label, href }) => ({ label, href }))
-
   const buttonTexts = new Set()
   const buttonEls = Array.from(
-    document.querySelectorAll('button, [role="button"], input[type="submit"], a.button, .btn'),
+    document.querySelectorAll('button, [role="button"], input[type="submit"], a.button, .btn, a[download]'),
   )
   for (const el of buttonEls) {
     const label =
@@ -252,6 +260,30 @@ const COLLECT_INVENTORY_SOURCE = `(([maxLinks, maxButtons]) => {
     if (clean && clean.length < 50) buttonTexts.add(clean)
     if (buttonTexts.size >= maxButtons) break
   }
+  // Download / brochure CTAs are often plain <a> links, not .btn — keep them as buttons.
+  for (const a of anchors) {
+    if (buttonTexts.size >= maxButtons) break
+    const label = textOf(a).replace(/\\s+/g, ' ').trim().slice(0, 60)
+    if (!label || label.length >= 50) continue
+    if (!/download|t[eé]l[eé]charg|solution\\s*brief|white\\s*paper|livre\\s*blanc|brochure|\\bpdf\\b/i.test(label)) {
+      continue
+    }
+    buttonTexts.add(label)
+  }
+
+  // Prefer download-labeled links so they survive the maxLinks slice.
+  const links = Array.from(linkMap.values())
+    .map((item) => {
+      const boost = /download|t[eé]l[eé]charg|solution\\s*brief|white\\s*paper|livre\\s*blanc|brochure|\\bpdf\\b/i.test(
+        item.label,
+      )
+        ? 20
+        : 0
+      return { ...item, score: item.score + boost }
+    })
+    .sort((a, b) => b.score - a.score)
+    .slice(0, maxLinks)
+    .map(({ label, href }) => ({ label, href }))
 
   const forms = Array.from(document.querySelectorAll('form'))
     .slice(0, 5)
@@ -460,9 +492,32 @@ export async function explorePublicSite(
         ) {
           await enforceUserDestination(page, destinationUrl, runnerLocale)
         }
+
         await new Promise((resolve) => setTimeout(resolve, 450))
 
-        const inventory = await collectInventory(page)
+        let inventory = await collectInventory(page)
+
+        // SPA tabs / hash sections often hide CTAs until the fragment is active.
+        if (
+          destinationUrl &&
+          destinationHasActivatableHash(destinationUrl) &&
+          urlPathKey(page.url()) === urlPathKey(destinationUrl)
+        ) {
+          onStatus?.(
+            t(
+              lang,
+              `Activating section ${new URL(destinationUrl).hash}…`,
+              `J’active la section ${new URL(destinationUrl).hash}…`,
+            ),
+          )
+          await activatePageFragment(page, destinationUrl)
+          await new Promise((resolve) => setTimeout(resolve, 350))
+          const overlay = await collectInventory(page)
+          inventory = mergeExploreInventories(inventory, overlay, {
+            maxLinks: MAX_LINKS_PER_PAGE,
+            maxButtons: MAX_BUTTONS_PER_PAGE,
+          })
+        }
         let finalUrl = page.url()
         // Prefer reporting the contracted destination path (drop tracking query noise).
         if (
