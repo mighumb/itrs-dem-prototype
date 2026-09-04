@@ -86,10 +86,12 @@ export function synthesizePlanFromContext(
     })
     steps.push({
       action: 'Verify',
+      // Soft success signal: CTA still present or download started — never the
+      // literal word "confirmation" (absent on most marketing pages).
       label: fr
-        ? 'Vérifier la confirmation / le succès du téléchargement'
-        : 'Verify the download confirmation / success',
-      targetHint: 'confirmation',
+        ? 'Vérifier le succès du téléchargement'
+        : 'Verify the download succeeded',
+      targetHint: cta.label,
     })
     return steps.slice(0, 8)
   }

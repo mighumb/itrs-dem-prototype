@@ -1491,6 +1491,35 @@ async function performClick(page: Page, locator: Locator): Promise<void> {
   await dismissNoise(page)
 }
 
+/** Click that may start a file download or open a PDF tab. */
+async function performDownloadClick(page: Page, locator: Locator): Promise<void> {
+  const downloadWait = page.waitForEvent('download', { timeout: 10_000 }).catch(() => null)
+  const popupWait = page.context().waitForEvent('page', { timeout: 10_000 }).catch(() => null)
+  await locator.click({ timeout: 5000 })
+  const [download, popup] = await Promise.all([downloadWait, popupWait])
+  if (download) {
+    // Accept the download so Chromium does not block; ignore path failures.
+    await download.path().catch(() => undefined)
+    await download.failure().catch(() => null)
+  }
+  if (popup) {
+    await popup.waitForLoadState('domcontentloaded', { timeout: 12_000 }).catch(() => undefined)
+  }
+  await page.waitForLoadState('domcontentloaded', { timeout: 12_000 }).catch(() => undefined)
+  await dismissNoise(page)
+}
+
+function isDownloadClickStep(step: RunnableStep): boolean {
+  return /télécharge|download|solution\s*brief|white\s*paper|livre\s*blanc|brochure|\bpdf\b/i.test(
+    `${step.label} ${step.targetHint ?? ''}`,
+  )
+}
+
+function isDownloadSuccessVerify(step: RunnableStep): boolean {
+  const blob = `${step.label} ${step.targetHint ?? ''}`
+  return /télécharg|download|succ[eè]s|success|confirmation/i.test(blob)
+}
+
 /** Click labels that mean “submit the search”, not “type the word recherche”. */
 export function isSearchSubmitClickLabel(label: string): boolean {
   const t = label.trim()
@@ -1735,7 +1764,11 @@ async function executeStepWithCapture(
     if (loc) {
       // Capture with blue box BEFORE the click (element may disappear after navigation).
       let frame = await captureHighlighted(page, loc)
-      await performClick(page, loc)
+      if (isDownloadClickStep(step)) {
+        await performDownloadClick(page, loc)
+      } else {
+        await performClick(page, loc)
+      }
       const clickedHref = step.href || null
       if (clickedHref?.includes('#') || urlHash(page.url())) {
         await scrollToUrlHash(page, clickedHref?.startsWith('#') ? resolveHrefAgainstPage(page.url(), clickedHref) : page.url())
@@ -1842,6 +1875,15 @@ async function executeStepWithCapture(
       }
     }
     if (!visible) {
+      // Download Verify: after a file download / PDF tab, the word "confirmation"
+      // is almost never on the page. Soft-pass when the download CTA is still
+      // visible or the page landmark is intact.
+      if (isDownloadSuccessVerify(step)) {
+        const cta =
+          (await findHintEvidenceLocator(page, step.targetHint || 'download').catch(() => null)) ??
+          (await findPageLandmark(page))
+        return captureHighlighted(page, cta)
+      }
       // Also try role/landmark-ish login success signals when hint is generic.
       const alt = page
         .locator(

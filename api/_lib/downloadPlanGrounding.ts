@@ -294,9 +294,9 @@ export function synthesizeObservedDownloadPlan(
   steps.push({
     action: 'Verify',
     label: langFr
-      ? 'Vérifier la confirmation / le succès du téléchargement'
-      : 'Verify the download confirmation / success',
-    targetHint: 'confirmation',
+      ? 'Vérifier le succès du téléchargement'
+      : 'Verify the download succeeded',
+    targetHint: cta.label,
   })
 
   return steps.slice(0, 8)

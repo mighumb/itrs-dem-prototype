@@ -99,7 +99,7 @@ assert.equal(
   'https://www.itrsgroup.com/solutions/observability-education#use-cases',
 )
 assert.match(itrsRewritten[1]!.label, /Download the solution brief/i)
-assert.match(itrsRewritten[2]!.label, /download confirmation/i)
+assert.match(itrsRewritten[2]!.label, /download succeeded|succès du téléchargement/i)
 assert.equal(
   itrsRewritten.some((s) => /homepage|search|cookie/i.test(s.label)),
   false,

@@ -856,13 +856,22 @@ async function groundAndMaybeDryRunPlan(options: {
   parsed = { ...parsed, plan: grounded.plan }
 
   if (grounded.issues.length > 0) {
-    const trace = Array.isArray(parsed.workTrace) ? [...parsed.workTrace] : []
-    trace.push(
-      lang === 'fr'
-        ? 'Certaines étapes manquent encore d’ancrage observé — hypothèses possibles'
-        : 'Some steps still lack observed anchors — may include hypotheses',
-    )
-    parsed.workTrace = trace.slice(0, 8)
+    const journeyCtxForIssues = resolveJourneyContext({
+      statedIntent: body.userMessage,
+      contextUrl,
+      explore,
+      preferredLanguage: lang,
+    })
+    // High-confidence synthesized plans are fully server-owned — don't scare with "hypotheses".
+    if (!journeyCtxForIssues?.highConfidence) {
+      const trace = Array.isArray(parsed.workTrace) ? [...parsed.workTrace] : []
+      trace.push(
+        lang === 'fr'
+          ? 'Certaines étapes manquent encore d’ancrage observé — hypothèses possibles'
+          : 'Some steps still lack observed anchors — may include hypotheses',
+      )
+      parsed.workTrace = trace.slice(0, 8)
+    }
   }
 
   const signals: VerificationSignals = computeVerificationSignals({
