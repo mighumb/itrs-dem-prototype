@@ -57,12 +57,14 @@ export function outcomeVerifyFromSteps(
     // Require an actual download/submit control — a Navigate to /brochure is not a download outcome.
     if (
       /(click|cliquer|clique|soumett|submit|envoy)/i.test(`${step.action} ${step.label}`) &&
-      /télécharge|download|brochure/i.test(blob)
+      /t[eé]l[eé]charg|download|brochure|solution\s*brief|white\s*paper|livre\s*blanc|position\s*paper/i.test(
+        blob,
+      )
     ) {
       return {
         label: langFr
-          ? 'Vérifier la confirmation / le succès du téléchargement de brochure'
-          : 'Verify the brochure download confirmation / success',
+          ? 'Vérifier la confirmation / le succès du téléchargement'
+          : 'Verify the download confirmation / success',
         targetHint: 'confirmation',
       }
     }

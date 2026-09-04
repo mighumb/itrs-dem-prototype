@@ -13,6 +13,7 @@ import {
   stripUnobservedFormSteps,
   unobservedFormIssues,
 } from './formFieldGrounding.js'
+import { applyDownloadPlanGrounding, shouldApplyDownloadPlanGrounding } from './downloadPlanGrounding.js'
 import {
   homepageOf,
   isDeepUrl,
@@ -494,8 +495,10 @@ export function applyGroundingToPlan(
     null
   const enriched = enrichPlanStepsFromExplore(steps, explore)
   const withLoginGateway = ensureLoginGatewayBeforeCredentials(enriched, explore)
-  const naturalized = naturalizeDeepLinkEntry(withLoginGateway, seed)
-  const cleaned = stripLocaleSearchNoiseSteps(naturalized)
+  const postEntry = shouldApplyDownloadPlanGrounding(userMessage, seed, explore)
+    ? applyDownloadPlanGrounding(withLoginGateway, explore, seed, userMessage)
+    : naturalizeDeepLinkEntry(withLoginGateway, seed)
+  const cleaned = stripLocaleSearchNoiseSteps(postEntry)
   // After all structural transforms — honor explicit user removals last so
   // login-gateway / naturalize cannot re-inject a rejected control.
   const honored = stripUserRejectedActionSteps(cleaned, userMessage)
