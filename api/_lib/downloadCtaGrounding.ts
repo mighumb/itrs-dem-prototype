@@ -6,6 +6,7 @@
 import type { SiteExploreResult } from './exploreSite.js'
 import type { GuardProposal } from './proposalIntentGuard.js'
 import { shouldSkipJourneyChooser } from './discoverySiteIntent.js'
+import { observedFormInventory } from './formFieldGrounding.js'
 
 export type ObservedDownloadCta = {
   label: string
@@ -138,14 +139,20 @@ export function synthesizeObservedDownloadProposal(
   statedIntent: string,
   destination: string | null,
   fr: boolean,
+  explore?: SiteExploreResult | null,
 ): GuardProposal {
   const dest = destination ?? cta.pageUrl
+  const hasForm = Boolean(observedFormInventory(explore)?.hasFormEvidence)
   return {
     id: 'observed-download-cta',
     title: fr ? `Télécharger via « ${cta.label} »` : `Download via “${cta.label}”`,
-    description: fr
-      ? `Ouvrir ${dest}, cliquer sur le bouton observé « ${cta.label} », puis compléter le formulaire si un gated download s’affiche.`
-      : `Open ${dest}, click the observed “${cta.label}” control, then complete the form if a gated download appears.`,
+    description: hasForm
+      ? fr
+        ? `Ouvrir ${dest}, remplir le formulaire observé, puis cliquer sur « ${cta.label} ».`
+        : `Open ${dest}, fill the observed form, then click “${cta.label}”.`
+      : fr
+        ? `Ouvrir ${dest} et cliquer sur le bouton observé « ${cta.label} » (téléchargement direct).`
+        : `Open ${dest} and click the observed “${cta.label}” button (direct download).`,
     prompt:
       statedIntent.length > 400
         ? `${statedIntent.slice(0, 397)}…`
@@ -187,6 +194,7 @@ export function applyDownloadCtaGrounding(options: {
       stated,
       destinationUrl,
       fr,
+      explore,
     )
     if (skipChooser || !proposals || !Array.isArray(proposals) || proposals.length === 0) {
       proposals = [observedProposal]

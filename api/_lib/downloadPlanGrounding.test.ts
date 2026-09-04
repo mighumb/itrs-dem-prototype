@@ -105,6 +105,7 @@ assert.equal(
   false,
   'detour/cookie noise must be removed',
 )
+assert.equal(itrsRewritten.filter((s) => s.action === 'Type').length, 0, 'no form Type steps when explore.forms is empty')
 assert.equal(
   itrsRewritten.some((s) => /section.*use-cases|verify.*use-cases/i.test(s.label)),
   false,

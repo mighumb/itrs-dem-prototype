@@ -202,29 +202,24 @@ function ensureDirectNavigate(
 
 function collectFormTypeSteps(
   explore: SiteExploreResult | null | undefined,
-  existingSteps: DownloadPlanStep[],
+  _existingSteps: DownloadPlanStep[],
   langFr: boolean,
 ): DownloadPlanStep[] {
   const inventory = observedFormInventory(explore)
-  if (inventory?.hasFormEvidence) {
-    const types: DownloadPlanStep[] = []
-    for (const field of inventory.fields) {
-      if (field.kind === 'checkbox') continue
-      types.push({
-        action: 'Type',
-        label: langFr
-          ? `Saisir une valeur de test dans le champ ${field.raw}`
-          : `Type a test value into the ${field.raw} field`,
-        targetHint: field.raw,
-      })
-    }
-    return types.slice(0, 5)
-  }
+  if (!inventory?.hasFormEvidence) return []
 
-  return existingSteps
-    .filter(isTypeLikeStep)
-    .filter((s) => !/recherch|search/i.test(s.label))
-    .slice(0, 5)
+  const types: DownloadPlanStep[] = []
+  for (const field of inventory.fields) {
+    if (field.kind === 'checkbox') continue
+    types.push({
+      action: 'Type',
+      label: langFr
+        ? `Saisir une valeur de test dans le champ ${field.raw}`
+        : `Type a test value into the ${field.raw} field`,
+      targetHint: field.raw,
+    })
+  }
+  return types.slice(0, 5)
 }
 
 function normalizeCtaLabel(value: string): string {
@@ -281,7 +276,7 @@ export function synthesizeObservedDownloadPlan(
   const typesBeforeClick = inventory?.hasFormEvidence
   const typeSteps = collectFormTypeSteps(explore, existingSteps, langFr)
 
-  if (typesBeforeClick && typeSteps.length > 0) {
+  if (typesBeforeClick) {
     steps.push(...typeSteps)
   }
 
@@ -292,12 +287,8 @@ export function synthesizeObservedDownloadPlan(
     ...(cta.href ? { href: cta.href } : {}),
   })
 
-  if (!typesBeforeClick && typeSteps.length > 0) {
-    steps.push(...typeSteps)
-  }
-
   const submit = findDistinctSubmitClick(existingSteps, cta)
-  if (submit) steps.push(submit)
+  if (submit && inventory?.hasFormEvidence) steps.push(submit)
 
   steps.push({
     action: 'Verify',
