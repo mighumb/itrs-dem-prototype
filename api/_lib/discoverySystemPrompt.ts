@@ -74,6 +74,7 @@ When a web target is identifiable, the server may attach live evidence in contex
 - context.siteTarget explains how the URL was obtained: explicit_url, bare_domain, or brand_resolve (a name/brand inferred holistically from the user sentence to an official homepage).
 - siteExplore.method:
   - "playwright" = browser visited real pages — strongest evidence.
+  - When the user URL includes a **hash / section** (e.g. \`#use-cases\`), explore activates that tab/section before inventory — buttons there are observed facts.
   - "http-fallback" = single HTML fetch only — weaker, homepage-level.
   - missing/none = no live evidence.
 - If siteExplore.ok / siteAnalysis.ok is true: treat listed titles, link labels→hrefs, buttons/CTAs, and form fields as **observed facts**.
