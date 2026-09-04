@@ -4,12 +4,17 @@
  */
 
 import type { SiteExploreResult } from './exploreSite.js'
-import { canonicalSiteUrlFromText } from './discoverySiteIntent.js'
+import {
+  canonicalSiteUrlFromText,
+  extractJourneyOutcomeSignals,
+  stepMatchesRejectedOutcomes,
+} from './discoverySiteIntent.js'
 import {
   homepageOf,
   isDeepUrl,
   queryFromDeepUrl,
   stripLocaleSearchNoiseSteps,
+  stripUserRejectedActionSteps,
 } from './urlPathHelpers.js'
 
 export type GroundedPlanStep = {
@@ -19,7 +24,15 @@ export type GroundedPlanStep = {
   href?: string
 }
 
-export { homepageOf, isDeepUrl, queryFromDeepUrl, stripLocaleSearchNoiseSteps } from './urlPathHelpers.js'
+export {
+  homepageOf,
+  isDeepUrl,
+  queryFromDeepUrl,
+  stripFillOnlyContradictedSteps,
+  stripLocaleSearchNoiseSteps,
+  stripUserRejectedActionSteps,
+  extractRejectedActionTargets,
+} from './urlPathHelpers.js'
 
 function normalizeText(value: string): string {
   return value
@@ -218,9 +231,12 @@ function ensureSectionDepth(
 }
 
 /**
- * Login gateway guard: before Type email/password, require a Click that opens
+ * Login gateway guard: before Type **password**, require a Click that opens
  * the credential form (e.g. « Connexion », « Je me connecte ») when explore
  * never saw a password field on the landing page.
+ *
+ * Product rule — email alone is NOT login. Brochure / lead / contact forms
+ * Type email + phone without a password; never inject a Connexion click for those.
  */
 export function ensureLoginGatewayBeforeCredentials(
   steps: GroundedPlanStep[],
@@ -228,17 +244,17 @@ export function ensureLoginGatewayBeforeCredentials(
 ): GroundedPlanStep[] {
   if (steps.length < 2) return steps
 
-  const firstCredIdx = steps.findIndex((step) => {
+  const firstPasswordIdx = steps.findIndex((step) => {
     if (!/type|fill|search/i.test(step.action) && !/^(type|taper|tape|sais)/i.test(step.label)) {
       return false
     }
-    return /e-?mail|mail\b|mot\s*de\s*passe|password|passwd|\bpwd\b/i.test(
+    return /mot\s*de\s*passe|password|passwd|\bpwd\b|otp|code\s*(secret|de\s*v[eé]rification)/i.test(
       `${step.label} ${step.targetHint ?? ''}`,
     )
   })
-  if (firstCredIdx < 0) return steps
+  if (firstPasswordIdx < 0) return steps
 
-  const before = steps.slice(0, firstCredIdx)
+  const before = steps.slice(0, firstPasswordIdx)
   if (
     before.some((step) =>
       /click|cliquer/i.test(`${step.action} ${step.label}`) &&
@@ -287,7 +303,7 @@ export function ensureLoginGatewayBeforeCredentials(
   const navIdx = before.findIndex(isNavigateAction)
   let at = Math.max(1, navIdx >= 0 ? navIdx + 1 : 1)
   while (
-    at < firstCredIdx &&
+    at < firstPasswordIdx &&
     /cookie|consent|didomi|rgpd|accepter/i.test(steps[at]?.label ?? '')
   ) {
     at += 1
@@ -451,6 +467,7 @@ export function applyGroundingToPlan(
   plan: Record<string, unknown>,
   explore: SiteExploreResult | null,
   contextUrl?: string | null,
+  userMessage?: string | null,
 ): { plan: Record<string, unknown>; issues: string[] } {
   if (!plan || typeof plan !== 'object') return { plan, issues: [] }
   const rawSteps = Array.isArray(plan.steps) ? plan.steps : []
@@ -475,10 +492,20 @@ export function applyGroundingToPlan(
   const withLoginGateway = ensureLoginGatewayBeforeCredentials(enriched, explore)
   const naturalized = naturalizeDeepLinkEntry(withLoginGateway, seed)
   const cleaned = stripLocaleSearchNoiseSteps(naturalized)
-  const withOutcome = ensureOutcomeVerify(cleaned)
-  const issues = groundingIssues(withOutcome, explore)
+  // After all structural transforms — honor explicit user removals last so
+  // login-gateway / naturalize cannot re-inject a rejected control.
+  const honored = stripUserRejectedActionSteps(cleaned, userMessage)
+  // Structural: drop steps for outcomes the latest turn rejected (any phrasing).
+  const rejected = extractJourneyOutcomeSignals(userMessage ?? '').negative
+  const withoutContradicted = honored.filter(
+    (s) => !stepMatchesRejectedOutcomes(s, rejected),
+  )
+  const withOutcome = ensureOutcomeVerify(withoutContradicted)
+  // Outcome verify must not reintroduce a contradicted success check.
+  const finalSteps = withOutcome.filter((s) => !stepMatchesRejectedOutcomes(s, rejected))
+  const issues = groundingIssues(finalSteps, explore)
   return {
-    plan: { ...plan, steps: withOutcome },
+    plan: { ...plan, steps: finalSteps },
     issues,
   }
 }

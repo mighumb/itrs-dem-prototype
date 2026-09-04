@@ -27,21 +27,34 @@ export function isWeakHomepageProposal(p: GuardProposal): boolean {
 
 /** Distinctive outcome verbs / nouns from the user's stated intent. */
 function outcomeSignals(intent: string): RegExp[] {
+  // Strip negated download/submit so “sans télécharger” does not keep a download signal.
   const t = intent
     .replace(/https?:\/\/[^\s<>"']+/gi, ' ')
     .replace(/\b(?:www\.)?[a-z0-9][a-z0-9-]*\.[a-z]{2,}(?:\/[^\s]*)?/gi, ' ')
+    .replace(
+      /(?:ne\s+(?:veux|veut|voulais|souhaite|voudrais)\s+pas|pas\s+(?:envie|besoin)\s+de|sans|without|don't|do\s+not)\s+(?:[^\n.!?]{0,40}?)?(?:télécharg\w*|download\w*|soumett\w*|submit\w*|envoy\w*)/gi,
+      ' ',
+    )
     .toLowerCase()
 
   const signals: RegExp[] = []
+  if (
+    /remplir|fill|tester|test|champ|field|saisie|formulaire|form\b/i.test(t) &&
+    !/t[eé]l[eé]charg|download/i.test(t)
+  ) {
+    signals.push(/remplir|fill|tester|test|champ|field|saisie|formulaire|form\b|type|saisir/i)
+  }
   if (/t[eé]l[eé]charg|download/i.test(t)) {
     signals.push(/t[eé]l[eé]charg|download|livre\s*blanc|white\s*paper|brochure|pdf|position\s*paper/i)
   }
-  if (/brochure/i.test(t)) signals.push(/brochure|t[eé]l[eé]charg|download|formulaire/i)
+  if (/brochure/i.test(t) && /t[eé]l[eé]charg|download|formulaire|remplir|fill/i.test(t)) {
+    signals.push(/brochure|t[eé]l[eé]charg|download|formulaire|remplir|fill/i)
+  }
   if (/livre\s*blanc|white\s*paper|position\s*paper/i.test(t)) {
     signals.push(/livre\s*blanc|white\s*paper|position\s*paper|t[eé]l[eé]charg|download/i)
   }
   if (/formulaire|devis|contact|essai|trial|demo|d[eé]mo/i.test(t)) {
-    signals.push(/formulaire|devis|contact|essai|trial|demo|d[eé]mo|remplir|fill|soumettre|submit/i)
+    signals.push(/formulaire|devis|contact|essai|trial|demo|d[eé]mo|remplir|fill|soumettre|submit|champ|field/i)
   }
   if (/achat|acheter|panier|checkout|commande|buy|cart|order/i.test(t)) {
     signals.push(/achat|acheter|panier|checkout|commande|buy|cart|order/i)
@@ -132,9 +145,32 @@ export function synthesizeProposalsFromIntent(
   fr: boolean,
 ): GuardProposal[] {
   const cleaned = intent.replace(/https?:\/\/[^\s<>"']+/gi, ' ').replace(/\s+/g, ' ').trim()
+
+  // Fill / test fields without download or submit — never invent a download path.
+  const fillWithoutSubmit =
+    /sans\s+(?:télécharg|download|soumett|submit)|without\s+(?:download|submit)|champs?.{0,40}(?:sans|without)|fields?.{0,40}(?:sans|without)|remplir\s*\/\s*tester|fill\s*\/\s*test/i.test(
+      cleaned,
+    ) ||
+    (/remplir|fill|tester|test|champ|field|saisie/i.test(cleaned) &&
+      /sans\s+(?:télécharg|download|soumett|submit)|without\s+(?:download|submit)/i.test(cleaned))
+
+  if (fillWithoutSubmit) {
+    return [
+      {
+        id: 'intent-fill-fields-only',
+        title: fr ? 'Remplir les champs (sans envoi)' : 'Fill the fields (no submit)',
+        description: fr
+          ? `Ouvrir le formulaire${destination ? ` sur ${destination}` : ''}, saisir les champs requis, et s’arrêter avant téléchargement / envoi.`
+          : `Open the form${destination ? ` at ${destination}` : ''}, fill the required fields, and stop before download / submit.`,
+        prompt: intent.length > 400 ? `${intent.slice(0, 397)}…` : intent,
+      },
+    ]
+  }
+
   const isWhitePaperDownload =
     /t[eé]l[eé]charg|download/i.test(cleaned) &&
-    /livre\s*blanc|white\s*paper|position\s*paper|brochure/i.test(cleaned)
+    /livre\s*blanc|white\s*paper|position\s*paper|brochure/i.test(cleaned) &&
+    !/sans\s+(?:télécharg|download)|without\s+download/i.test(cleaned)
 
   if (isWhitePaperDownload) {
     const doc =
@@ -227,13 +263,39 @@ export function ensureProposalsHonorStatedIntent(
   }
 
   const withoutWeak = normalized.filter((p) => !isWeakHomepageProposal(p))
-  const pool = withoutWeak.length > 0 ? withoutWeak : normalized
+  // When the user wants fill-only, drop leftover download cards before honor checks.
+  const fillOnly =
+    /sans\s+(?:télécharg|download|soumett|submit)|without\s+(?:download|submit)/i.test(intent) &&
+    /remplir|fill|tester|test|champ|field|saisie|formulaire/i.test(intent)
+  const scoped = fillOnly
+    ? withoutWeak.filter(
+        (p) =>
+          !/t[eé]l[eé]charg|download|livre\s*blanc|white\s*paper|soumett|submit|envoy(er)?|send\s+(the\s+)?form/i.test(
+            blobOf(p),
+          ),
+      )
+    : withoutWeak
+  // Fill-only: never fall back to contradicted download/submit cards — synthesize instead.
+  const pool = fillOnly
+    ? scoped.length > 0
+      ? scoped
+      : []
+    : (scoped.length > 0 ? scoped : withoutWeak).length > 0
+      ? scoped.length > 0
+        ? scoped
+        : withoutWeak
+      : normalized
+
+  if (fillOnly && pool.length === 0) {
+    const synthesized = synthesizeProposalsFromIntent(intent, destination, fr)
+    return [synthesized[0]!]
+  }
 
   const honored = pool.filter((p) => proposalHonorsStatedIntent(p, intent))
   if (honored.length > 0) {
     const rest = pool.filter((p) => p !== honored[0] && !isWeakHomepageProposal(p))
     const merged = [honored[0]!, ...rest].slice(0, 3)
-    if (shouldSkipJourneyChooser(intent)) {
+    if (shouldSkipJourneyChooser(intent) || fillOnly) {
       return [merged[0]!]
     }
     return merged
@@ -241,7 +303,7 @@ export function ensureProposalsHonorStatedIntent(
 
   // Model missed the outcome — replace with synthesized paths for the stated ask.
   const synthesized = synthesizeProposalsFromIntent(intent, destination, fr)
-  if (shouldSkipJourneyChooser(intent)) {
+  if (shouldSkipJourneyChooser(intent) || fillOnly) {
     return [synthesized[0]!]
   }
   return synthesized

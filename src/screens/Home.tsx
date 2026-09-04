@@ -8,6 +8,8 @@ import { useLocale } from '../context/LocaleContext'
 import { HOME_ROTATING_TARGETS } from '../i18n/messages'
 import {
   answersIncludeSiteDecline,
+  isFillFieldsWithoutSubmitAsk,
+  shouldInvalidateSettledPlan,
   looksLikeSiteConfirmation,
   looksLikeSiteDecline,
   requestDiscoveryAi,
@@ -427,6 +429,17 @@ export default function Home({
       autoRun: true,
     })
     return true
+  }
+
+  const dismissFloatingTools = () => {
+    setProposals([])
+    setQuestions([])
+    setFormTitle(null)
+    setConfiguring(false)
+    setQuestionIndex(0)
+    if (phase === 'proposals' || phase === 'questionnaire') {
+      setPhase(planRef.current ? 'planning' : 'conversation')
+    }
   }
 
   const openProposalsStack = (
@@ -969,15 +982,41 @@ export default function Home({
       setCtx(chatCtx)
     } else if (
       chatCtx &&
-      summarizeStatedJourneyIntent(text) &&
+      (summarizeStatedJourneyIntent(text) || isFillFieldsWithoutSubmitAsk(text)) &&
       !looksLikeSiteConfirmation(text)
     ) {
-      // User revised the journey in chat — refresh seed so later proposes follow the new ask.
-      chatCtx = { ...chatCtx, seed: text.trim() }
+      // User revised the journey in chat — refresh seed and drop stale chooser state
+      // so an old card (e.g. download) cannot outlive a new ask.
+      chatCtx = {
+        ...chatCtx,
+        seed: text.trim(),
+        selectedProposalId: null,
+        selectedProposal: null,
+      }
       setCtx(chatCtx)
+      dismissFloatingTools()
+      // Outcome revision (any phrasing) invalidates a settled plan — do not keep Lancer on it.
+      if (
+        existingPlan &&
+        shouldInvalidateSettledPlan({
+          latestMessage: text,
+          seed: chatCtx.seed,
+          planSteps: existingPlan.steps,
+        })
+      ) {
+        setPlan(null)
+        setPlanConfirmed(false)
+      }
     }
 
-    const useIterate = Boolean(existingPlan && !pivot.newSiteOrJourney)
+    const invalidateSettledPlan = shouldInvalidateSettledPlan({
+      latestMessage: text,
+      seed: chatCtx?.seed,
+      planSteps: existingPlan?.steps,
+    })
+    const useIterate = Boolean(
+      existingPlan && !pivot.newSiteOrJourney && !invalidateSettledPlan,
+    )
 
     await withTyping(async (signal, onStatus) => {
       const ai = await requestDiscoveryAi({
@@ -996,11 +1035,11 @@ export default function Home({
       if (ai.aborted) return
       rememberSnapshot(ai)
 
-      if (existingPlan && ai.planReviewIntent === 'approve') {
+      if (existingPlan && !invalidateSettledPlan && ai.planReviewIntent === 'approve') {
         approvePlanForRun(ai.message)
         return
       }
-      if (existingPlan && ai.planReviewIntent === 'launch') {
+      if (existingPlan && !invalidateSettledPlan && ai.planReviewIntent === 'launch') {
         if (launchSettledPlan(history)) return
       }
 
@@ -1015,12 +1054,14 @@ export default function Home({
             const next = sanitizeDiscoveryPlan(ai.plan)
             setPlan(next)
             setPlanConfirmed(true)
+            dismissFloatingTools()
             pushAgentReply(messageWithAuthoritativePlan(ai.message, next), {
               workTrace: ai.workTrace,
             })
             launchSettledPlan(history)
             return
           }
+          dismissFloatingTools()
           presentPlan(ai.message, ai.plan, { workTrace: ai.workTrace })
           return
         }
@@ -1037,11 +1078,15 @@ export default function Home({
         return
       }
 
+      // Chat-only reply: never leave a stale chooser/form from a previous turn
+      // (e.g. message says “no download” while “Télécharger via Ressources” stays open).
+      dismissFloatingTools()
+
       pushAgentReply(
         appendPlanNotAppliedHint(ai.message, text, bindModelPlan, locale),
         { workTrace: ai.workTrace },
       )
-      if (existingPlan && !pivot.newSiteOrJourney) {
+      if (existingPlan && !pivot.newSiteOrJourney && !invalidateSettledPlan) {
         setPlan(existingPlan)
         setPhase('planning')
       }

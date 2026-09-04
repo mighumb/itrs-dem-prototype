@@ -23,6 +23,10 @@ import {
   looksLikeSiteDecline,
   isSettledPlanApprovalTurn,
   messageRequestsSiteWork,
+  extractJourneyOutcomeSignals,
+  isFillOnlyJourneyIntent,
+  shouldInvalidateSettledPlan,
+  resolveStatedJourneyIntent,
   summarizeStatedJourneyIntent,
 } from './_lib/discoverySiteIntent.js'
 import { ensureProposalsHonorStatedIntent } from './_lib/proposalIntentGuard.js'
@@ -163,10 +167,17 @@ function buildUserPrompt(
   const base = body.context ?? {}
   const seed = typeof base.seed === 'string' ? base.seed.trim() : ''
   // Latest user turn wins when they revise the journey; seed is the default otherwise.
-  const fromLatest = summarizeStatedJourneyIntent(body.userMessage)
-  const fromSeed = summarizeStatedJourneyIntent(seed)
-  const statedJourneyIntent = fromLatest ?? fromSeed
-  const intentSource = fromLatest ? 'latest' : fromSeed ? 'seed' : null
+  const statedJourneyIntent = resolveStatedJourneyIntent(
+    body.userMessage,
+    seed,
+    preferredLanguage,
+  )
+  const intentSource = summarizeStatedJourneyIntent(body.userMessage)
+    ? 'latest'
+    : summarizeStatedJourneyIntent(seed)
+      ? 'seed'
+      : null
+  const fromLatest = Boolean(summarizeStatedJourneyIntent(body.userMessage))
 
   const context = attachSite
     ? {
@@ -441,7 +452,22 @@ function applyPlanReviewGate(
       ? (parsed.plan as Record<string, unknown>).steps
       : null
   // Model re-emitted the same plan without declaring intent → treat as approve.
-  if (!intent && parsed.readyForPlan && plansEssentiallySame(body.context?.currentSteps, nextSteps)) {
+  // Never auto-approve when the latest turn pivots away from the settled outcome (fill-only).
+  if (
+    !intent &&
+    parsed.readyForPlan &&
+    plansEssentiallySame(body.context?.currentSteps, nextSteps) &&
+    !shouldInvalidateSettledPlan({
+      latestMessage: body.userMessage,
+      seed: typeof body.context?.seed === 'string' ? body.context.seed : null,
+      planSteps: Array.isArray(body.context?.currentSteps)
+        ? body.context.currentSteps.map((s) => ({
+            label: typeof s.label === 'string' ? s.label : '',
+            action: typeof s.action === 'string' ? s.action : '',
+          }))
+        : null,
+    })
+  ) {
     intent = 'approve'
   }
 
@@ -817,6 +843,7 @@ async function groundAndMaybeDryRunPlan(options: {
     parsed.plan as Record<string, unknown>,
     explore,
     contextUrl,
+    body.userMessage,
   )
   parsed = { ...parsed, plan: grounded.plan }
 
@@ -1002,10 +1029,37 @@ function buildResultPayload(
   // Also synthesizes proposals when the model stalls on 403 / asks navigation questions.
   const seed =
     typeof body.context?.seed === 'string' ? body.context.seed.trim() : ''
-  const stated =
-    summarizeStatedJourneyIntent(body.userMessage) ??
-    summarizeStatedJourneyIntent(seed)
+  const stated = resolveStatedJourneyIntent(
+    body.userMessage,
+    seed,
+    body.preferredLanguage ?? body.context?.preferredLanguage ?? null,
+  )
   const destinationUrl = analysis?.url ?? target?.url ?? body.context?.url ?? null
+
+  // Mid-conversation pivot: drop download/submit proposals when the user now wants fields-only.
+  if (
+    stated &&
+    (extractJourneyOutcomeSignals(stated).negative.length > 0 ||
+      extractJourneyOutcomeSignals(body.userMessage).negative.length > 0 ||
+      isFillOnlyJourneyIntent(stated))
+  ) {
+    if (proposals) {
+      const kept = proposals.filter((p) => {
+        if (!p || typeof p !== 'object') return false
+        const blob = `${(p as { title?: string }).title ?? ''} ${(p as { description?: string }).description ?? ''} ${(p as { prompt?: string }).prompt ?? ''}`
+        return !/t[eé]l[eé]charg|download|livre\s*blanc|white\s*paper|soumett|submit|envoy(er)?|send\s+(the\s+)?form/i.test(blob)
+      })
+      proposals = kept.length > 0 ? kept : null
+    }
+    if (questions) {
+      const kept = questions.filter((q) => {
+        if (!q || typeof q !== 'object') return false
+        const prompt = String((q as { prompt?: unknown }).prompt ?? '')
+        return !/t[eé]l[eé]charg|download|livre\s*blanc|white\s*paper|via\s+ressources|soumett|submit|envoy(er)?|mot\s+de\s+passe|password|connexion|sign\s*in|log\s*in/i.test(prompt)
+      })
+      questions = kept.length > 0 ? kept : null
+    }
+  }
 
   if (!siteUrlPending && !declined) {
     // Drop model-invented site confirmation when the URL was already explicit.

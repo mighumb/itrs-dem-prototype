@@ -389,6 +389,215 @@ export function messageRequestsSiteWork(text: string): boolean {
 }
 
 /**
+ * User rejects download / submit and wants field-fill / validation only.
+ * « Je ne veux pas télécharger… seulement tester les champs » must NOT keep a download intent.
+ */
+export function isFillFieldsWithoutSubmitAsk(text: string): boolean {
+  const t = text.trim()
+  if (!t) return false
+  const rejectsDownloadOrSubmit =
+    /(?:ne\s+(?:veux|veut|voulais|souhaite|souhaitez|voudrais)\s+pas|pas\s+(?:envie|besoin)\s+de|sans|without|don't|do\s+not|no\s+need\s+to)\s+(?:[^\n.!?]{0,40}?)?(?:télécharg\w*|download\w*|soumett\w*|submit\w*|envoy\w*|envoyer)/i.test(
+      t,
+    ) ||
+    /(?:pas|sans|without)\s+(?:de\s+|d['’])?(?:téléchargement|download|soumission|submit)/i.test(t)
+  const wantsFields =
+    /(?:seulement|uniquement|only|juste|just)\s+(?:tester\s+|remplir\s+|fill(?:ing)?\s+)?(?:les\s+|the\s+)?(?:champs|fields|saisie|formulaire|form\b)/i.test(
+      t,
+    ) ||
+    /(?:tester|test(?:er)?|remplir|fill(?:ing)?|valider|validate)\s+(?:les\s+|the\s+)?(?:champs|fields|saisie|formulaire|form\b)/i.test(
+      t,
+    ) ||
+    /(?:champs|fields)\s+(?:de\s+)?(?:saisie|input|information)/i.test(t)
+  return rejectsDownloadOrSubmit || (wantsFields && /télécharg|download|brochure|soumett|submit/i.test(t) && rejectsDownloadOrSubmit)
+}
+
+/** Normalized intent when the user pivots to form-fill without download/submit. */
+export function fillFieldsOnlyIntent(preferredLanguage?: string | null): string {
+  return preferredLanguage === 'fr' || preferredLanguage == null
+    ? 'Remplir / tester les champs du formulaire sans télécharger ni soumettre'
+    : 'Fill / test the form fields without downloading or submitting'
+}
+
+/** True for a fill-only ask OR the normalized fill-only intent string. */
+export function isFillOnlyJourneyIntent(text: string | null | undefined): boolean {
+  const t = typeof text === 'string' ? text.trim() : ''
+  if (!t) return false
+  if (isFillFieldsWithoutSubmitAsk(t)) return true
+  return (
+    /sans\s+(?:télécharg|download|soumett|submit)|without\s+(?:download|submit)/i.test(t) &&
+    /remplir|fill|tester|test|champ|field|saisie|formulaire/i.test(t)
+  )
+}
+
+/** Coarse journey outcomes used for structural conflict checks (not phrase lists). */
+export type JourneyOutcomeKind =
+  | 'download'
+  | 'submit'
+  | 'login'
+  | 'fill'
+  | 'search'
+  | 'cart'
+  | 'booking'
+
+const OUTCOME_KIND_RE: Record<JourneyOutcomeKind, RegExp> = {
+  download: /t[eé]l[eé]charg|download|livre\s*blanc|white\s*paper/i,
+  submit: /soumett|submit|envoy(er)?|send\s+(the\s+)?form|je\s+valide/i,
+  login:
+    /connex(?:ion|er)?|se\s+connecter|login|sign[\s-]?in|log[\s-]?in|mot\s+de\s+passe|password/i,
+  fill: /remplir|fill(?:ing)?|champ|field|saisie|formulaire|\bform\b|tester\s+(?:les\s+)?champs/i,
+  search: /recherch|search/i,
+  cart: /panier|cart|checkout|acheter|achat|\bbuy\b|\border\b/i,
+  booking: /r[eé]serv|book(?:ing)?/i,
+}
+
+export type JourneyOutcomeSignals = {
+  positive: JourneyOutcomeKind[]
+  negative: JourneyOutcomeKind[]
+}
+
+const OUTCOME_KINDS = Object.keys(OUTCOME_KIND_RE) as JourneyOutcomeKind[]
+
+/**
+ * Extract affirmed vs rejected journey outcomes from a turn.
+ * Structural (negation window + outcome kind) — not tied to one French sentence.
+ */
+export function extractJourneyOutcomeSignals(text: string): JourneyOutcomeSignals {
+  const t = text.trim()
+  if (!t) return { positive: [], negative: [] }
+
+  const positive = new Set<JourneyOutcomeKind>()
+  const negative = new Set<JourneyOutcomeKind>()
+
+  // Negation cue + outcome within a short window (FR/EN).
+  const negationWindow =
+    /(?:ne\s+(?:veux|veut|voulais|souhaite|souhaitez|voudrais|veux)\s+pas|pas\s+(?:envie|besoin)\s+de|sans|without|don't|do\s+not|no\s+need\s+to|stop|arr[eê]te(?:r)?|plus\s+de|no\s+more)\s+[^\n.!?]{0,60}/gi
+
+  for (const kind of OUTCOME_KINDS) {
+    const re = OUTCOME_KIND_RE[kind]
+    let negated = false
+    for (const m of t.matchAll(negationWindow)) {
+      if (re.test(m[0] ?? '')) {
+        negative.add(kind)
+        negated = true
+      }
+    }
+    // Bare “pas/sans de téléchargement|download|…”
+    if (
+      new RegExp(
+        String.raw`(?:pas|sans|without)\s+(?:de\s+|d['’])?(?:${re.source})`,
+        'i',
+      ).test(t)
+    ) {
+      negative.add(kind)
+      negated = true
+    }
+    if (!negated && re.test(t)) positive.add(kind)
+  }
+
+  // Restrictive “only fill fields” while talking about a prior download/submit journey.
+  if (
+    /(?:seulement|uniquement|only|juste|just)\s+(?:[^\n.!?]{0,40}?)?(?:champ|field|saisie|formulaire|remplir|fill)/i.test(
+      t,
+    ) &&
+    /t[eé]l[eé]charg|download|brochure|soumett|submit|envoy/i.test(t)
+  ) {
+    negative.add('download')
+    negative.add('submit')
+    positive.add('fill')
+  }
+
+  return { positive: [...positive], negative: [...negative] }
+}
+
+/** True when the latest turn rejects an outcome that the prior text/plan still affirms. */
+export function journeyOutcomesConflict(prior: string, latest: string): boolean {
+  const a = extractJourneyOutcomeSignals(prior)
+  const b = extractJourneyOutcomeSignals(latest)
+  if (b.negative.some((k) => a.positive.includes(k))) return true
+  if (a.negative.some((k) => b.positive.includes(k))) return true
+  // Latest restricts to fill-only while prior was download/submit-led.
+  if (
+    b.positive.includes('fill') &&
+    b.negative.some((k) => k === 'download' || k === 'submit') &&
+    a.positive.some((k) => k === 'download' || k === 'submit')
+  ) {
+    return true
+  }
+  return false
+}
+
+export function planContradictsStatedIntent(
+  steps: Array<{ label: string; action: string; targetHint?: string }> | null | undefined,
+  intentText: string,
+): boolean {
+  if (!steps?.length || !intentText.trim()) return false
+  const { negative } = extractJourneyOutcomeSignals(intentText)
+  if (negative.length === 0) return false
+  const blob = steps.map((s) => `${s.action} ${s.label} ${s.targetHint ?? ''}`).join('\n')
+  return negative.some((kind) => OUTCOME_KIND_RE[kind].test(blob))
+}
+
+/**
+ * Settled plan must not survive a mid-chat outcome revision.
+ * Triggered by structural conflict (negated outcome / restrictive pivot), not one stock phrase.
+ */
+export function shouldInvalidateSettledPlan(options: {
+  latestMessage: string
+  seed?: string | null
+  planSteps?: Array<{ label: string; action: string; targetHint?: string }> | null
+}): boolean {
+  const latest = options.latestMessage.trim()
+  if (!latest) return false
+
+  const latestSignals = extractJourneyOutcomeSignals(latest)
+  if (latestSignals.negative.length === 0 && !isFillOnlyJourneyIntent(latest)) {
+    // Soft revise without negation: new concrete outcome vs seed still counts when they conflict.
+    const seed = options.seed?.trim() ?? ''
+    if (!seed || !summarizeStatedJourneyIntent(latest)) return false
+    return journeyOutcomesConflict(seed, latest)
+  }
+
+  if (options.planSteps?.length && planContradictsStatedIntent(options.planSteps, latest)) {
+    return true
+  }
+  if (options.seed?.trim() && journeyOutcomesConflict(options.seed, latest)) {
+    return true
+  }
+  return false
+}
+
+export function stepMatchesRejectedOutcomes(
+  step: { label: string; action: string; targetHint?: string },
+  rejected: JourneyOutcomeKind[],
+): boolean {
+  if (rejected.length === 0) return false
+  const blob = `${step.action} ${step.label} ${step.targetHint ?? ''}`
+  const interactive = /(click|cliquer|clique|select|choisis|soumett|submit|envoy)/i.test(blob)
+  const verify = /(verify|v[eé]rif|check|wait)/i.test(blob)
+  return rejected.some((kind) => {
+    if (!OUTCOME_KIND_RE[kind].test(blob)) return false
+    if (kind === 'fill' || kind === 'search') return false
+    return interactive || verify
+  })
+}
+
+/**
+ * Prefer the latest turn when it revises the goal (e.g. cancels download).
+ * Falls back to seed intent when the latest message has no journey outcome.
+ */
+export function resolveStatedJourneyIntent(
+  latestMessage: string,
+  seed?: string | null,
+  preferredLanguage?: string | null,
+): string | null {
+  const latest = latestMessage.trim()
+  if (latest && isFillFieldsWithoutSubmitAsk(latest)) {
+    return fillFieldsOnlyIntent(preferredLanguage ?? (/[àâäéèêëïîôùûüç]/i.test(latest) ? 'fr' : 'en'))
+  }
+  return summarizeStatedJourneyIntent(latest) ?? summarizeStatedJourneyIntent(seed ?? '')
+}
+
+/**
  * User already named a concrete journey outcome (beyond brand / URL alone).
  * Used so proposals #1 must honor that ask after site confirm — not generic templates.
  *
@@ -400,6 +609,11 @@ export function summarizeStatedJourneyIntent(text: string): string | null {
   if (!t || t.length < 3) return null
   if (looksLikeSiteConfirmation(t) || looksLikeSiteDecline(t) || looksLikeSocialChat(t)) {
     return null
+  }
+
+  // Explicit pivot: reject download/submit → fill fields only (do not keep “télécharger” as intent).
+  if (isFillFieldsWithoutSubmitAsk(t)) {
+    return fillFieldsOnlyIntent(/[àâäéèêëïîôùûüç]|je\s+ne|champs|saisie|formulaire/i.test(t) ? 'fr' : 'en')
   }
 
   // Strip URLs/domains so path tokens (…/brochure) never count as journey verbs.
@@ -417,9 +631,20 @@ export function summarizeStatedJourneyIntent(text: string): string | null {
     return null
   }
 
+  // Remove negated download/submit phrases so “ne veux pas télécharger” does not count as download.
+  const withoutNegatedDownloads = withoutLocators
+    .replace(
+      /(?:ne\s+(?:veux|veut|voulais|souhaite|voudrais)\s+pas|pas\s+(?:envie|besoin)\s+de|sans|without|don't|do\s+not)\s+(?:[^\n.!?]{0,40}?)?(?:télécharg\w*|download\w*|soumett\w*|submit\w*|envoy\w*)/gi,
+      ' ',
+    )
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  const forVerbCheck = withoutNegatedDownloads || withoutLocators
+
   const hasJourneyVerb =
-    /\b(achat|acheter|commande|commander|panier|livraison|livrer|checkout|purchase|buy|buying|order|orders|cart|delivery|recherche|search|connexion|login|log[\s-]?in|inscription|signup|sign[\s-]?up|parcours|journey|monitorer|monitore|surveiller|surveille|réserver|reserver|book(?:ing)?|payer|pay|payment|tunnel|brochure|télécharger|telecharger|download|formulaire|devis|contact|essai|trial|demo|démo|vérif(?:ier)?|verify|check|remplir|fill|soumettre|submit|accessib|visible|affich)/i.test(
-      withoutLocators,
+    /\b(achat|acheter|commande|commander|panier|livraison|livrer|checkout|purchase|buy|buying|order|orders|cart|delivery|recherche|search|connexion|login|log[\s-]?in|inscription|signup|sign[\s-]?up|parcours|journey|monitorer|monitore|surveiller|surveille|réserver|reserver|book(?:ing)?|payer|pay|payment|tunnel|brochure|télécharger|telecharger|download|formulaire|devis|contact|essai|trial|demo|démo|vérif(?:ier)?|verify|check|remplir|fill|soumettre|submit|accessib|visible|affich|tester|test|champ|field|saisie)/i.test(
+      forVerbCheck,
     )
   if (!hasJourneyVerb) return null
 
