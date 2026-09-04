@@ -31,6 +31,7 @@ import {
 } from './_lib/discoverySiteIntent.js'
 import { ensureProposalsHonorStatedIntent } from './_lib/proposalIntentGuard.js'
 import { applyDownloadCtaGrounding } from './_lib/downloadCtaGrounding.js'
+import { finalizeExplicitDownloadJourney } from './_lib/downloadJourneyAdvance.js'
 import { resolveJourneyContext } from './_lib/journeyContext.js'
 import { isDemoProposalBlob } from './_lib/ctaRanking.js'
 import {
@@ -1369,8 +1370,31 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             }
 
             const gated = applyPlanReviewGate(rawParsed, body)
-            const parsed = await groundAndMaybeDryRunPlan({
+            const statedForAdvance = resolveStatedJourneyIntent(
+              body.userMessage,
+              typeof body.context?.seed === 'string' ? body.context.seed.trim() : '',
+              body.preferredLanguage ?? body.context?.preferredLanguage ?? null,
+            )
+            const destinationForAdvance =
+              analysis?.url ?? target?.url ?? body.context?.url ?? null
+            const journeyCtxForAdvance = resolveJourneyContext({
+              statedIntent: statedForAdvance,
+              contextUrl: destinationForAdvance,
+              explore,
+              preferredLanguage: body.preferredLanguage ?? body.context?.preferredLanguage ?? null,
+            })
+            const advanced = finalizeExplicitDownloadJourney({
               parsed: gated,
+              stated: statedForAdvance,
+              explore,
+              destinationUrl: destinationForAdvance,
+              userMessage: body.userMessage,
+              seed: typeof body.context?.seed === 'string' ? body.context.seed : null,
+              preferredLanguage: body.preferredLanguage ?? body.context?.preferredLanguage ?? null,
+              journeyCtx: journeyCtxForAdvance,
+            })
+            const parsed = await groundAndMaybeDryRunPlan({
+              parsed: advanced,
               explore,
               analysis,
               target,

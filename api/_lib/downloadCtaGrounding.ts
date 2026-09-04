@@ -8,7 +8,6 @@ import type { GuardProposal } from './proposalIntentGuard.js'
 import { shouldSkipJourneyChooser } from './discoverySiteIntent.js'
 import { observedFormInventory } from './formFieldGrounding.js'
 import { bestCtaForOutcome } from './ctaRanking.js'
-import { bestCtaForOutcome } from './ctaRanking.js'
 
 export type ObservedDownloadCta = {
   label: string
@@ -72,7 +71,12 @@ export function isDownloadMethodClarificationQuestion(q: {
   const options = Array.isArray(q.options)
     ? q.options.map((o) => String(o)).join(' ')
     : ''
-  const blob = `${prompt} ${options}`
+  return isDownloadStallText(`${prompt} ${options}`)
+}
+
+/** Stall copy when URL + download outcome already given — menu path, exact title, etc. */
+export function isDownloadStallText(text: string): boolean {
+  const blob = `${text ?? ''}`
   return (
     /how\s+is\s+.+\s+(?:usually\s+)?downloaded|clarify\s+download|download\s+method|usually\s+downloaded/i.test(
       blob,
@@ -85,7 +89,14 @@ export function isDownloadMethodClarificationQuestion(q: {
     ) ||
     /en\s+remplissant\s+un\s+formulaire|lien\s+direct\s+sur\s+une\s+autre\s+page|je\s+ne\s+sais\s+pas.*sugg[eè]re/i.test(
       blob,
-    )
+    ) ||
+    /exact\s+title\s+of\s+the\s+document|menu\s+path|navigation\s+path|path\s+to\s+find\s+it|where\s+(?:in\s+the\s+menu|to\s+find)/i.test(
+      blob,
+    ) ||
+    /titre\s+exact|chemin\s+(?:de\s+)?navigation|menu\s+pour\s+le\s+trouver|où\s+le\s+trouver\s+dans/i.test(
+      blob,
+    ) ||
+    /provide\s+the\s+exact\s+title|please\s+provide.*(?:title|path|menu)/i.test(blob)
   )
 }
 
