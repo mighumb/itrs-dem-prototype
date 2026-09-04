@@ -69,4 +69,57 @@ assert.match(steps[1]!.label, /Download the solution brief/i)
 assert.equal(stalled.questions, null)
 assert.equal(isDownloadStallText(String(stalled.message)), false)
 
+// Sibling /request-a-demo form must NOT derail into a lead-form proxy.
+const exploreWithDemoForm: SiteExploreResult = {
+  ...itrsExplore,
+  pagesVisited: 3,
+  pages: [
+    ...itrsExplore.pages!,
+    {
+      url: 'https://www.itrsgroup.com/request-a-demo',
+      title: 'Request a demo',
+      heading: 'Book a demo',
+      links: [],
+      buttons: ['Submit'],
+      forms: [
+        {
+          action: '/request-a-demo',
+          fields: ['First name', 'Last name', 'Email', 'Company', 'Phone'],
+        },
+      ],
+    },
+  ],
+}
+
+const demoProxy = finalizeExplicitDownloadJourney({
+  parsed: {
+    message:
+      "To simulate downloading the solution brief, I'll prepare a journey that fills out a standard lead form. Please provide the details you'd like to use for the form.",
+    readyForPlan: false,
+    questions: [
+      {
+        id: 'lead-form',
+        prompt: 'What details should we use for the lead form?',
+        options: ['First name', 'Email', 'Company'],
+      },
+    ],
+    workTrace: [
+      "Using the 'Book a Demo' form fields on /request-a-demo as a proxy",
+      "No specific 'solution brief' download form was found",
+    ],
+  },
+  stated,
+  explore: exploreWithDemoForm,
+  destinationUrl: itrsExplore.url,
+  userMessage: stated,
+  preferredLanguage: 'en',
+})
+
+assert.equal(demoProxy.readyForPlan, true)
+assert.equal(demoProxy.questions, null)
+assert.match(String(demoProxy.message), /direct click|no form/i)
+const demoSteps = (demoProxy.plan as { steps: Array<{ action: string }> }).steps
+assert.equal(demoSteps.filter((s) => s.action === 'Type').length, 0)
+assert.equal(demoSteps.length, 3)
+
 console.log('OK — download journey advance cases passed')

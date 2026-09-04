@@ -48,6 +48,31 @@ assert.equal(ctx!.highConfidence, true)
 assert.equal(ctx!.primaryCta?.label, 'Download the solution brief')
 assert.equal(ctx!.hasFormEvidence, false)
 
+// Sibling demo form must not flip archetype to gated_download / lead_form.
+const exploreWithDemoSibling: typeof itrsExplore = {
+  ...itrsExplore,
+  pages: [
+    ...itrsExplore.pages!,
+    {
+      url: 'https://www.itrsgroup.com/request-a-demo',
+      title: 'Request a demo',
+      heading: 'Book a demo',
+      links: [],
+      buttons: ['Submit'],
+      forms: [{ action: null, fields: ['First name', 'Email', 'Company', 'Phone'] }],
+    },
+  ],
+}
+const ctxSibling = resolveJourneyContext({
+  statedIntent: stated,
+  contextUrl: itrsExplore.url,
+  explore: exploreWithDemoSibling,
+  preferredLanguage: 'en',
+})
+assert.equal(ctxSibling!.pageArchetype, 'direct_download')
+assert.equal(ctxSibling!.hasFormEvidence, false)
+assert.equal(ctxSibling!.highConfidence, true)
+
 assert.equal(
   classifyPageArchetype({
     explore: itrsExplore,
@@ -79,10 +104,12 @@ assert.equal(
 const noisyTrace = [
   'Explored 3 pages on https://www.itrsgroup.com/solutions/observability-education',
   'Identifying available form fields on the site',
-  'Preparing to collect details for the download',
+  'Preparing to collect lead form details for the solution brief download',
+  "Using the 'Book a Demo' form fields on /request-a-demo as a proxy",
+  "User selected 'Download via Resources' for the solution brief",
 ]
 const cleaned = filterWorkTraceForContext(noisyTrace, ctx)
-assert.ok(!cleaned.some((l) => /identifying available form fields/i.test(l)))
+assert.ok(!cleaned.some((l) => /identifying available form fields|lead form|Book a Demo|Download via Resources/i.test(l)))
 assert.ok(cleaned.some((l) => /direct download|no form fields observed/i.test(l)))
 
 const scary = 'Plan ready — but expect a hiccup during run.'

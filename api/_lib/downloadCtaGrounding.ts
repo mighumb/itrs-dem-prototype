@@ -96,7 +96,40 @@ export function isDownloadStallText(text: string): boolean {
     /titre\s+exact|chemin\s+(?:de\s+)?navigation|menu\s+pour\s+le\s+trouver|où\s+le\s+trouver\s+dans/i.test(
       blob,
     ) ||
-    /provide\s+the\s+exact\s+title|please\s+provide.*(?:title|path|menu)/i.test(blob)
+    /provide\s+the\s+exact\s+title|please\s+provide.*(?:title|path|menu)/i.test(blob) ||
+    // Lead-form / Book-a-demo proxy detour when user asked for a direct download.
+    /fills?\s+out\s+a\s+(?:standard\s+)?lead\s+form|prepare\s+a\s+journey\s+that\s+fills|provide\s+the\s+details.+(?:for\s+the\s+)?form|lead\s+form\s+details/i.test(
+      blob,
+    ) ||
+    /book\s+a\s+demo.+(?:proxy|form)|(?:proxy|form).+book\s+a\s+demo|request-a-demo|download\s+via\s+resources/i.test(
+      blob,
+    ) ||
+    /remplir\s+(?:un\s+)?(?:formulaire\s+de\s+)?(?:lead|contact|d[eé]mo)|details?\s+(?:du|de)\s+formulaire|proxy.+d[eé]mo/i.test(
+      blob,
+    )
+  )
+}
+
+/** Form-param questions (name/email/…) are stalls for direct-download journeys. */
+export function isLeadFormCollectionQuestion(q: {
+  prompt?: unknown
+  options?: unknown
+}): boolean {
+  const prompt = String(q.prompt ?? '')
+  const options = Array.isArray(q.options)
+    ? q.options.map((o) => String(o)).join(' ')
+    : ''
+  const blob = `${prompt} ${options}`
+  return (
+    /(?:first\s*name|last\s*name|pr[eé]nom|nom|email|e-?mail|phone|t[eé]l[eé]phone|company|soci[eé]t[eé]|job\s*title|poste)/i.test(
+      blob,
+    ) ||
+    /details?\s+(?:you.?d\s+like\s+to\s+use\s+)?(?:for\s+the\s+)?form|lead\s+form|form\s+fields?\s+to\s+(?:use|fill)/i.test(
+      blob,
+    ) ||
+    /quelles?\s+(?:sont\s+les\s+)?(?:valeurs|donn[eé]es).+formulaire|renseigne.+formulaire/i.test(
+      blob,
+    )
   )
 }
 
@@ -108,7 +141,9 @@ export function synthesizeObservedDownloadProposal(
   explore?: SiteExploreResult | null,
 ): GuardProposal {
   const dest = destination ?? cta.pageUrl
-  const hasForm = Boolean(observedFormInventory(explore)?.hasFormEvidence)
+  const hasForm = Boolean(
+    observedFormInventory(explore, { pageUrl: dest })?.hasFormEvidence,
+  )
   return {
     id: 'observed-download-cta',
     title: fr ? `Télécharger via « ${cta.label} »` : `Download via “${cta.label}”`,
@@ -148,7 +183,11 @@ export function applyDownloadCtaGrounding(options: {
 
   if (Array.isArray(questions)) {
     const filtered = questions.filter(
-      (q) => !q || typeof q !== 'object' || !isDownloadMethodClarificationQuestion(q as object),
+      (q) =>
+        !q ||
+        typeof q !== 'object' ||
+        (!isDownloadMethodClarificationQuestion(q as object) &&
+          !(skipChooser && isLeadFormCollectionQuestion(q as object))),
     )
     questions = filtered.length > 0 ? filtered : null
   }

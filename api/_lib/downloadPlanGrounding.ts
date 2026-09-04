@@ -204,8 +204,9 @@ function collectFormTypeSteps(
   explore: SiteExploreResult | null | undefined,
   _existingSteps: DownloadPlanStep[],
   langFr: boolean,
+  destinationUrl?: string | null,
 ): DownloadPlanStep[] {
-  const inventory = observedFormInventory(explore)
+  const inventory = observedFormInventory(explore, { pageUrl: destinationUrl })
   if (!inventory?.hasFormEvidence) return []
 
   const types: DownloadPlanStep[] = []
@@ -272,9 +273,9 @@ export function synthesizeObservedDownloadPlan(
     },
   ]
 
-  const inventory = observedFormInventory(explore)
+  const inventory = observedFormInventory(explore, { pageUrl: destination })
   const typesBeforeClick = inventory?.hasFormEvidence
-  const typeSteps = collectFormTypeSteps(explore, existingSteps, langFr)
+  const typeSteps = collectFormTypeSteps(explore, existingSteps, langFr, destination)
 
   if (typesBeforeClick) {
     steps.push(...typeSteps)

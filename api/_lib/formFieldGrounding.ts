@@ -60,16 +60,32 @@ function classifyFieldKind(raw: string): ObservedFormField['kind'] {
   return 'text'
 }
 
-/** Build a merged form inventory from all pages in a Playwright explore result. */
+function pagePathKey(url: string): string {
+  try {
+    const u = new URL(url)
+    return (u.pathname.replace(/\/+$/, '') || '/').toLowerCase()
+  } catch {
+    return url.toLowerCase()
+  }
+}
+
+/**
+ * Build a merged form inventory from explore pages.
+ * When `pageUrl` is set, only forms on that path count — sibling pages
+ * (e.g. /request-a-demo) must not poison a direct-download destination.
+ */
 export function observedFormInventory(
   explore: SiteExploreResult | null | undefined,
+  options?: { pageUrl?: string | null },
 ): ObservedFormInventory | null {
   if (!explore?.ok || !explore.pages?.length) return null
 
+  const destKey = options?.pageUrl ? pagePathKey(options.pageUrl) : null
   const seen = new Set<string>()
   const fields: ObservedFormField[] = []
 
   for (const page of explore.pages) {
+    if (destKey && pagePathKey(page.url) !== destKey) continue
     for (const form of page.forms ?? []) {
       for (const raw of form.fields ?? []) {
         const trimmed = `${raw ?? ''}`.trim()
