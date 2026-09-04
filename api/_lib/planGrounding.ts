@@ -14,6 +14,9 @@ import {
   unobservedFormIssues,
 } from './formFieldGrounding.js'
 import { applyDownloadPlanGrounding, shouldApplyDownloadPlanGrounding } from './downloadPlanGrounding.js'
+import { resolveJourneyContext } from './journeyContext.js'
+import { validatePlanAgainstContext } from './planContextValidator.js'
+import { synthesizePlanFromContext } from './planSynthesis.js'
 import {
   homepageOf,
   isDeepUrl,
@@ -493,11 +496,23 @@ export function applyGroundingToPlan(
     contextUrl ||
     explore?.pages?.[0]?.url ||
     null
+  const journeyCtx = resolveJourneyContext({
+    statedIntent: userMessage,
+    contextUrl: seed,
+    explore,
+  })
   const enriched = enrichPlanStepsFromExplore(steps, explore)
   const withLoginGateway = ensureLoginGatewayBeforeCredentials(enriched, explore)
-  const postEntry = shouldApplyDownloadPlanGrounding(userMessage, seed, explore)
-    ? applyDownloadPlanGrounding(withLoginGateway, explore, seed, userMessage)
-    : naturalizeDeepLinkEntry(withLoginGateway, seed)
+
+  const synthesized = journeyCtx?.highConfidence
+    ? synthesizePlanFromContext(journeyCtx, explore)
+    : null
+
+  const postEntry = synthesized
+    ? synthesized
+    : shouldApplyDownloadPlanGrounding(userMessage, seed, explore)
+      ? applyDownloadPlanGrounding(withLoginGateway, explore, seed, userMessage)
+      : naturalizeDeepLinkEntry(withLoginGateway, seed)
   const cleaned = stripLocaleSearchNoiseSteps(postEntry)
   // After all structural transforms — honor explicit user removals last so
   // login-gateway / naturalize cannot re-inject a rejected control.
@@ -511,10 +526,13 @@ export function applyGroundingToPlan(
   const formGrounded = stripUnobservedFormSteps(withoutContradicted, explore)
   const withOutcome = ensureOutcomeVerify(formGrounded)
   // Outcome verify must not reintroduce a contradicted success check.
-  const finalSteps = withOutcome.filter((s) => !stepMatchesRejectedOutcomes(s, rejected))
+  let finalSteps = withOutcome.filter((s) => !stepMatchesRejectedOutcomes(s, rejected))
+  const contextValidated = validatePlanAgainstContext(finalSteps, journeyCtx, explore)
+  finalSteps = contextValidated.steps
   const issues = [
     ...groundingIssues(finalSteps, explore),
     ...unobservedFormIssues(beforeFormGrounding, formGrounded, explore),
+    ...contextValidated.issues,
   ]
   return {
     plan: { ...plan, steps: finalSteps },

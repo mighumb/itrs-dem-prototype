@@ -31,6 +31,8 @@ import {
 } from './_lib/discoverySiteIntent.js'
 import { ensureProposalsHonorStatedIntent } from './_lib/proposalIntentGuard.js'
 import { applyDownloadCtaGrounding } from './_lib/downloadCtaGrounding.js'
+import { resolveJourneyContext } from './_lib/journeyContext.js'
+import { isDemoProposalBlob } from './_lib/ctaRanking.js'
 import {
   buildRelocalizeUserPrompt,
   mergeRelocalizedForm,
@@ -1049,6 +1051,22 @@ function buildResultPayload(
   })
   proposals = downloadGrounded.proposals
   questions = downloadGrounded.questions
+
+  const journeyCtx = resolveJourneyContext({
+    statedIntent: stated,
+    contextUrl: destinationUrl,
+    explore,
+    preferredLanguage: lang,
+  })
+  if (journeyCtx?.outcome === 'download' && Array.isArray(proposals)) {
+    const filtered = proposals.filter((p) => {
+      if (!p || typeof p !== 'object') return false
+      const blob = `${(p as { title?: string }).title ?? ''} ${(p as { description?: string }).description ?? ''} ${(p as { prompt?: string }).prompt ?? ''}`
+      if (journeyCtx.primaryCta && isDemoProposalBlob(blob)) return false
+      return true
+    })
+    proposals = filtered.length > 0 ? filtered : null
+  }
 
   // Mid-conversation pivot: drop download/submit proposals when the user now wants fields-only.
   if (

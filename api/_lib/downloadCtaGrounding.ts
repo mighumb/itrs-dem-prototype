@@ -7,6 +7,8 @@ import type { SiteExploreResult } from './exploreSite.js'
 import type { GuardProposal } from './proposalIntentGuard.js'
 import { shouldSkipJourneyChooser } from './discoverySiteIntent.js'
 import { observedFormInventory } from './formFieldGrounding.js'
+import { bestCtaForOutcome } from './ctaRanking.js'
+import { bestCtaForOutcome } from './ctaRanking.js'
 
 export type ObservedDownloadCta = {
   label: string
@@ -46,67 +48,20 @@ export function downloadSubjectFromIntent(intent: string): string | null {
   return subject && subject.length >= 4 && subject.length <= 80 ? subject : null
 }
 
-function scoreDownloadCta(label: string, subject: string | null): number {
-  const n = normalizeText(label)
-  if (!/download|t[eé]l[eé]charg|brief|brochure|white\s*paper|livre\s*blanc|pdf|solution/.test(n)) {
-    return 0
-  }
-  let score = 40
-  if (/^download\b|^t[eé]l[eé]charg/.test(n)) score += 20
-  if (subject) {
-    const words = normalizeText(subject)
-      .split(' ')
-      .filter((w) => w.length > 2)
-    const hits = words.filter((w) => n.includes(w)).length
-    score += hits * 25
-    if (hits === words.length && words.length > 0) score += 30
-  }
-  return score
-}
-
 /** Find the best matching download button/link from explore inventory. */
 export function findObservedDownloadCta(
   explore: SiteExploreResult | null | undefined,
   statedIntent: string,
   destinationUrl?: string | null,
 ): ObservedDownloadCta | null {
-  if (!explore?.ok || !explore.pages?.length) return null
-  const subject = downloadSubjectFromIntent(statedIntent)
-  const destKey = destinationUrl
-    ? normalizeText(destinationUrl.replace(/#.*$/, '').split('?')[0] ?? '')
-    : ''
-
-  let best: (ObservedDownloadCta & { score: number }) | null = null
-
-  for (const page of explore.pages) {
-    const pageKey = normalizeText(page.url.replace(/#.*$/, '').split('?')[0] ?? '')
-    const onDestination = Boolean(destKey && pageKey && pageKey.includes(destKey.split('/').slice(-2).join('/')))
-
-    for (const label of page.buttons ?? []) {
-      const score = scoreDownloadCta(label, subject) + (onDestination ? 15 : 0)
-      if (score < 55) continue
-      if (!best || score > best.score) {
-        best = { label, pageUrl: page.url, source: 'button', score }
-      }
-    }
-    for (const link of page.links ?? []) {
-      const score = scoreDownloadCta(link.label, subject) + (onDestination ? 15 : 0)
-      if (score < 55) continue
-      if (!best || score > best.score) {
-        best = {
-          label: link.label,
-          href: link.href,
-          pageUrl: page.url,
-          source: 'link',
-          score,
-        }
-      }
-    }
+  const ranked = bestCtaForOutcome(explore, 'download', statedIntent, destinationUrl)
+  if (!ranked) return null
+  return {
+    label: ranked.label,
+    href: ranked.href,
+    pageUrl: ranked.pageUrl,
+    source: ranked.source,
   }
-
-  if (!best) return null
-  const { score: _score, ...cta } = best
-  return cta
 }
 
 export function isDownloadMethodClarificationQuestion(q: {
