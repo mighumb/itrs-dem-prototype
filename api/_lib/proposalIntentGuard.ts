@@ -169,7 +169,7 @@ export function synthesizeProposalsFromIntent(
 
   const isWhitePaperDownload =
     /t[eé]l[eé]charg|download/i.test(cleaned) &&
-    /livre\s*blanc|white\s*paper|position\s*paper|brochure/i.test(cleaned) &&
+    /livre\s*blanc|white\s*paper|position\s*paper|brochure|solution\s*brief/i.test(cleaned) &&
     !/sans\s+(?:télécharg|download)|without\s+download/i.test(cleaned)
 
   if (isWhitePaperDownload) {

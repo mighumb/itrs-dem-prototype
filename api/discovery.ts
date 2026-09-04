@@ -30,6 +30,7 @@ import {
   summarizeStatedJourneyIntent,
 } from './_lib/discoverySiteIntent.js'
 import { ensureProposalsHonorStatedIntent } from './_lib/proposalIntentGuard.js'
+import { applyDownloadCtaGrounding } from './_lib/downloadCtaGrounding.js'
 import {
   buildRelocalizeUserPrompt,
   mergeRelocalizedForm,
@@ -1035,6 +1036,19 @@ function buildResultPayload(
     body.preferredLanguage ?? body.context?.preferredLanguage ?? null,
   )
   const destinationUrl = analysis?.url ?? target?.url ?? body.context?.url ?? null
+
+  const downloadGrounded = applyDownloadCtaGrounding({
+    stated,
+    explore,
+    destinationUrl,
+    proposals,
+    questions,
+    userMessage: body.userMessage,
+    seed,
+    preferredLanguage: lang,
+  })
+  proposals = downloadGrounded.proposals
+  questions = downloadGrounded.questions
 
   // Mid-conversation pivot: drop download/submit proposals when the user now wants fields-only.
   if (
