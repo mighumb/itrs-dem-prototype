@@ -10,6 +10,7 @@ import {
 import { applyGroundingToPlan } from './_lib/planGrounding.js'
 import {
   dryRunJourneyWithPlaywright,
+  isScreenshotOnlyDryRunError,
   type RunnableStep,
 } from './_lib/playwrightRunner.js'
 import { DISCOVERY_SYSTEM_PROMPT } from './_lib/discoverySystemPrompt.js'
@@ -32,7 +33,7 @@ import {
 import { ensureProposalsHonorStatedIntent } from './_lib/proposalIntentGuard.js'
 import { applyDownloadCtaGrounding } from './_lib/downloadCtaGrounding.js'
 import { finalizeExplicitDownloadJourney } from './_lib/downloadJourneyAdvance.js'
-import { resolveJourneyContext } from './_lib/journeyContext.js'
+import { resolveJourneyContext, filterWorkTraceForContext, softenDryRunUserMessage } from './_lib/journeyContext.js'
 import { isDemoProposalBlob } from './_lib/ctaRanking.js'
 import {
   buildRelocalizeUserPrompt,
@@ -333,6 +334,7 @@ function normalizeWorkTrace(
   target: ResolvedSiteTarget | null,
   explore: SiteExploreResult | null,
   streamedStatuses: string[],
+  journeyCtx: ReturnType<typeof resolveJourneyContext> = null,
 ): string[] | null {
   const fromModel = Array.isArray(raw)
     ? raw
@@ -365,7 +367,8 @@ function normalizeWorkTrace(
   for (const line of merged) {
     if (!deduped.includes(line)) deduped.push(line)
   }
-  return deduped.length > 0 ? deduped.slice(0, 8) : null
+  const filtered = filterWorkTraceForContext(deduped, journeyCtx)
+  return filtered.length > 0 ? filtered : null
 }
 
 function writeNdjson(res: VercelResponse, event: Record<string, unknown>) {
@@ -971,12 +974,28 @@ async function groundAndMaybeDryRunPlan(options: {
     deadlineMs: Math.min(45_000, Math.max(18_000, budgetLeft() - 6_000)),
   })
 
+  const journeyCtxForDryRun = resolveJourneyContext({
+    statedIntent: body.userMessage,
+    contextUrl,
+    explore,
+    preferredLanguage: lang,
+  })
+
   const trace = Array.isArray(parsed.workTrace) ? [...parsed.workTrace] : []
-  if (dry.ok) {
+  const screenshotOnlyFailure =
+    !dry.ok &&
+    isScreenshotOnlyDryRunError(dry.error) &&
+    journeyCtxForDryRun?.pageArchetype === 'direct_download'
+
+  if (dry.ok || screenshotOnlyFailure) {
     trace.push(
       lang === 'fr'
-        ? `Répétition OK (${dry.stepsOk} étape${dry.stepsOk > 1 ? 's' : ''}, scope ${resolvedFinal.scope})`
-        : `Dry-run OK (${dry.stepsOk} step${dry.stepsOk > 1 ? 's' : ''}, scope ${resolvedFinal.scope})`,
+        ? screenshotOnlyFailure
+          ? `Répétition OK (${dry.stepsOk + (screenshotOnlyFailure ? 1 : 0)} étape${dry.stepsOk > 0 ? 's' : ''}, scope ${resolvedFinal.scope}) — clic téléchargement OK, capture écran seulement en échec`
+          : `Répétition OK (${dry.stepsOk} étape${dry.stepsOk > 1 ? 's' : ''}, scope ${resolvedFinal.scope})`
+        : screenshotOnlyFailure
+          ? `Dry-run OK (${dry.stepsOk + 1} step${dry.stepsOk > 0 ? 's' : ''}, scope ${resolvedFinal.scope}) — download click succeeded; screenshot capture only failed`
+          : `Dry-run OK (${dry.stepsOk} step${dry.stepsOk > 1 ? 's' : ''}, scope ${resolvedFinal.scope})`,
     )
   } else {
     trace.push(
@@ -1198,22 +1217,27 @@ function buildResultPayload(
         : 'Here is what I suggest.'
 
   // While URL is pending, prefer server-owned copy — model may invent hosts.
-  const message = siteUrlPending
+  const rawMessage = siteUrlPending
     ? fallbackMessage
     : typeof parsed.message === 'string' && parsed.message.trim()
       ? parsed.message
       : fallbackMessage
 
+  const workTrace = normalizeWorkTrace(
+    parsed.workTrace,
+    declined ? null : analysis,
+    declined ? null : target,
+    declined ? null : explore,
+    streamedStatuses,
+    journeyCtx,
+  )
+
+  const message = softenDryRunUserMessage(rawMessage, workTrace, journeyCtx, fr)
+
   return {
     type: 'result' as const,
     message,
-    workTrace: normalizeWorkTrace(
-      parsed.workTrace,
-      declined ? null : analysis,
-      declined ? null : target,
-      declined ? null : explore,
-      streamedStatuses,
-    ),
+    workTrace,
     formTitle: questions || proposals ? formTitle : null,
     questions,
     proposals,

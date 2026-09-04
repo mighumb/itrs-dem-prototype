@@ -2,7 +2,7 @@
  * Runnable with: npx tsx api/_lib/journeyContext.test.ts
  */
 import assert from 'node:assert/strict'
-import { resolveJourneyContext, classifyPageArchetype } from './journeyContext.js'
+import { resolveJourneyContext, classifyPageArchetype, filterWorkTraceForContext, softenDryRunUserMessage } from './journeyContext.js'
 import { bestCtaForOutcome, rankCtasForOutcome } from './ctaRanking.js'
 import { validatePlanAgainstContext } from './planContextValidator.js'
 import type { SiteExploreResult } from './exploreSite.js'
@@ -75,5 +75,24 @@ assert.equal(
   bestCtaForOutcome(itrsExplore, 'download', stated, itrsExplore.url)?.label,
   'Download the solution brief',
 )
+
+const noisyTrace = [
+  'Explored 3 pages on https://www.itrsgroup.com/solutions/observability-education',
+  'Identifying available form fields on the site',
+  'Preparing to collect details for the download',
+]
+const cleaned = filterWorkTraceForContext(noisyTrace, ctx)
+assert.ok(!cleaned.some((l) => /identifying available form fields/i.test(l)))
+assert.ok(cleaned.some((l) => /direct download|no form fields observed/i.test(l)))
+
+const scary = 'Plan ready — but expect a hiccup during run.'
+const softened = softenDryRunUserMessage(
+  scary,
+  ['Partial dry-run — step 2 fragile (page.screenshot: Unable to capture screenshot)'],
+  ctx,
+  false,
+)
+assert.match(softened, /screenshot capture failed/i)
+assert.doesNotMatch(softened, /hiccup/i)
 
 console.log('OK — journey context + CTA ranking cases passed')

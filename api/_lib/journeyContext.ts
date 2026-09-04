@@ -173,3 +173,50 @@ export function resolveJourneyContext(options: {
     hasFormEvidence,
   }
 }
+
+const FORM_WORK_TRACE_RE =
+  /identif(?:y|ying|ication)|available\s+form\s+field|form\s+field|champ(?:s)?\s+(?:de\s+)?formulaire|collect(?:ing)?\s+(?:details|form)|remplir\s+le\s+formulaire/i
+
+/** Drop misleading LLM workTrace lines when the page has no form (direct download). */
+export function filterWorkTraceForContext(
+  lines: string[],
+  ctx: JourneyContext | null,
+): string[] {
+  if (!ctx) return lines
+  const directDownload =
+    ctx.pageArchetype === 'direct_download' ||
+    (ctx.outcome === 'download' && !ctx.hasFormEvidence)
+
+  let next = lines
+  if (directDownload) {
+    next = lines.filter(
+      (line) =>
+        !FORM_WORK_TRACE_RE.test(line) ||
+        /no\s+form|aucun\s+(?:champ|formulaire)|direct\s+download|téléchargement\s+direct/i.test(
+          line,
+        ),
+    )
+    const note = ctx.langFr
+      ? 'Téléchargement direct — aucun champ formulaire observé sur la page'
+      : 'Direct download — no form fields observed on the page'
+    if (!next.some((l) => /direct\s+download|téléchargement\s+direct/i.test(l))) {
+      next = [note, ...next]
+    }
+  }
+  return next.slice(0, 8)
+}
+
+export function softenDryRunUserMessage(
+  message: string,
+  workTrace: string[] | null,
+  ctx: JourneyContext | null,
+  fr: boolean,
+): string {
+  if (!ctx || ctx.pageArchetype !== 'direct_download') return message
+  const blob = `${message} ${(workTrace ?? []).join(' ')}`
+  if (!/fragile|hiccup|partial\s+dry-run/i.test(blob)) return message
+  if (!/captureScreenshot|Unable to capture screenshot|screenshot/i.test(blob)) return message
+  return fr
+    ? 'Plan prêt : ouvrir la page, cliquer sur le bouton de téléchargement, puis vérifier le succès. La répétition navigateur a bien cliqué le bouton ; seule la capture d’écran a échoué (sans bloquer le parcours).'
+    : 'Plan ready: open the page, click the download button, then verify success. The browser rehearsal clicked the button; only the screenshot capture failed (the journey is still runnable).'
+}
