@@ -10,6 +10,10 @@ import {
   stepMatchesRejectedOutcomes,
 } from './discoverySiteIntent.js'
 import {
+  stripUnobservedFormSteps,
+  unobservedFormIssues,
+} from './formFieldGrounding.js'
+import {
   homepageOf,
   isDeepUrl,
   queryFromDeepUrl,
@@ -500,10 +504,15 @@ export function applyGroundingToPlan(
   const withoutContradicted = honored.filter(
     (s) => !stepMatchesRejectedOutcomes(s, rejected),
   )
-  const withOutcome = ensureOutcomeVerify(withoutContradicted)
+  const beforeFormGrounding = withoutContradicted
+  const formGrounded = stripUnobservedFormSteps(withoutContradicted, explore)
+  const withOutcome = ensureOutcomeVerify(formGrounded)
   // Outcome verify must not reintroduce a contradicted success check.
   const finalSteps = withOutcome.filter((s) => !stepMatchesRejectedOutcomes(s, rejected))
-  const issues = groundingIssues(finalSteps, explore)
+  const issues = [
+    ...groundingIssues(finalSteps, explore),
+    ...unobservedFormIssues(beforeFormGrounding, formGrounded, explore),
+  ]
   return {
     plan: { ...plan, steps: finalSteps },
     issues,
